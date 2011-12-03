@@ -61,7 +61,7 @@ Melfas touchkey register
 #define I2C_M_WR 0		/* for i2c */
 #define DEVICE_NAME "sec_touchkey"
 
-#ifdef KEYPAD_CYPRESS_TOUCH_BLN
+#ifdef CONFIG_KEYPAD_CYPRESS_TOUCH_BLN
 #include <linux/miscdevice.h>
 #include <linux/wakelock.h>
 #define BLN_VERSION 9
@@ -740,7 +740,7 @@ schedule_delayed_work(&touch_resume_work, msecs_to_jiffies(500));
 }
 #endif				// End of CONFIG_HAS_EARLYSUSPEND
 
-#ifdef KEYPAD_CYPRESS_TOUCH_BLN
+#ifdef CONFIG_KEYPAD_CYPRESS_TOUCH_BLN
 static void touchkey_activate(void)
 {
 	if (!wake_lock_active(&bln_wake_lock)){
@@ -946,7 +946,7 @@ static struct miscdevice bln_device = {
     .minor = MISC_DYNAMIC_MINOR,
     .name = "backlightnotification",
 };
-#endif				// End of KEYPAD_CYPRESS_TOUCH_BLN
+#endif				// End of CONFIG_KEYPAD_CYPRESS_TOUCH_BLN
 
 extern int mcsdl_download_binary_data(void);
 static int i2c_touchkey_probe(struct i2c_client *client, const struct i2c_device_id *id)
@@ -1127,7 +1127,7 @@ if (get_hw_rev() >=0x02) {
 }
 #endif
 	set_touchkey_debug('K');
-#ifdef KEYPAD_CYPRESS_TOUCH_BLN
+#ifdef CONFIG_KEYPAD_CYPRESS_TOUCH_BLN
 	err = misc_register(&bln_device);
 	if (err) {
 	    printk(KERN_ERR "[BLN] sysfs misc_register failed.\n");
@@ -1428,7 +1428,7 @@ static ssize_t touch_led_control(struct device *dev, struct device_attribute *at
 	int int_data;
 	int errnum;	
 	
-#ifdef KEYPAD_CYPRESS_TOUCH_BLN
+#ifdef CONFIG_KEYPAD_CYPRESS_TOUCH_BLN
 	printk(KERN_ERR "[TouchKey] system calling LED Notification control\n");
 #endif
 
@@ -2484,7 +2484,7 @@ static void __exit touchkey_exit(void)
 	i2c_del_driver(&touchkey_i2c_driver);
 	misc_deregister(&touchkey_update_device);
 
-#ifdef KEYPAD_CYPRESS_TOUCH_BLN
+#ifdef CONFIG_KEYPAD_CYPRESS_TOUCH_BLN
 	misc_deregister(&bln_device);
 	wake_lock_destroy(&bln_wake_lock);
 #endif
