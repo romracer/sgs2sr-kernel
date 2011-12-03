@@ -7,7 +7,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  *
- * BLN hack oriignally by neldar for SGS. Adapted for SGSII by creams
+ * BLN hack originally by neldar for SGS. Adapted for SGSII by creams
  * 			adapted for T-Mobile SGS2 by romanbb
  * 			adapted for AT&T SGS2 SR by romracer
  */
@@ -1015,11 +1015,9 @@ static ssize_t bln_status_write(struct device *dev, struct device_attribute *att
 
 	if (sscanf(buf, "%u\n", &data) == 1){
 		if (data == 0 || data == 1){
-
 			if (data == 1){
 				bln_enabled = true;
 			}
-
 			if (data == 0){
 				bln_enabled = false;
 				if (BLN_ongoing){
@@ -1078,7 +1076,6 @@ static ssize_t blink_control_write(struct device *dev, struct device_attribute *
 				bln_blink_enabled = true;
 				disable_touchkey_backlights();
 			}
-
 			if (data == 0){
 				bln_blink_enabled = false;
 				enable_touchkey_backlights();
@@ -1295,7 +1292,7 @@ if (get_hw_rev() >=0x02) {
 	    printk(KERN_ERR "[BLN] sysfs misc_register failed.\n");
 	} else {
 	    if (sysfs_create_group(&bln_device.this_device->kobj, &bln_notification_group) < 0) {
-		printk(KERN_ERR "[BLN] sysfs create group failed.\n");
+	        printk(KERN_ERR "[BLN] sysfs create group failed.\n");
 	    }
 	}
 
