@@ -1446,7 +1446,7 @@ static ssize_t touch_led_control(struct device *dev, struct device_attribute *at
 		if(g_debug_switch)
 			printk(KERN_DEBUG "touch_led_control int_data: %d  %d\n", int_data, data);
 		
-		errnum = i2c_touchkey_write(&int_data, 1);
+		errnum = i2c_touchkey_write((u8 *)&int_data, 1);
 		if(errnum==-ENODEV) {
 			touchled_cmd_reversed = 1;
 		}		
