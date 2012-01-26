@@ -200,7 +200,7 @@ static int i2c_touchkey_read(u8 reg, u8 * val, unsigned int len)
 	struct i2c_msg msg[1];
 
 	if ((touchkey_driver == NULL)) {
-		printk(KERN_DEBUG "[TKEY] touchkey is not enabled.R\n");
+		printk(KERN_DEBUG "[TKEY] touchkey is not enabled.\n");
 		return -ENODEV;
 	}
 	while (retry--) {
@@ -225,7 +225,7 @@ static int i2c_touchkey_write(u8 * val, unsigned int len)
 	int retry = 2;
 
 	if ((touchkey_driver == NULL) || !(touchkey_enable == 1)) {
-		printk(KERN_DEBUG "[TKEY] touchkey is not enabled.W\n");
+		printk(KERN_DEBUG "[TKEY] touchkey is not enabled.\n");
 		return -ENODEV;
 	}
 
@@ -235,6 +235,7 @@ static int i2c_touchkey_write(u8 * val, unsigned int len)
 		msg->len = len;
 		msg->buf = val;
 		err = i2c_transfer(touchkey_driver->client->adapter, msg, 1);
+		printk(KERN_DEBUG "[TKEY] write value %d to address %d\n", *val, msg->addr);
 		if (err >= 0)
 			return 0;
 
@@ -353,6 +354,9 @@ touchkey_auto_calibration(1/*on*/);
 
 static irqreturn_t touchkey_interrupt(int irq, void *dummy)  // ks 79 - threaded irq(becuase of pmic gpio int pin)-> when reg is read in work_func, data0 is always release. so temporarily move the work_func to threaded irq.
 {
+#ifdef CONFIG_KEYPAD_CYPRESS_TOUCH_BLN
+    printk(KERN_DEBUG "[TouchKey] interrupt touchkey\n");
+#endif
     set_touchkey_debug('I');
     disable_irq_nosync(IRQ_TOUCHKEY_INT);
 
