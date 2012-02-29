@@ -116,7 +116,6 @@ extern struct uart_port *msm_hs_get_port_from_line(unsigned int line);
 #else
 static int bluesleep_hci_event(struct notifier_block *this,
 			    unsigned long event, void *data);
-
 #endif /* BTLD_CONTROL_WAKE_GPIO */
 
 /*
@@ -219,7 +218,6 @@ static void bluesleep_sleep_work(struct work_struct *work)
              */
             wake_lock_timeout(&bsi->wake_lock, HZ / 2);
 		} else {
-
 		  mod_timer(&tx_timer, jiffies + (TX_TIMER_INTERVAL * HZ));
 			return;
 		}
@@ -236,9 +234,7 @@ static void bluesleep_sleep_work(struct work_struct *work)
 static void bluesleep_hostwake_task(unsigned long data)
 {
     BT_DBG("bluesleep_hostwake_task-hostwake -> %u", gpio_get_value(bsi->host_wake));
-
 	spin_lock(&rw_lock);
-
 #ifdef WAKE_GPIO_ACTIVE_HIGH
 	if (gpio_get_value(bsi->host_wake))
 #else
@@ -263,7 +259,6 @@ static void bluesleep_outgoing_data(void)
 
 	/* log data passing by */
 	set_bit(BT_TXDATA, &flags);
-
 #if 0
 	/* if the tx side is sleeping... */
 	if (gpio_get_value(bsi->ext_wake)) {
@@ -273,7 +268,6 @@ static void bluesleep_outgoing_data(void)
 #else
     bluesleep_sleep_wakeup();
 #endif
-
 	spin_unlock_irqrestore(&rw_lock, irq_flags);
 }
 
@@ -312,7 +306,6 @@ static int bluesleep_hci_event(struct notifier_block *this,
 		bluesleep_outgoing_data();
 		break;
 	}
-
 	return NOTIFY_DONE;
 }
 #endif /* BTLD_CONTROL_WAKE_GPIO */
@@ -407,7 +400,6 @@ int bluesleep_start(void)
 //    gpio_configure(bsi->host_wake, GPIOF_INPUT);
     gpio_tlmm_config(GPIO_CFG(bsi->host_wake, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
 #endif
-    
 	retval = request_irq(bsi->host_wake_irq, bluesleep_hostwake_isr,
               IRQF_DISABLED | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING,
 				"bluetooth hostwake", NULL);
@@ -487,13 +479,11 @@ static int bluetooth_toggle_radio(void *data, bool blocked)
         gpio_set_value(bsi->ext_wake, 0);
         BT_DBG("btwake -> %d", gpio_get_value(bsi->ext_wake));
         break;
-
     case RFKILL_USER_STATE_SOFT_BLOCKED:
         gpio_set_value(bsi->ext_wake, 1);
         BT_DBG("btwake -> %d", gpio_get_value(bsi->ext_wake));
         bluesleep_outgoing_data();
         break;
-
     }
     return ret;
 }
@@ -691,8 +681,6 @@ void bluesleep_rfkill_alloc(void)
     platform_set_drvdata(pdev_ex, rfkill);
 
     BT_INFO("bluesleep_rfkill_alloc : success! \n");
-
-
 }
 
 static int __init bluesleep_probe(struct platform_device *pdev)
@@ -775,7 +763,6 @@ static int __init bluesleep_probe(struct platform_device *pdev)
         return ret;
     }
 #endif
-
     platform_set_drvdata(pdev, rfkill);
 #endif /* BTLD_CONTROL_WAKE_GPIO */
 

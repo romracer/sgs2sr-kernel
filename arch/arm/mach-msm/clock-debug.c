@@ -121,9 +121,9 @@ static void clock_showall_enabled(void)
 		pr_info("No clocks enabled.\n");
 }
 
-void clock_debug_print_enabled(void)
+void clock_debug_print_enabled(unsigned int factory_on)
 {
-	if (likely(!debug_suspend))
+	if (likely(!(debug_suspend || factory_on)))
 		return;
 
 	clock_showall_enabled();

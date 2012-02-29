@@ -22,12 +22,14 @@
 #include <linux/uaccess.h>
 #include <linux/proc_fs.h>
 #include <linux/sec_param.h>
-
+#include <linux/io.h>
 #include <mach/system.h>
 #include <mach/sec_debug.h>
 #include <mach/msm_iomap.h>
 #include <linux/seq_file.h>
 #include <linux/smp_lock.h>
+#include <linux/fcntl.h>
+#include <linux/fs.h>
 
 #define RESTART_REASON_ADDR 0x2A05F65C
 
@@ -574,6 +576,33 @@ void sec_debug_hw_reset(void)
 }
 
 extern void charm_assert_panic(void);
+extern unsigned *sec_log_ptr;
+extern char *sec_log_buf;
+extern unsigned sec_log_size;
+extern char *sec_dbg_low_buf;
+		
+static inline void emit_sec_log_char(char c)
+{
+	if (sec_log_buf && sec_log_ptr) {
+		sec_log_buf[*sec_log_ptr & (sec_log_size - 1)] = c;
+		(*sec_log_ptr)++;
+	}
+}
+
+static void
+dump_log_buf(void)
+{
+		unsigned int size = (1 << CONFIG_LOG_BUF_SHIFT);
+		unsigned int count = 0;
+                while (count < size) {
+					emit_sec_log_char(sec_dbg_low_buf[count++]);
+				}
+}
+
+unsigned sec_debug_get_reset_reason(void)
+{
+ return reset_reason;
+}
 
 static int sec_debug_panic_handler(struct notifier_block *nb,
 				   unsigned long l, void *buf)
@@ -583,6 +612,7 @@ static int sec_debug_panic_handler(struct notifier_block *nb,
 	if (!enable) {
 		/* reset is moved to panic() function */
 //		sec_debug_hw_reset();
+		dump_log_buf();
 		return -1;
 	}
 
@@ -787,7 +817,12 @@ int sec_debug_is_enabled(void)
 
 /* klaatu - schedule log */
 #ifdef CONFIG_SEC_DEBUG_SCHED_LOG
-
+void sec_debug_task_sched_log_short_msg(char *msg)
+{
+	struct task_struct task;
+	strncpy(task.comm, msg, sizeof(task.comm));
+	sec_debug_task_sched_log(smp_processor_id(), &task);
+}
 void sec_debug_task_sched_log(int cpu, struct task_struct *task)
 {
 	unsigned i;

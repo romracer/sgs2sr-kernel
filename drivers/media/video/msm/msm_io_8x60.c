@@ -616,8 +616,8 @@ int msm_camio_enable(struct platform_device *pdev)
 	CDBG("%s MIPI_PHY_D0_CONTROL2 val=0x%x\n", __func__, val);
 	msm_io_w(val, csibase + MIPI_PHY_D0_CONTROL2);
 	msm_io_w(val, csibase + MIPI_PHY_D1_CONTROL2);
-	msm_io_w(val, csibase + MIPI_PHY_D2_CONTROL2);
-	msm_io_w(val, csibase + MIPI_PHY_D3_CONTROL2);
+	//msm_io_w(val, csibase + MIPI_PHY_D2_CONTROL2);
+	//msm_io_w(val, csibase + MIPI_PHY_D3_CONTROL2);
 
 	val = (0x0F << MIPI_PHY_CL_CONTROL_HS_TERM_IMP_SHFT) |
 		(0x0 << MIPI_PHY_CL_CONTROL_LP_REC_EN_SHFT);
@@ -662,8 +662,8 @@ void msm_camio_disable(struct platform_device *pdev)
 	CDBG("%s MIPI_PHY_D0_CONTROL2 val=0x%x\n", __func__, val);
 	msm_io_w(val, csibase + MIPI_PHY_D0_CONTROL2);
 	msm_io_w(val, csibase + MIPI_PHY_D1_CONTROL2);
-	msm_io_w(val, csibase + MIPI_PHY_D2_CONTROL2);
-	msm_io_w(val, csibase + MIPI_PHY_D3_CONTROL2);
+	//msm_io_w(val, csibase + MIPI_PHY_D2_CONTROL2);
+	//msm_io_w(val, csibase + MIPI_PHY_D3_CONTROL2);
 
 	val = (0x0F << MIPI_PHY_CL_CONTROL_HS_TERM_IMP_SHFT) |
 		(0x0 << MIPI_PHY_CL_CONTROL_LP_REC_EN_SHFT);
@@ -805,8 +805,8 @@ int msm_camio_csi_config(struct msm_camera_csi_params *csi_params)
 	CDBG("%s MIPI_PHY_D0_CONTROL2 val=0x%x\n", __func__, val);
 	msm_io_w(val, csibase + MIPI_PHY_D0_CONTROL2);
 	msm_io_w(val, csibase + MIPI_PHY_D1_CONTROL2);
-	msm_io_w(val, csibase + MIPI_PHY_D2_CONTROL2);
-	msm_io_w(val, csibase + MIPI_PHY_D3_CONTROL2);
+	//msm_io_w(val, csibase + MIPI_PHY_D2_CONTROL2);
+	//msm_io_w(val, csibase + MIPI_PHY_D3_CONTROL2);
 
 
 	val = (0x0F << MIPI_PHY_CL_CONTROL_HS_TERM_IMP_SHFT) |

@@ -1352,7 +1352,11 @@ static int msm_hsusb_pmic_id_notif_init(void (*callback)(int online), int init)
 					__func__);
 			return ret;
 		}
+		printk("enter otg enable wake lock");
+		enable_irq_wake(PMICID_INT);
 	} else {
+		printk("enter otg disable wake lock");
+		disable_irq_wake(PMICID_INT);
 		free_irq(PMICID_INT, 0);
 		cancel_delayed_work_sync(&pmic_id_det);
 		notify_vbus_state_func_ptr = NULL;
@@ -1626,6 +1630,12 @@ static void msm_hsusb_vbus_power(unsigned phy_info, int on)
 static struct msm_usb_host_platform_data msm_usb_host_pdata = {
 	.phy_info	= (USB_PHY_INTEGRATED | USB_PHY_MODEL_45NM),
 	.power_budget	= 500,   // for samsung otg
+#ifdef CONFIG_USB_HOST_NOTIFY
+	.host_notify = 1,
+#endif
+#ifdef CONFIG_USB_SEC_WHITELIST
+	.sec_whlist_table_num = 1,
+#endif
 };
 #endif
 
@@ -1741,6 +1751,7 @@ static struct msm_otg_platform_data msm_otg_pdata = {
 #ifdef CONFIG_USB_GADGET_MSM_72K
 static struct msm_hsusb_gadget_platform_data msm_gadget_pdata = {
 	.is_phy_status_timer_on = 1,
+	.check_microusb = fsa9480_check_device, // Add for fsa9485 device check (Samsung)
 };
 #endif
 
@@ -1754,6 +1765,13 @@ static char *usb_functions_rndis[] = {
 	"diag",
 #endif
 };
+
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_RNDIS_FOR_ATT_TEST_COMPOSITE
+static char *usb_functions_rndis_test[] = {
+	"rndis",
+	"acm2",
+};
+#endif
 
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 static char *usb_functions_ums[] = {
@@ -2072,6 +2090,28 @@ static struct android_usb_product usb_products[] = {
 		.s		= ANDROID_RNDIS_CONFIG_STRING,
 		.mode		= USBSTATUS_VTP,
 	},
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_RNDIS_FOR_ATT_TEST_COMPOSITE
+	{
+		.product_id = SAMSUNG_RNDIS_PRODUCT_ID,
+		.num_functions	= ARRAY_SIZE(usb_functions_rndis_test),
+		.functions	= usb_functions_rndis_test,
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_RNDIS_WITH_MS_COMPOSITE
+		.bDeviceClass	= 0xEF,
+		.bDeviceSubClass= 0x02,
+		.bDeviceProtocol= 0x01,
+#else
+#ifdef CONFIG_USB_ANDROID_RNDIS_WCEIS
+		.bDeviceClass	= USB_CLASS_WIRELESS_CONTROLLER,
+#else
+		.bDeviceClass	= USB_CLASS_COMM,
+#endif
+		.bDeviceSubClass= 0,
+		.bDeviceProtocol= 0,
+#endif
+		.s		= ANDROID_RNDIS_TEST_CONFIG_STRING,
+		.mode		= USBSTATUS_VTP_TEST,
+	},
+#endif
 	{
 		.product_id = SAMSUNG_DEBUG_PRODUCT_ID,
 		.num_functions	= ARRAY_SIZE(usb_functions_cp_acm_adb),
@@ -8963,12 +9003,12 @@ static u8 t8_config_e[] = {GEN_ACQUISITIONCONFIG_T8,
 
 /* NEXTTCHDI added */
 static u8 t9_config_e[] = {TOUCH_MULTITOUCHSCREEN_T9,
-				131, 0, 0, 19, 11, 0, 32, MXT224E_THRESHOLD, 2, 1,
+				139, 0, 0, 19, 11, 0, 32, MXT224E_THRESHOLD, 2, 1,
 				10, 
 				15,		/* MOVHYSTI */
 				1, 46, MXT224_MAX_MT_FINGERS, 5, 40, 10, 31, 3,
 				223, 1, 10, 10, 10, 10, 143, 40, 143, 80,
-				18, 15, 50, 50, 0};
+				18, 15, 50, 50, 3};
 
 static u8 t15_config_e[] = {TOUCH_KEYARRAY_T15,	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static u8 t18_config_e[] = {SPT_COMCONFIG_T18, 0, 0};
@@ -8976,13 +9016,18 @@ static u8 t23_config_e[] = {TOUCH_PROXIMITY_T23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 static u8 t25_config_e[] = {SPT_SELFTEST_T25, 0, 0, 0, 0, 0, 0, 0, 0};
 static u8 t40_config_e[] = {PROCI_GRIPSUPPRESSION_T40, 0, 0, 0, 0, 0};
 static u8 t42_config_e[] = {PROCI_TOUCHSUPPRESSION_T42, 0, 0, 0, 0, 0, 0, 0, 0};
-static u8 t46_config_e[] = {SPT_CTECONFIG_T46, 0, 3, 24, 35,/* to improve typing speed 48->40 */ 0, 0, 1, 0, 0};
+//static u8 t46_config_e[] = {SPT_CTECONFIG_T46, 0, 3, 24, 35,/* to improve typing speed 48->40 */ 0, 0, 1, 0, 0};
+static u8 t46_config_e[] = {SPT_CTECONFIG_T46, 0, 3, 24, 32,0, 0, 1, 0, 0};//110927 gumi noise
 static u8 t47_config_e[] = {PROCI_STYLUS_T47, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+//static u8 t38_config_e[] = {SPT_USERDATA_T38, 0, 1, 12, 19, 38, 0, 0, 0};//110927 gumi noise
+
+static u8 t38_config_e[] = {SPT_USERDATA_T38, 0,1,15,19,45,40,0,0};  // from yang
+
 
 static u8 t48_config_e_ta[] = {PROCG_NOISESUPPRESSION_T48,
     3, 132, 0x52, 0, 0, 0, 0, 0, 10, 15,
 				0, 0, 0, 6, 6, 0, 0, 64, 4, 64,
-				10, 0, 20, 5, 0, 38, 0, 20, 0, 0,
+				10, 0, 9, 5, 0, 15, 0, 20, 0, 0,//110927 gumi noise
 				0, 0, 0, 0, 0, 40, 2,/*blen=0,threshold=50*/
 				15,		/* MOVHYSTI */ 
 				1, 47,  // MoveFilter 46->47, for chargeing
@@ -8991,8 +9036,8 @@ static u8 t48_config_e_ta[] = {PROCG_NOISESUPPRESSION_T48,
 
 static u8 t48_config_e[] = {PROCG_NOISESUPPRESSION_T48,
     3, 132, 0x40, 0, 0, 0, 0, 0, 10, 15,
-    0, 0, 0, 6, 6, 0, 0, 64, 4, 64,
-				10, 0, 20, 5, 0, 38, 0, 5, 0, 0,  /*byte 27 original value 20*/
+    0, 0, 0, 6, 6, 0, 0, 48, 4, 48,
+				10, 0, 10, 5, 0, 20, 0, 5, 0, 0,  /*byte 27 original value 20*/
 				0, 0, 0, 0, 32, MXT224E_THRESHOLD, 2,
 				15,		
 				1, 46,
@@ -9014,6 +9059,7 @@ static const u8 *mxt224e_config[] = {
 	t46_config_e,
 	t47_config_e,
 	t48_config_e,
+	t38_config_e,//110927 gumi noise
 	end_config_e,
 };
 
@@ -13600,8 +13646,8 @@ static struct msm_sdcc_pad_drv_cfg sdc3_pad_on_drv_cfg[] = {
 };
 
 static struct msm_sdcc_pad_pull_cfg sdc3_pad_on_pull_cfg[] = {
-	{TLMM_PULL_SDC3_CMD, GPIO_CFG_PULL_UP},
-	{TLMM_PULL_SDC3_DATA, GPIO_CFG_PULL_UP}
+	{TLMM_PULL_SDC3_CMD, GPIO_CFG_NO_PULL},
+	{TLMM_PULL_SDC3_DATA, GPIO_CFG_NO_PULL}
 };
 
 static struct msm_sdcc_pad_drv_cfg sdc3_pad_off_drv_cfg[] = {
@@ -16763,7 +16809,14 @@ error1:
 #endif	
 }
 #endif
-
+#ifdef CONFIG_SEC_AUDIO_I2S_DRIVING_CURRENT
+static void codec_i2s_strength_init(void)
+{
+	msm_tlmm_set_spkr_hdrive(CODEC_SPKR_SCK_HDRV, GPIO_CFG_8MA);
+	msm_tlmm_set_spkr_hdrive(CODEC_SPKR_WS_HDRV, GPIO_CFG_8MA);
+	msm_tlmm_set_spkr_hdrive(CODEC_SPKR_DOUT_HDRV, GPIO_CFG_8MA);
+}
+#endif
 static uint32_t vibrator_device_gpio_config[] = {
 	GPIO_CFG(30, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),
 	GPIO_CFG(31, 2, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
@@ -18788,6 +18841,9 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 	if (ret)
 		printk("Fail to create sec_debug_level file\n");
 #endif /*CONFIG_KERNEL_DEBUG_SEC*/
+#ifdef CONFIG_SEC_AUDIO_I2S_DRIVING_CURRENT
+	codec_i2s_strength_init();
+#endif
 }
 
 static void __init msm8x60_rumi3_init(void)

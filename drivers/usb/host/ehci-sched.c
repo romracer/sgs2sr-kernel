@@ -1747,7 +1747,6 @@ itd_complete (
 			dev->devpath, stream->bEndpointAddress & 0x0f,
 			(stream->bEndpointAddress & USB_DIR_IN) ? "in" : "out");
 	}
-	iso_stream_put (ehci, stream);
 
 done:
 	itd->urb = NULL;
@@ -1755,7 +1754,6 @@ done:
 		/* OK to recycle this ITD now. */
 		itd->stream = NULL;
 		list_move(&itd->itd_list, &stream->free_list);
-		iso_stream_put(ehci, stream);
 	} else {
 		/* HW might remember this ITD, so we can't recycle it yet.
 		 * Move it to a safe place until a new frame starts.
@@ -1769,6 +1767,7 @@ done:
 			stream->ep = NULL;
 		}
 	}
+	iso_stream_put (ehci, stream);	
 	return retval;
 }
 
@@ -2136,15 +2135,12 @@ sitd_complete (
 			dev->devpath, stream->bEndpointAddress & 0x0f,
 			(stream->bEndpointAddress & USB_DIR_IN) ? "in" : "out");
 	}
-	iso_stream_put (ehci, stream);
-
 done:
 	sitd->urb = NULL;
 	if (ehci->clock_frame != sitd->frame) {
 		/* OK to recycle this SITD now. */
 		sitd->stream = NULL;
 		list_move(&sitd->sitd_list, &stream->free_list);
-		iso_stream_put(ehci, stream);
 	} else {
 		/* HW might remember this SITD, so we can't recycle it yet.
 		 * Move it to a safe place until a new frame starts.
@@ -2158,6 +2154,7 @@ done:
 			stream->ep = NULL;
 		}
 	}
+	iso_stream_put (ehci, stream);
 	return retval;
 }
 

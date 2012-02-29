@@ -36,6 +36,10 @@
 #include <mach/system.h>
 #include <mach/subsystem_notif.h>
 
+#include <linux/proc_fs.h>
+#include <asm/io.h>
+
+
 #include "smd_private.h"
 #include "proc_comm.h"
 #include "modem_notifier.h"
@@ -244,6 +248,53 @@ void smd_diag(void)
 		x[size - 1] = 0;
 		pr_err("smem: CRASH LOG\n'%s'\n", x);
 	}
+}
+
+static void save_q6_smem()
+{
+	loff_t pos = 0;
+	struct file *fp;
+	mm_segment_t old_fs;
+	static char dump_filename[100];
+	unsigned char *q6SmemBase;
+	q6SmemBase = ioremap(0x40000000, 1024*1024);
+	/* change to KERNEL_DS address limit */
+	old_fs = get_fs();
+	set_fs(get_ds());
+
+	/* open file to write */
+	sprintf(dump_filename, "/data/log/Q6_SMEM_Dump");
+	fp = filp_open(dump_filename, O_WRONLY|O_CREAT, 0666);
+	if (!fp) {
+		goto exit;
+	}
+	fp->f_op->write(fp, q6SmemBase, 1024*1024, &pos);
+
+	/* close file before return */
+	if (fp)
+		filp_close(fp, NULL);
+
+	exit:
+	/* restore previous address limit */
+	set_fs(old_fs);
+	iounmap((void __iomem *)q6SmemBase);
+
+	return;
+
+}
+
+
+static ssize_t trigger_smem_dump(struct file *file, const char __user *buf,
+				   size_t count, void *ppos)
+{
+	if (count) {
+		char c;
+		if (get_user(c, buf))
+			return -EFAULT;
+		save_q6_smem();
+	}
+
+	return count;
 }
 
 
@@ -1749,6 +1800,17 @@ void *smem_find(unsigned id, unsigned size_in)
 	return ptr;
 }
 
+static const struct file_operations proc_smem_dump_operations = {
+	.write		= trigger_smem_dump,
+};
+
+static void smemdump_init_procfs(void)
+{
+	if (!proc_create("smem_dump", S_IWUSR, NULL,
+			 &proc_smem_dump_operations))
+		pr_err("Failed to register proc interface\n");
+}
+
 static int smsm_init(void)
 {
 	struct smem_shared *shared = (void *) MSM_SHARED_RAM_BASE;
@@ -1758,6 +1820,7 @@ static int smsm_init(void)
 	i = remote_spin_lock_init(&remote_spinlock, SMEM_SPINLOCK_SMEM_ALLOC);
 	if (i) {
 		pr_err("%s: remote spinlock init failed %d\n", __func__, i);
+		smemdump_init_procfs();
 		return i;
 	}
 
@@ -1796,8 +1859,10 @@ static int smsm_init(void)
 		smsm_info.intr_mux = smem_alloc2(SMEM_SMD_SMSM_INTR_MUX,
 						 SMSM_NUM_INTR_MUX *
 						 sizeof(uint32_t));
-
+	
 	dsb();
+
+	smemdump_init_procfs();
 	return 0;
 }
 

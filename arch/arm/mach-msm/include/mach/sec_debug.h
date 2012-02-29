@@ -60,12 +60,16 @@ static inline int sec_debug_is_enabled(void) {return 0;}
 
 #ifdef CONFIG_SEC_DEBUG_SCHED_LOG
 extern void sec_debug_task_sched_log(int cpu, struct task_struct *task);
+void sec_debug_task_sched_log_short_msg(char *msg);
 extern void sec_debug_irq_sched_log(unsigned int irq, void *fn, int en);
 extern void sec_debug_irq_sched_log_end(void);
 extern void sec_debug_timer_log(unsigned int type, int int_lock, void *fn);
 extern void sec_debug_sched_log_init(void);
 #else
 static inline void sec_debug_task_sched_log(int cpu, struct task_struct *task)
+{
+}
+static inline void sec_debug_task_sched_log_short_msg(char *msg)
 {
 }
 static inline void sec_debug_irq_sched_log(unsigned int irq, void *fn, int en)

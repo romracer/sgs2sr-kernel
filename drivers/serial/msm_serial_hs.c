@@ -1678,9 +1678,9 @@ static int msm_hs_startup(struct uart_port *uport)
 	if (ret)
 		dev_err(uport->dev, "set active error:%d\n", ret);
 	pm_runtime_enable(uport->dev);
+	pm_runtime_get_sync(uport->dev); 
 
-
-	return 0;
+ 	return 0;
 }
 
 /* Initialize tx and rx data structures */
@@ -1974,6 +1974,7 @@ static void msm_hs_shutdown(struct uart_port *uport)
 
 	pm_runtime_disable(uport->dev);
 	pm_runtime_set_suspended(uport->dev);
+	pm_runtime_put_sync(uport->dev);
 
 	/* Disable the transmitter */
 	msm_hs_write(uport, UARTDM_CR_ADDR, UARTDM_CR_TX_DISABLE_BMSK);

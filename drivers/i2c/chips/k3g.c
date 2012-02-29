@@ -800,7 +800,7 @@ static ssize_t k3g_self_test(struct device *dev, struct device_attribute *attr, 
 
 #if defined (CONFIG_KOR_MODEL_SHV_E110S) \
 || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined(CONFIG_KOR_MODEL_SHV_E160S) \
-|| defined (CONFIG_JPN_MODEL_SC_03D)
+|| defined (CONFIG_JPN_MODEL_SC_03D)|| defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
 
 	/* Initialize Sensor, turn on sensor, enable P/R/Y */
 	/*CTRL_REG1= 0x6F (210Hz with Fc=50Hz, normal mode)
@@ -1112,7 +1112,7 @@ exit:
 	
 #if defined (CONFIG_KOR_MODEL_SHV_E110S) \
 || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined(CONFIG_KOR_MODEL_SHV_E160S) \
-|| defined (CONFIG_JPN_MODEL_SC_03D)
+|| defined (CONFIG_JPN_MODEL_SC_03D)|| defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
     return sprintf(buf, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
         NOST[0], NOST[1], NOST[2], ST[0], ST[1], ST[2], pass,
     	zero_rate_test,zero_rate_data[0],zero_rate_data[1],zero_rate_data[2]);

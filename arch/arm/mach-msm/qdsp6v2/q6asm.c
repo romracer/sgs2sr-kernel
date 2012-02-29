@@ -29,6 +29,7 @@
 #include <mach/peripheral-loader.h>
 #include <mach/qdsp6v2/apr_audio.h>
 #include <mach/qdsp6v2/q6asm.h>
+#include <mach/msm_iomap.h>
 #include <linux/android_pmem.h>
 #include <asm/atomic.h>
 #include <asm/ioctls.h>
@@ -65,6 +66,75 @@ static int q6asm_memory_unmap_regions(struct audio_client *ac, int dir,
 				uint32_t bufsz, uint32_t bufcnt);
 
 static void q6asm_reset_buf_state(struct audio_client *ac);
+
+char reg_dump_buf1[SZ_16K];
+char reg_dump_buf2[SZ_16K];
+
+static void dump_qdsp_clock_reg(char *buf) 
+{ 
+	int lcc_offset, lcc_phy_address, cnt; 
+	int value = 0; 
+	int buf_pos = 0;
+ 
+	for (cnt = 0; cnt < 12; cnt++) { 
+		lcc_offset = cnt*0x4; 
+		if (cnt == 11) 
+			lcc_offset = 0xB4; 
+		lcc_phy_address = MSM_LPASS_CLK_CTL_PHYS + lcc_offset; 
+		value = readl(MSM_LPASS_CLK_CTL_BASE + lcc_offset); 
+		buf_pos += snprintf(buf + buf_pos, SZ_256,
+			"%s: DSP_CLK_register(0x%x): rc=%x\n", __func__,
+			lcc_phy_address, value);
+	}
+        pr_info("%s", buf);
+} 
+
+static void dump_qdss_reg(char *buf)
+{
+        void __iomem *reg_base;
+        int cnt = 0;
+
+        reg_base = ioremap(0x28000000, SZ_256);
+        cnt += snprintf(buf + cnt, SZ_256, "0x28000040=0x%08X\n", readl(reg_base + 0x40));
+        cnt += snprintf(buf + cnt, SZ_256, "0x28000044=0x%08X\n", readl(reg_base + 0x44));
+        iounmap(reg_base);
+
+        reg_base = ioremap(0x28800000, SZ_256);
+        cnt += snprintf(buf + cnt, SZ_256, "0x28800000=0x%08X\n", readl(reg_base + 0x00));
+        cnt += snprintf(buf + cnt, SZ_256, "0x28800004=0x%08X\n", readl(reg_base + 0x04));
+        cnt += snprintf(buf + cnt, SZ_256, "0x28800008=0x%08X\n", readl(reg_base + 0x08));
+        cnt += snprintf(buf + cnt, SZ_256, "0x2880001C=0x%08X\n", readl(reg_base + 0x1C));
+        cnt += snprintf(buf + cnt, SZ_256, "0x28800020=0x%08X\n", readl(reg_base + 0x20));
+        iounmap(reg_base);
+
+        reg_base = ioremap(0x28887000, SZ_256);
+        cnt += snprintf(buf + cnt, SZ_256, "0x2888700C=0x%08X\n", readl(reg_base + 0x0C));
+        cnt += snprintf(buf + cnt, SZ_256, "0x28887010=0x%08X\n", readl(reg_base + 0x10));
+        cnt += snprintf(buf + cnt, SZ_256, "0x28887014=0x%08X\n", readl(reg_base + 0x14));
+        cnt += snprintf(buf + cnt, SZ_256, "0x28887018=0x%08X\n", readl(reg_base + 0x18));
+        cnt += snprintf(buf + cnt, SZ_256, "0x2888701C=0x%08X\n", readl(reg_base + 0x1C));
+        cnt += snprintf(buf + cnt, SZ_256, "0x28887020=0x%08X\n", readl(reg_base + 0x20));
+        iounmap(reg_base);
+
+        reg_base = ioremap(0x2888a000, SZ_256);
+        cnt += snprintf(buf + cnt, SZ_256, "0x288A0000=0x%08X\n", readl(reg_base + 0x00));
+        cnt += snprintf(buf + cnt, SZ_256, "0x288A0014=0x%08X\n", readl(reg_base + 0x14));
+        cnt += snprintf(buf + cnt, SZ_256, "0x288A001C=0x%08X\n", readl(reg_base + 0x1C));
+        cnt += snprintf(buf + cnt, SZ_256, "0x288A0020=0x%08X\n", readl(reg_base + 0x20));
+        iounmap(reg_base);
+
+        reg_base = ioremap(0x288b0000, SZ_256);
+        cnt += snprintf(buf + cnt, SZ_256, "0x288B000C=0x%08X\n", readl(reg_base + 0x0C));
+        iounmap(reg_base);
+
+        reg_base = ioremap(0x2888c000, SZ_256);
+        cnt += snprintf(buf + cnt, SZ_256, "0x2888C000=0x%08X\n", readl(reg_base + 0x00));
+        cnt += snprintf(buf + cnt, SZ_256, "0x2888C004=0x%08X\n", readl(reg_base + 0x04));
+        iounmap(reg_base);
+
+        pr_info("%s", buf);
+}
+
 
 struct asm_mmap {
 	atomic_t ref_cnt;
@@ -921,6 +991,8 @@ int q6asm_open_write(struct audio_client *ac, uint32_t format)
 	if (!rc) {
 		pr_err("%s: timeout. waited for OPEN_WRITE rc[%d]\n", __func__,
 			rc);
+		dump_qdss_reg(reg_dump_buf1);
+		dump_qdsp_clock_reg(reg_dump_buf2);
 		goto fail_cmd;
 	}
 	return 0;

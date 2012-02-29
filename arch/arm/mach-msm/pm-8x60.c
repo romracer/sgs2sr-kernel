@@ -55,7 +55,9 @@
 #include "timer.h"
 
 #include <linux/gpio.h>
-
+#ifdef CONFIG_SEC_DEBUG
+#include <mach/sec_debug.h>
+#endif
 /******************************************************************************
  * Debug Definitions
  *****************************************************************************/
@@ -74,6 +76,11 @@ enum {
 static int msm_pm_debug_mask = 1;
 module_param_named(
 	debug_mask, msm_pm_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int msm_pm_debug_factory;
+module_param_named(
+	fac_debug_mask, msm_pm_debug_factory, int, S_IRUGO | S_IWUSR | S_IWGRP
 );
 
 
@@ -611,7 +618,13 @@ static int debug_power_collaspe_status = 0;
 static void msm_pm_swfi(void)
 {
 	msm_pm_config_hw_before_swfi();
+#ifdef CONFIG_SEC_DEBUG
+	sec_debug_task_sched_log_short_msg("SWFI Enter");
 	msm_arch_idle();
+	sec_debug_task_sched_log_short_msg("SWFI Exit");
+#else
+	msm_arch_idle();
+#endif
 }
 
 static void msm_pm_spm_power_collapse(
@@ -620,6 +633,9 @@ static void msm_pm_spm_power_collapse(
 	void *entry;
 	int collapsed = 0;
 	int ret;
+#ifdef CONFIG_SEC_DEBUG
+	char dmsg[16];
+#endif
 
 	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
 		pr_info("CPU%u: %s: notify_rpm %d\n",
@@ -641,9 +657,18 @@ static void msm_pm_spm_power_collapse(
 	vfp_flush_context();
 #endif
 
-	debug_power_collaspe_status = (from_idle<<8)|(notify_rpm<<4)|1;
+#ifdef CONFIG_SEC_DEBUG
+	snprintf(dmsg, sizeof(dmsg), "PCEnter:%s%s", from_idle?"idle":"", notify_rpm?"rpm":"");
+	sec_debug_task_sched_log_short_msg(dmsg);
+	debug_power_collaspe_status = ((dev->cpu)<<12)|(from_idle<<8)|(notify_rpm<<4)|1;
 	collapsed = msm_pm_collapse();
 	debug_power_collaspe_status = 0;
+	snprintf(dmsg, sizeof(dmsg), "PCExit:%d", collapsed);
+	sec_debug_task_sched_log_short_msg(dmsg);
+#else
+	collapsed = msm_pm_collapse();
+#endif
+
 
 	if (collapsed) {
 #ifdef CONFIG_VFP
@@ -917,11 +942,13 @@ static int msm_pm_enter(suspend_state_t state)
 	int64_t time = msm_timer_get_sclk_time(&period);
 #endif
 
-	if (has_wake_lock(WAKE_LOCK_SUSPEND))
-	    goto enter_exit;
-
 	if (MSM_PM_DEBUG_SUSPEND & msm_pm_debug_mask)
 		pr_info("%s\n", __func__);
+	
+	if (has_wake_lock(WAKE_LOCK_SUSPEND)) {
+		pr_info("%s exit by wakelock\n", __func__);
+	    goto enter_exit;
+	}
 
 	if (smp_processor_id()) {
 		__WARN();
@@ -949,8 +976,9 @@ static int msm_pm_enter(suspend_state_t state)
 		gpio_tlmm_config(GPIO_CFG(81, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_UP, GPIO_CFG_2MA),1);
 #endif
 
-		clock_debug_print_enabled();
-		regulator_debug_print_enabled();
+		clock_debug_print_enabled(msm_pm_debug_factory);
+		regulator_debug_print_enabled(msm_pm_debug_factory);
+		msm_gpio_sleep_log(msm_pm_debug_factory);
 
 #ifdef CONFIG_MSM_SLEEP_TIME_OVERRIDE
 		if (msm_pm_sleep_time_override > 0) {

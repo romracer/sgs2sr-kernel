@@ -81,11 +81,11 @@ static inline void __init msm_clk_soc_init(void) { }
 #ifdef CONFIG_DEBUG_FS
 int __init clock_debug_init(struct list_head *head);
 int __init clock_debug_add(struct clk *clock);
-void clock_debug_print_enabled(void);
+void clock_debug_print_enabled(unsigned int factory_on);
 #else
 static inline int __init clock_debug_init(struct list_head *head) { return 0; }
 static inline int __init clock_debug_add(struct clk *clock) { return 0; }
-static inline void clock_debug_print_enabled(void) { return; }
+static inline void clock_debug_print_enabled(unsigned int factory_on) { return; }
 #endif
 
 extern struct clk_ops clk_ops_remote;

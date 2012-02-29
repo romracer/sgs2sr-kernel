@@ -61,6 +61,7 @@ struct restart_thread_data {
 
 static int restart_level;
 static int enable_ramdumps;
+static int subsystem_restarting = 0;
 
 static LIST_HEAD(subsystem_list);
 static DEFINE_MUTEX(subsystem_list_lock);
@@ -282,6 +283,8 @@ static int subsystem_restart_thread(void *data)
 	dprintk("%s: Starting restart sequence for %s\n", __func__,
 		r_work->subsys->name);
 
+	subsystem_restarting = 1;
+
 	_send_notification_to_order(restart_list,
 				restart_list_count,
 				SUBSYS_BEFORE_SHUTDOWN);
@@ -345,6 +348,8 @@ static int subsystem_restart_thread(void *data)
 	pr_info("%s: Restart sequence for %s completed.", __func__,
 			r_work->subsys->name);
 
+	subsystem_restarting = 0;
+
 	mutex_unlock(powerup_lock);
 
 	mutex_unlock(&soc_order_reg_lock);
@@ -366,8 +371,22 @@ int subsystem_restart(const char *subsys_name)
 		return -EINVAL;
 	}
 
+	if (subsystem_restarting) {
+		pr_err("%s: subsystem restart was called while processing subsystem restart thread. So return.\n");
+		return -EINVAL;
+	}
+
+
 	pr_info("Subsystem Restart: Restart sequence requested for  %s\n",
 		subsys_name);
+
+#ifdef CONFIG_SEC_DEBUG
+	if ( !sec_debug_is_enabled()) {
+		restart_level = RESET_SUBSYS_COUPLED;
+	} else {
+		restart_level = RESET_SOC;		
+	}
+#endif		
 
 	/* List of subsystems is protected by a lock. New subsystems can
 	 * still come in.
@@ -503,7 +522,7 @@ static int __init subsys_restart_init(void)
 {
 	int ret = 0;
 
-#if defined(CONFIG_SEC_DEBUG) && !defined(CONFIG_USA_MODEL_SGH_T989) && !defined(CONFIG_USA_MODEL_SGH_I727)
+#if defined(CONFIG_SEC_DEBUG) 
 	if(!sec_debug_is_enabled()) // if debug_level is low, silrent reset is activated.
 		restart_level = RESET_SUBSYS_COUPLED;
 	else

@@ -164,7 +164,7 @@ static char *log_buf = __log_buf;
 static int log_buf_len = __LOG_BUF_LEN;
 static unsigned logged_chars; /* Number of chars produced since last read+clear operation */
 static int saved_console_loglevel = -1;
-
+char *sec_dbg_low_buf = (char *)__log_buf;
 #ifdef CONFIG_KEXEC
 /*
  * This appends the listed symbols to /proc/vmcoreinfo
@@ -237,9 +237,9 @@ __setup("log_buf_len=", log_buf_len_setup);
 #define LOG_MAGIC 0x4d474f4c /* "LOGM" */
 
 /* These variables are also protected by logbuf_lock */
-static unsigned *sec_log_ptr;
-static char *sec_log_buf;
-static unsigned sec_log_size;
+unsigned *sec_log_ptr;
+char *sec_log_buf;
+unsigned sec_log_size;
 
 #ifdef CONFIG_PRINTK_NOCACHE
 static unsigned sec_log_save_size;
@@ -267,6 +267,14 @@ void printk_remap_nocache(void)
 #if 1
 	if( 0 == sec_debug_is_enabled() ) {
 		sec_getlog_supply_kloginfo(log_buf);
+		nocache_base = ioremap_nocache(sec_log_save_base - 4096, sec_log_save_size + 8192);
+		nocache_base = nocache_base + 4096;
+
+		sec_log_mag = nocache_base - 8;
+		sec_log_ptr = nocache_base - 4;
+		sec_log_buf = nocache_base;
+		sec_log_size = sec_log_save_size;
+		sec_log_irq_en = nocache_base - 0xC ;
 		return;
 	}
 #endif

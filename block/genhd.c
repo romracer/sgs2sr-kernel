@@ -1021,6 +1021,10 @@ static int disk_uevent(struct device *dev, struct kobj_uevent_env *env)
 		cnt++;
 	disk_part_iter_exit(&piter);
 	add_uevent_var(env, "NPARTS=%u", cnt);
+#ifdef CONFIG_USB_HOST_NOTIFY
+	if (disk->interfaces == GENHD_IF_USB)
+		add_uevent_var(env, "MEDIAPRST=%d", disk -> media_present);
+#endif
 	return 0;
 }
 

@@ -33,6 +33,7 @@
 #include <linux/debugfs.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
+#include <linux/io.h>
 #include <asm/uaccess.h>
 #include <asm/pgtable.h>
 #include <mach/msm_rpcrouter.h>
@@ -1537,13 +1538,15 @@ static void rmt_storage_restart_work(struct work_struct *work)
 		queue_delayed_work(rmc->workq, &srv->restart_work,
 				msecs_to_jiffies(RESTART_WORK_DELAY_MS));
 }
-
+#include <linux/jiffies.h>
+#define RESET_REASON_NORMAL			0x1A2B3C00
+extern unsigned sec_debug_get_reset_reason(void);
 static int rmt_storage_probe(struct platform_device *pdev)
 {
 	struct rpcsvr_platform_device *dev;
 	struct rmt_storage_srv *srv;
 	int ret;
-
+	
 	pr_info("%s : enter\n", __func__);
 
 	dev = container_of(pdev, struct rpcsvr_platform_device, base);
@@ -1577,10 +1580,44 @@ static int rmt_storage_probe(struct platform_device *pdev)
 		pr_info("%s: Error msm_rpc_register_reset_callbacks %d\n", __func__, ret);
 		goto unregister_client;
         }
-
+	
 	pr_info("%s: Remote storage RPC client (0x%x)initialized\n",
 		__func__, dev->prog);
+	
+	if(sec_debug_get_reset_reason() != RESET_REASON_NORMAL && dev->prog == 0x300100A7){
+		extern unsigned long long sec_log_reserve_base;
+		loff_t pos = 0;
+		struct file *fp;
+		mm_segment_t old_fs;
+		static char dump_filename[100];
+		unsigned char *logicalKlogBase;
+		unsigned time_stamp = (unsigned)jiffies;
+		
+		logicalKlogBase = ioremap((sec_log_reserve_base+8), 512*1024);
+		/* change to KERNEL_DS address limit */
+		old_fs = get_fs();
+		set_fs(get_ds());
 
+		/* open file to write */
+		sprintf(dump_filename, "/data/log/resetdump");
+		
+		fp = filp_open(dump_filename, O_WRONLY|O_CREAT, 0666);
+		if (!fp) {
+			goto exit;
+		}
+
+		/* Write buf to file */
+		fp->f_op->write(fp, logicalKlogBase, 512*1024, &pos);
+
+		/* close file before return */
+		if (fp)
+			filp_close(fp, NULL);
+
+		exit:
+		/* restore previous address limit */
+		iounmap((void __iomem *)logicalKlogBase);
+		set_fs(old_fs);
+	}
 	/* register server callbacks */
 	ret = rmt_storage_reg_callbacks(srv->rpc_client);
 	if (ret)
