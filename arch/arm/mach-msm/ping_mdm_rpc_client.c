@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 /*
@@ -91,7 +86,7 @@ enum {
 };
 static int fifo_event;
 static DEFINE_MUTEX(event_fifo_lock);
-static DEFINE_KFIFO(event_fifo, sizeof(int)*16);
+static DEFINE_KFIFO(event_fifo, int, sizeof(int)*16);
 
 static int ping_mdm_register_cb(struct msm_rpc_client *client,
 				struct msm_rpc_xdr *xdr)

@@ -1,11 +1,21 @@
-/* drivers/media/tdmb/tdmb.c
- *
- *	TDMB Driver for Linux
- *
- *	klaatu, Copyright (c) 2009 Samsung Electronics
- *		http://www.samsung.com/
- *
- */
+/*
+*
+* drivers/media/tdmb/tdmb.c
+*
+* tdmb driver
+*
+* Copyright (C) (2011, Samsung Electronics)
+*
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation version 2.
+*
+* This program is distributed "as is" WITHOUT ANY WARRANTY of any
+* kind, whether express or implied; without even the implied warranty
+* of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+*/
 
 #include <linux/kernel.h>
 #include <linux/fs.h>
@@ -46,7 +56,7 @@
 static struct class *tdmb_class;
 
 /* ring buffer */
-char *TS_RING;
+char *ts_ring;
 unsigned int *tdmb_ts_head;
 unsigned int *tdmb_ts_tail;
 char *tdmb_ts_buffer;
@@ -57,9 +67,43 @@ unsigned int *cmd_tail;
 static char *cmd_buffer;
 static unsigned int cmd_size;
 
-static unsigned long g_last_ch_info;
+static unsigned long tdmb_last_ch;
 
-static TDMBDrvFunc *tdmbdrv_func;
+static struct tdmb_platform_data gpio_cfg;
+static struct tdmb_drv_func *tdmbdrv_func;
+
+static bool tdmb_pwr_on;
+static bool tdmb_power_on(void)
+{
+	bool ret;
+
+	if (tdmb_create_databuffer(tdmbdrv_func->get_int_size()) == false) {
+		DPRINTK("%s : tdmb_create_databuffer fail\n", __func__);
+		ret = false;
+	} else if (tdmb_create_workqueue() == true) {
+		DPRINTK("%s : tdmb_create_workqueue ok\n", __func__);
+		ret = tdmbdrv_func->power_on();
+	} else {
+		ret = false;
+	}
+	tdmb_pwr_on = ret;
+	DPRINTK("%s : ret(%d)\n", __func__, ret);
+	return ret;
+}
+static bool tdmb_power_off(void)
+{
+	DPRINTK("%s : tdmb_pwr_on(%d)\n", __func__, tdmb_pwr_on);
+
+	if (tdmb_pwr_on) {
+		tdmbdrv_func->power_off();
+		tdmb_destroy_workqueue();
+		tdmb_destroy_databuffer();
+		tdmb_pwr_on = false;
+	}
+	tdmb_last_ch = 0;
+
+	return true;
+}
 
 static int tdmb_open(struct inode *inode, struct file *filp)
 {
@@ -67,27 +111,27 @@ static int tdmb_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static int tdmb_read(struct file *file, unsigned int cmd, unsigned long data)
+static ssize_t
+tdmb_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
 {
-	DPRINTK("tdmb_read!\n");
+	DPRINTK("tdmb_read\n");
 
 	return 0;
 }
 
 static int tdmb_release(struct inode *inode, struct file *filp)
 {
-	DPRINTK("tdmb_release! \r\n");
+	DPRINTK("tdmb_release\n");
 
-	/* For tdmb_release() without TDMB POWER OFF (App abnormal -> kernal panic) */
-	tdmbdrv_func->power_off();
+	tdmb_power_off();
 
 #if TDMB_PRE_MALLOC
 	tdmb_ts_size = 0;
 	cmd_size = 0;
 #else
-	if (TS_RING != 0) {
-		kfree(TS_RING);
-		TS_RING = 0;
+	if (ts_ring != 0) {
+		kfree(ts_ring);
+		ts_ring = 0;
 		tdmb_ts_size = 0;
 		cmd_size = 0;
 	}
@@ -105,7 +149,7 @@ static void tdmb_make_ring_buffer(void)
 	if (size % PAGE_SIZE) /* klaatu hard coding */
 		size = size + size % PAGE_SIZE;
 
-	TS_RING = kmalloc(size, GFP_KERNEL);
+	ts_ring = kmalloc(size, GFP_KERNEL);
 	DPRINTK("RING Buff Create OK\n");
 }
 
@@ -124,71 +168,74 @@ static int tdmb_mmap(struct file *filp, struct vm_area_struct *vma)
 
 #if TDMB_PRE_MALLOC
 	size = TDMB_RING_BUFFER_MAPPING_SIZE;
-	if (!TS_RING) {
+	if (!ts_ring) {
 		DPRINTK("RING Buff ReAlloc(%d)!!\n", size);
 #endif
 		/* size should aligned in PAGE_SIZE */
 		if (size % PAGE_SIZE) /* klaatu hard coding */
 			size = size + size % PAGE_SIZE;
 
-		TS_RING = kmalloc(size, GFP_KERNEL);
+		ts_ring = kmalloc(size, GFP_KERNEL);
 #if TDMB_PRE_MALLOC
 	}
 #endif
 
-	pfn = virt_to_phys(TS_RING) >> PAGE_SHIFT;
+	pfn = virt_to_phys(ts_ring) >> PAGE_SHIFT;
 
-	DPRINTK("vm_start:%lx,TS_RING:%s,size:%x,prot:%lx,pfn:%lx\n",
-			vma->vm_start, TS_RING, size, vma->vm_page_prot, pfn);
+	DPRINTK("vm_start:%lx,ts_ring:%p,size:%x,prot:%lx,pfn:%lx\n",
+			vma->vm_start, ts_ring, size, vma->vm_page_prot, pfn);
 
 	if (remap_pfn_range(vma, vma->vm_start, pfn, size, vma->vm_page_prot))
 		return -EAGAIN;
 
 	DPRINTK("succeeded\n");
 
-	tdmb_ts_head = TS_RING;
-	tdmb_ts_tail = TS_RING + 4;
-	tdmb_ts_buffer = TS_RING + 8;
+	tdmb_ts_head = (unsigned int *)ts_ring;
+	tdmb_ts_tail = (unsigned int *)(ts_ring + 4);
+	tdmb_ts_buffer = ts_ring + 8;
 
 	*tdmb_ts_head = 0;
 	*tdmb_ts_tail = 0;
 
 	tdmb_ts_size = size-8; /* klaatu hard coding */
-	tdmb_ts_size = ((tdmb_ts_size / DMB_TS_SIZE) * DMB_TS_SIZE) - (30 * DMB_TS_SIZE);
+	tdmb_ts_size
+	= ((tdmb_ts_size / DMB_TS_SIZE) * DMB_TS_SIZE) - (30 * DMB_TS_SIZE);
 
-	DPRINTK("tdmb_ts_head : %x, tdmb_ts_tail : %x, tdmb_ts_buffer : %x,tdmb_ts_size : %x\n",
-				(unsigned int)tdmb_ts_head, (unsigned int)tdmb_ts_tail, (unsigned int)tdmb_ts_buffer, tdmb_ts_size);
+	DPRINTK("head : %x, tail : %x, buffer : %x, size : %x\n",
+			(unsigned int)tdmb_ts_head, (unsigned int)tdmb_ts_tail,
+			(unsigned int)tdmb_ts_buffer, tdmb_ts_size);
 
 	cmd_buffer = tdmb_ts_buffer + tdmb_ts_size + 8;
-	cmd_head = cmd_buffer - 8;
-	cmd_tail = cmd_buffer - 4;
+	cmd_head = (unsigned int *)(cmd_buffer - 8);
+	cmd_tail = (unsigned int *)(cmd_buffer - 4);
 
 	*cmd_head = 0;
 	*cmd_tail = 0;
 
 	cmd_size = 30 * DMB_TS_SIZE - 8; /* klaatu hard coding */
 
-	DPRINTK("cmd_head : %x, cmd_tail : %x, cmd_buffer : %x, cmd_size : %x\n",
-				(unsigned int)cmd_head, (unsigned int)cmd_tail, (unsigned int)cmd_buffer, cmd_size);
+	DPRINTK("cmd head : %x, tail : %x, buffer : %x, size : %x\n",
+			(unsigned int)cmd_head, (unsigned int)cmd_tail,
+			(unsigned int)cmd_buffer, cmd_size);
 
 	return 0;
 }
 
 
 static int _tdmb_cmd_update(
-	unsigned char *byCmdsHeader,
-	unsigned char byCmdsHeaderSize,
-	unsigned char *byCmds,
-	unsigned short bySize)
+	unsigned char *cmd_header,
+	unsigned char cmd_header_size,
+	unsigned char *data,
+	unsigned short data_size)
 {
 	unsigned int size;
 	unsigned int head;
 	unsigned int tail;
 	unsigned int dist;
 	unsigned int temp_size;
-	unsigned int dataSize;
+	unsigned int data_size_tmp;
 
-	if (bySize > cmd_size) {
+	if (data_size > cmd_size) {
 		DPRINTK(" Error - cmd size too large\n");
 		return false;
 	}
@@ -196,43 +243,60 @@ static int _tdmb_cmd_update(
 	head = *cmd_head;
 	tail = *cmd_tail;
 	size = cmd_size;
-	dataSize = bySize + byCmdsHeaderSize;
+	data_size_tmp = data_size + cmd_header_size;
 
 	if (head >= tail)
 		dist = head-tail;
 	else
 		dist = size + head-tail;
 
-	if (size - dist <= dataSize) {
-		DPRINTK("_tdmb_cmd_update too small space is left in Command Ring Buffer!!\n");
+	if (size - dist <= data_size_tmp) {
+		DPRINTK("too small space is left in Cmd Ring Buffer!!\n");
 		return false;
 	}
 
-	DPRINTK("Error - %x head %d tail %d\n", (unsigned int)cmd_buffer, head, tail);
+	DPRINTK("%x head %d tail %d\n", (unsigned int)cmd_buffer, head, tail);
 
-	if (head+dataSize <= size) {
-		memcpy((cmd_buffer + head), (char *)byCmdsHeader, byCmdsHeaderSize);
-		memcpy((cmd_buffer + head + byCmdsHeaderSize), (char *)byCmds, size);
-		head += dataSize;
+	if (head+data_size_tmp <= size) {
+		memcpy((cmd_buffer + head),
+			(char *)cmd_header, cmd_header_size);
+		memcpy((cmd_buffer + head + cmd_header_size),
+			(char *)data, data_size);
+		head += data_size_tmp;
 		if (head == size)
 			head = 0;
 	} else {
 		temp_size = size - head;
-		if (temp_size < byCmdsHeaderSize) {
-			memcpy((cmd_buffer+head), (char *)byCmdsHeader, temp_size);
-			memcpy((cmd_buffer), (char *)byCmdsHeader+temp_size, (byCmdsHeaderSize - temp_size));
-			head = byCmdsHeaderSize - temp_size;
+		if (temp_size < cmd_header_size) {
+			memcpy((cmd_buffer+head),
+				(char *)cmd_header, temp_size);
+			memcpy((cmd_buffer),
+				(char *)cmd_header+temp_size,
+				(cmd_header_size - temp_size));
+			head = cmd_header_size - temp_size;
 		} else {
-			memcpy((cmd_buffer+head), (char *)byCmdsHeader, byCmdsHeaderSize);
-			head += byCmdsHeaderSize;
+			memcpy((cmd_buffer+head),
+				(char *)cmd_header, cmd_header_size);
+			head += cmd_header_size;
 			if (head == size)
 				head = 0;
 		}
 
 		temp_size = size - head;
-		memcpy((cmd_buffer + head), (char *)byCmds, temp_size);
-		head = dataSize - temp_size;
-		memcpy(cmd_buffer, (char *)(byCmds + temp_size), head);
+		if (temp_size < data_size) {
+			memcpy((cmd_buffer+head),
+				(char *)data, temp_size);
+			memcpy((cmd_buffer),
+				(char *)data+temp_size,
+				(data_size - temp_size));
+			head = data_size - temp_size;
+		} else {
+			memcpy((cmd_buffer+head),
+				(char *)data, data_size);
+			head += data_size;
+			if (head == size)
+				head = 0;
+		}
 	}
 
 	*cmd_head = head;
@@ -241,127 +305,145 @@ static int _tdmb_cmd_update(
 }
 
 unsigned char tdmb_make_result(
-	unsigned char byCmd,
-	unsigned short byDataLength,
-	unsigned char  *pbyData)
+	unsigned char cmd,
+	unsigned short data_len,
+	unsigned char  *data)
 {
-	unsigned char byCmds[256] = {0,};
+	unsigned char cmd_header[4] = {0,};
 
-	byCmds[0] = TDMB_CMD_START_FLAG;
-	byCmds[1] = byCmd;
-	byCmds[2] = (byDataLength>>8)&0xff;
-	byCmds[3] = byDataLength&0xff;
+	cmd_header[0] = TDMB_CMD_START_FLAG;
+	cmd_header[1] = cmd;
+	cmd_header[2] = (data_len>>8)&0xff;
+	cmd_header[3] = data_len&0xff;
 
-#if 0
-	if (byDataLength > 0) {
-		if (pbyData == NULL) {
-			/* to error  */
-			return false;
-		}
-		memcpy(byCmds + 8, pbyData, byDataLength) ;
-	}
-#endif
-	_tdmb_cmd_update(byCmds, 4 , pbyData,  byDataLength);
+	_tdmb_cmd_update(cmd_header, 4 , data,  data_len);
 
 	return true;
 }
 
 unsigned long tdmb_get_chinfo(void)
 {
-	return g_last_ch_info;
+	return tdmb_last_ch;
 }
 
-void tdmb_pull_data(void)
+void tdmb_pull_data(struct work_struct *work)
 {
 	tdmbdrv_func->pull_data();
 }
 
-static int tdmb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+bool tdmb_control_irq(bool set)
+{
+	bool ret = true;
+	int irq_ret;
+	if (set) {
+		irq_set_irq_type(gpio_cfg.irq, IRQ_TYPE_EDGE_FALLING);
+		irq_ret = request_irq(gpio_cfg.irq
+						, tdmb_irq_handler
+						, IRQF_DISABLED
+						, TDMB_DEV_NAME
+						, NULL);
+		if (irq_ret < 0) {
+			DPRINTK("request_irq failed !! \r\n");
+			ret = false;
+		}
+	} else {
+		free_irq(gpio_cfg.irq, NULL);
+	}
+
+	return ret;
+}
+
+void tdmb_control_gpio(bool poweron)
+{
+	if (poweron)
+		gpio_cfg.gpio_on();
+	else
+		gpio_cfg.gpio_off();
+}
+
+static long tdmb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
-	//int copy_to_user_return = 0;
-	//unsigned long ulFreq = 0;
-	//unsigned char subChID = 0;
-	//unsigned char svcType = 0;
-	unsigned long FIG_Frequency = 0;
-	EnsembleInfoType *pEnsembleInfo;
-	tdmb_dm dmBuff;
+	unsigned long fig_freq = 0;
+	struct ensemble_info_type *ensemble_info;
+	struct tdmb_dm dm_buff;
 
 	DPRINTK("call tdmb_ioctl : 0x%x\n", cmd);
 
-	if(_IOC_TYPE(cmd) != IOCTL_MAGIC) {
+	if (_IOC_TYPE(cmd) != IOCTL_MAGIC) {
 		DPRINTK("tdmb_ioctl : _IOC_TYPE error\n");
 		return -EINVAL;
-	}		
-	if(_IOC_NR(cmd) >= IOCTL_MAXNR) {
-		DPRINTK("tdmb_ioctl : _IOC_NR(cmd) 0x%x\n", _IOC_NR(cmd));	
+	}
+	if (_IOC_NR(cmd) >= IOCTL_MAXNR) {
+		DPRINTK("tdmb_ioctl : _IOC_NR(cmd) 0x%x\n", _IOC_NR(cmd));
 		return -EINVAL;
 	}
 
 	switch (cmd) {
 	case IOCTL_TDMB_GET_DATA_BUFFSIZE:
 		DPRINTK("IOCTL_TDMB_GET_DATA_BUFFSIZE %d\n", tdmb_ts_size);
-		ret = copy_to_user((unsigned int *)arg, &tdmb_ts_size, sizeof(unsigned int));
+		ret = copy_to_user((unsigned int *)arg,
+				&tdmb_ts_size, sizeof(unsigned int));
 		break;
 
 	case IOCTL_TDMB_GET_CMD_BUFFSIZE:
 		DPRINTK("IOCTL_TDMB_GET_CMD_BUFFSIZE %d\n", cmd_size);
-		ret = copy_to_user((unsigned int *)arg, &cmd_size, sizeof(unsigned int));
+		ret = copy_to_user((unsigned int *)arg,
+				&cmd_size, sizeof(unsigned int));
 		break;
 
 	case IOCTL_TDMB_POWER_ON:
 		DPRINTK("IOCTL_TDMB_POWER_ON\n");
-		if (tdmb_create_databuffer(tdmbdrv_func->get_int_size()) == false)
-			ret = false;
-		else if (tdmb_create_workqueue() == true)
-			ret = tdmbdrv_func->power_on();
-		else
-			ret = false;
+		ret = tdmb_power_on();
 		break;
 
 	case IOCTL_TDMB_POWER_OFF:
 		DPRINTK("IOCTL_TDMB_POWER_OFF\n");
-		tdmbdrv_func->power_off();
-		tdmb_destroy_workqueue();
-		tdmb_destroy_databuffer();
-		g_last_ch_info = 0;
-		ret = true;
+		ret = tdmb_power_off();
 		break;
 
 	case IOCTL_TDMB_SCAN_FREQ_ASYNC:
 		DPRINTK("IOCTL_TDMB_SCAN_FREQ_ASYNC\n");
 
-		FIG_Frequency = arg;
+		fig_freq = arg;
 
-		pEnsembleInfo = vmalloc(sizeof(EnsembleInfoType));
-		memset((char *)pEnsembleInfo, 0x00, sizeof(EnsembleInfoType));
+		ensemble_info = vmalloc(sizeof(struct ensemble_info_type));
+		memset((char *)ensemble_info, 0x00\
+			, sizeof(struct ensemble_info_type));
 
-		ret = tdmbdrv_func->scan_ch(pEnsembleInfo, FIG_Frequency);
-		if (ret == true) {
-			tdmb_make_result(DMB_FIC_RESULT_DONE, sizeof(EnsembleInfoType), (unsigned char  *)pEnsembleInfo);
-		} else {
-			tdmb_make_result(DMB_FIC_RESULT_FAIL, sizeof(unsigned long), (unsigned char  *)&FIG_Frequency);
-		}
+		ret = tdmbdrv_func->scan_ch(ensemble_info, fig_freq);
+		if (ret == true)
+			tdmb_make_result(DMB_FIC_RESULT_DONE,
+				sizeof(struct ensemble_info_type),
+				(unsigned char *)ensemble_info);
+		else
+			tdmb_make_result(DMB_FIC_RESULT_FAIL,
+				sizeof(unsigned long),
+				(unsigned char *)&fig_freq);
 
-		vfree(pEnsembleInfo);
-		g_last_ch_info = 0;
+		vfree(ensemble_info);
+		tdmb_last_ch = 0;
 		break;
 
 	case IOCTL_TDMB_SCAN_FREQ_SYNC:
-		FIG_Frequency = ((EnsembleInfoType *)arg)->EnsembleFrequency;
-		DPRINTK("IOCTL_TDMB_SCAN_FREQ_SYNC %ld\n", FIG_Frequency);
+		fig_freq = ((struct ensemble_info_type *)arg)->ensem_freq;
+		DPRINTK("IOCTL_TDMB_SCAN_FREQ_SYNC %ld\n", fig_freq);
 
-		pEnsembleInfo = vmalloc(sizeof(EnsembleInfoType));
-		memset((char *)pEnsembleInfo, 0x00, sizeof(EnsembleInfoType));
+		ensemble_info = vmalloc(sizeof(struct ensemble_info_type));
+		memset((char *)ensemble_info, 0x00\
+			, sizeof(struct ensemble_info_type));
 
-		ret = tdmbdrv_func->scan_ch(pEnsembleInfo, FIG_Frequency);
+		ret = tdmbdrv_func->scan_ch(ensemble_info, fig_freq);
 		if (ret == true) {
-			if(copy_to_user((EnsembleInfoType *)arg, pEnsembleInfo, sizeof(EnsembleInfoType)))
-				DPRINTK("IOCTL_TDMB_SCAN_FREQ_SYNC : copy_to_user failed\n");
+			if (copy_to_user((struct ensemble_info_type *)arg,
+					ensemble_info,
+					sizeof(struct ensemble_info_type))
+				)
+				DPRINTK("cmd(%x) : copy_to_user failed\n", cmd);
 		}
 
-		vfree(pEnsembleInfo);
-		g_last_ch_info = 0;
+		vfree(ensemble_info);
+		tdmb_last_ch = 0;
 		break;
 
 	case IOCTL_TDMB_SCANSTOP:
@@ -374,9 +456,9 @@ static int tdmb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		tdmb_init_data();
 		ret = tdmbdrv_func->set_ch(arg, (arg % 1000), false);
 		if (ret == true)
-			g_last_ch_info = arg;
+			tdmb_last_ch = arg;
 		else
-			g_last_ch_info = 0;
+			tdmb_last_ch = 0;
 		break;
 
 	case IOCTL_TDMB_ASSIGN_CH_TEST:
@@ -384,17 +466,19 @@ static int tdmb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		tdmb_init_data();
 		ret = tdmbdrv_func->set_ch(arg, (arg % 1000), true);
 		if (ret == true)
-			g_last_ch_info = arg;
+			tdmb_last_ch = arg;
 		else
-			g_last_ch_info = 0;
+			tdmb_last_ch = 0;
 		break;
 
 	case IOCTL_TDMB_GET_DM:
-		tdmbdrv_func->get_dm(&dmBuff);
-		if(copy_to_user((tdmb_dm *)arg, &dmBuff, sizeof(tdmb_dm)))
+		tdmbdrv_func->get_dm(&dm_buff);
+		if (copy_to_user((struct tdmb_dm *)arg\
+			, &dm_buff, sizeof(struct tdmb_dm)))
 			DPRINTK("IOCTL_TDMB_GET_DM : copy_to_user failed\n");
 		ret = true;
-		DPRINTK("rssi %d, ber %d, ANT %d\n", dmBuff.rssi, dmBuff.BER, dmBuff.antenna);
+		DPRINTK("rssi %d, ber %d, ANT %d\n",
+			dm_buff.rssi, dm_buff.ber, dm_buff.antenna);
 		break;
 	}
 
@@ -402,21 +486,63 @@ static int tdmb_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 }
 
 static const struct file_operations tdmb_ctl_fops = {
-	owner:		THIS_MODULE,
-	open :		tdmb_open,
-	read :		tdmb_read,
-	unlocked_ioctl : tdmb_ioctl,
-	mmap :		tdmb_mmap,
-	release :	tdmb_release,
-	llseek :	no_llseek,
+	.owner          = THIS_MODULE,
+	.open           = tdmb_open,
+	.read           = tdmb_read,
+	.unlocked_ioctl  = tdmb_ioctl,
+	.mmap           = tdmb_mmap,
+	.release	    = tdmb_release,
+	.llseek         = no_llseek,
 };
+
+static struct tdmb_drv_func *tdmb_get_drv_func(void)
+{
+	struct tdmb_drv_func * (*func)(void);
+
+#if ((defined(CONFIG_TDMB_T3900) || defined(CONFIG_TDMB_T39F0)) \
+	&& defined(CONFIG_TDMB_FC8050))
+#if defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K)
+	if (get_hw_rev() > 7)
+		func = fc8050_drv_func;
+	else
+		func = t3900_drv_func;
+#elif defined(CONFIG_KOR_MODEL_SHV_E120S)
+	if (get_hw_rev() > 13)
+		func = fc8050_drv_func;
+	else
+		func = t3900_drv_func;
+#elif defined(CONFIG_KOR_MODEL_SHV_E120K)
+	if (get_hw_rev() > 12)
+		func = fc8050_drv_func;
+	else
+		func = t3900_drv_func;
+#elif defined(CONFIG_KOR_MODEL_SHV_E110S)
+	if (get_hw_rev() > 9)
+		func = fc8050_drv_func;
+	else
+		func = t3900_drv_func;
+#else
+	#error what???
+#endif
+#elif defined(CONFIG_TDMB_T3900) || defined(CONFIG_TDMB_T39F0)
+	func = t3900_drv_func;
+#elif defined(CONFIG_TDMB_FC8050)
+	func = fc8050_drv_func;
+#elif defined(CONFIG_TDMB_MTV318)
+	func = mtv318_drv_func;
+#elif defined(CONFIG_TDMB_TCC3170)
+	func = tcc3170_drv_func;
+#else
+	#error what???
+#endif
+
+	return func();
+}
 
 static int tdmb_probe(struct platform_device *pdev)
 {
 	int ret;
 	struct device *tdmb_dev;
-	struct resource *res;
-	int tdmb_irq;
 	struct tdmb_platform_data *p = pdev->dev.platform_data;
 
 	DPRINTK("call tdmb_probe\n");
@@ -434,7 +560,9 @@ static int tdmb_probe(struct platform_device *pdev)
 		return -EFAULT;
 	}
 
-	tdmb_dev = device_create(tdmb_class, NULL, MKDEV(TDMB_DEV_MAJOR, TDMB_DEV_MINOR), NULL, TDMB_DEV_NAME);
+	tdmb_dev = device_create(tdmb_class, NULL,
+				MKDEV(TDMB_DEV_MAJOR, TDMB_DEV_MINOR),
+				NULL, TDMB_DEV_NAME);
 	if (IS_ERR(tdmb_dev)) {
 		DPRINTK("device_create failed!\n");
 
@@ -444,8 +572,12 @@ static int tdmb_probe(struct platform_device *pdev)
 		return -EFAULT;
 	}
 
+	memcpy(&gpio_cfg, p, sizeof(struct tdmb_platform_data));
+
 	tdmb_init_bus();
-	tdmbdrv_func = tdmb_get_drv_func(p);
+	tdmbdrv_func = tdmb_get_drv_func();
+	if (tdmbdrv_func->init)
+		tdmbdrv_func->init();
 
 #if TDMB_PRE_MALLOC
 	tdmb_make_ring_buffer();
@@ -472,17 +604,13 @@ static int tdmb_resume(struct platform_device *pdev)
 static struct platform_driver tdmb_driver = {
 	.probe	= tdmb_probe,
 	.remove = tdmb_remove,
-	.suspend  = tdmb_suspend,
+	.suspend = tdmb_suspend,
 	.resume = tdmb_resume,
 	.driver = {
 		.owner	= THIS_MODULE,
 		.name = "tdmb"
 	},
 };
-
-#ifdef CONFIG_BATTERY_SEC
-extern unsigned int is_lpcharging_state(void);
-#endif
 
 static int __init tdmb_init(void)
 {
@@ -507,9 +635,9 @@ static void __exit tdmb_exit(void)
 {
 	DPRINTK("<klaatu TDMB> module exit\n");
 #if TDMB_PRE_MALLOC
-	if (TS_RING != 0) {
-		kfree(TS_RING);
-		TS_RING = 0;
+	if (ts_ring != 0) {
+		kfree(ts_ring);
+		ts_ring = 0;
 	}
 #endif
 	unregister_chrdev(TDMB_DEV_MAJOR, "tdmb");

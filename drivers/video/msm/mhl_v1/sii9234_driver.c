@@ -212,6 +212,7 @@ void start_hrtimer_ms(unsigned long delay_in_ms)
 //
 byte	fwPowerState = TX_POWER_STATE_FIRST_INIT;
 
+#if 0//not used
 //
 // When MHL Fifo underrun or overrun happens, we set this flag
 // to avoid calling a function in recursive manner. The monitoring loop
@@ -227,6 +228,7 @@ static	bool	gotFifoUnderRunOverRun = FALSE;
 // until this timer expires.
 //
 static	bool	deglitchingRsenNow = FALSE;
+#endif
 
 //
 // To serialize the RCP commands posted to the CBUS engine, this flag
@@ -313,9 +315,11 @@ bool mhl_vbus = FALSE;//3355
 static	void	Int4Isr( void );
 static	void	Int1RsenIsr( void );
 static	void	MhlCbusIsr( void );
+#if 0//not used
 static	void 	DeglitchRsenLow( void );
+#endif
 
-void	CbusReset();
+void	CbusReset( void );
 void	SwitchToD0( void );
 void	SwitchToD3( void );
 void	WriteInitialRegisterValues ( void );
@@ -324,12 +328,14 @@ static	void	ForceUsbIdSwitchOpen ( void );
 static	void	ReleaseUsbIdSwitchOpen ( void );
 void	MhlTxDrvProcessConnection ( void );
 	void	MhlTxDrvProcessDisconnection ( void );
-static	void	ApplyDdcAbortSafety();
+static	void	ApplyDdcAbortSafety( void );
+#ifdef CONFIG_USB_SWITCH_FSA9480
 extern void FSA9480_CheckAndHookAudioDock(int value, int onoff);//Rajucm
 extern void FSA9480_MhlSwitchSel(bool);//Rajucm
 extern void FSA9480_MhlTvOff(void);//Rajucm
 extern void EnableFSA9480Interrupts(void);	//NAGSM_Android_SEL_Kernel_Aakash_20101214
 extern void DisableFSA9480Interrupts(void);	//NAGSM_Android_SEL_Kernel_Aakash_20101214
+#endif
 extern void mhl_hpd_handler(bool);
 //
 // Store global config info here. This is shared by the driver.
@@ -469,7 +475,7 @@ Bool SiI9234_startTPI(void)
 ===========================================================================*/
 Bool SiI9234_init(void)
 {
-	Bool status;
+//	Bool status;
 	printk("# SiI9234 initialization start~ \n");  
 	//SiI9234_HW_Reset();	
 	
@@ -809,7 +815,9 @@ void	Int1RsenIsr( void )
 					TX_DEBUG_PRINT((KERN_ERR "Really RSEN Low\n"));
 					//mhl_cable_status =MHL_INIT_POWER_OFF;
 					mhl_cable_status = MHL_TV_OFF_CABLE_CONNECT;
+#ifdef CONFIG_USB_SWITCH_FSA9480
 					FSA9480_MhlSwitchSel(0);  
+#endif
 				}
 				else
 				{
@@ -820,7 +828,9 @@ void	Int1RsenIsr( void )
 			{
 				printk(KERN_ERR "%s: MHL Cable disconnect### 2\n", __func__);
 				mhl_cable_status =MHL_INIT_POWER_OFF;
+#ifdef CONFIG_USB_SWITCH_FSA9480
 				FSA9480_MhlSwitchSel(0); 
+#endif
 				printk(KERN_ERR "MHL_SEL to 0\n");
 			}
 			mhl_hpd_handler(false); // TO DO :- Rajesh Fix for USB crash issue.
@@ -881,6 +891,8 @@ void	Int1RsenIsr( void )
   I2C_WriteByte(SA_TX_Page0_Primary, 0x71, reg71);
   
 }
+
+#if 0//not used
 //////////////////////////////////////////////////////////////////////////////
 //
 // DeglitchRsenLow
@@ -944,6 +956,8 @@ static void DeglitchRsenLow( void )
 		deglitchingRsenNow = FALSE;
 	}
 }
+#endif
+
 ///////////////////////////////////////////////////////////////////////////
 // WriteInitialRegisterValues
 //
@@ -1090,16 +1104,16 @@ static void InitCBusRegs( void )
 	I2C_WriteByte(SA_TX_CBUS_Primary, 0x8F, 0);										//reserved
 
 	// Make bits 2,3 (initiator timeout) to 1,1 for register CBUS_LINK_CONTROL_2
-	regval = I2C_ReadByte(SA_TX_CBUS_Primary, REG_CBUS_LINK_CONTROL_2 );
+	regval = I2C_ReadByte(SA_TX_CBUS_Primary, (byte)REG_CBUS_LINK_CONTROL_2 );
 	regval = (regval | 0x0C);
-	I2C_WriteByte(SA_TX_CBUS_Primary,REG_CBUS_LINK_CONTROL_2, regval);
+	I2C_WriteByte(SA_TX_CBUS_Primary, (byte)REG_CBUS_LINK_CONTROL_2, regval);
 
 	 // Clear legacy bit on Wolverine TX.
-    regval = I2C_ReadByte(SA_TX_CBUS_Primary, REG_MSC_TIMEOUT_LIMIT);
-    I2C_WriteByte(SA_TX_CBUS_Primary, REG_MSC_TIMEOUT_LIMIT, (regval & MSC_TIMEOUT_LIMIT_MSB_MASK));
+    regval = I2C_ReadByte(SA_TX_CBUS_Primary, (byte)REG_MSC_TIMEOUT_LIMIT);
+    I2C_WriteByte(SA_TX_CBUS_Primary, (byte)REG_MSC_TIMEOUT_LIMIT, (regval & MSC_TIMEOUT_LIMIT_MSB_MASK));
 
 	// Set NMax to 1
-	I2C_WriteByte(SA_TX_CBUS_Primary, REG_CBUS_LINK_CONTROL_1, 0x01);
+	I2C_WriteByte(SA_TX_CBUS_Primary, (byte)REG_CBUS_LINK_CONTROL_1, 0x01);
 
 }
 
@@ -1146,7 +1160,7 @@ static void ReleaseUsbIdSwitchOpen ( void )
 //
 //////////////////////////////////////////////////////////////////////////////
 
-void CbusWakeUpPulseGenerator()
+void CbusWakeUpPulseGenerator( void )
 {	
 	TX_DEBUG_PRINT(("Drv: CbusWakeUpPulseGenerator\n"));
 
@@ -1209,7 +1223,7 @@ void CbusWakeUpPulseGenerator()
 // ApplyDdcAbortSafety
 //
 ///////////////////////////////////////////////////////////////////////////
-static	void	ApplyDdcAbortSafety()
+static	void	ApplyDdcAbortSafety( void )
 {
 	byte		bTemp, bPost;
 
@@ -1255,7 +1269,7 @@ void	ProcessRgnd( void )
 	// Impedance detection has completed - process interrupt
 	//
 	reg99RGNDRange = I2C_ReadByte(SA_TX_Page0_Primary, 0x99) & 0x03;
-	TX_DEBUG_PRINT(("Drv: RGND Reg 99 = %02X : ", (int)reg99RGNDRange));
+	TX_DEBUG_PRINT(("Drv: RGND Reg 99 = %02X : \n", (int)reg99RGNDRange));
 
 	/* Keeping DisableFSAinterrupt affects fast connect/disconnect */
 	/* But disabling fsa interrupts ... and 
@@ -1271,7 +1285,7 @@ void	ProcessRgnd( void )
 	//
 	if (reg99RGNDRange == 0x00 || reg99RGNDRange == 0x03)	
 	{
-		TX_DEBUG_PRINT((" : USB impedance. Disable MHL discovery.\n", (int)reg99RGNDRange));
+		TX_DEBUG_PRINT(("%02X : USB impedance. Disable MHL discovery.\n", (int)reg99RGNDRange));
 		//3355
 		if(vbus_mhl_est_fail == TRUE)	
 		{
@@ -1282,7 +1296,9 @@ void	ProcessRgnd( void )
 		CLR_BIT(SA_TX_Page0_Primary, 0x95, 5);
 		mhl_cable_status =MHL_INIT_POWER_OFF;
 		TX_DEBUG_PRINT((KERN_ERR "MHL_SEL to 0\n")); 
+#ifdef CONFIG_USB_SWITCH_FSA9480
 		FSA9480_CheckAndHookAudioDock(0,1); //Rajucm: Audio Dock Detection Algorithm	R1
+#endif
 	}
 	else 	
 	{
@@ -1292,12 +1308,16 @@ void	ProcessRgnd( void )
 			TX_DEBUG_PRINT(("MHL 2K\n"));
 			mhl_cable_status =MHL_TV_OFF_CABLE_CONNECT;
 			printk(KERN_ERR "MHL Connection Fail Power off ###1\n");
+#ifdef CONFIG_USB_SWITCH_FSA9480
 			FSA9480_MhlTvOff();//Rajucm: Mhl cable handling when TV Off 	
+#endif
 			return ;
 		}
 		else if(0x02==reg99RGNDRange)
 		{
+#ifdef CONFIG_USB_SWITCH_FSA9480
 			FSA9480_CheckAndHookAudioDock(1,1);  //Rajucm: Audio Dock Detection Algorithm	R1
+#endif
 			TX_DEBUG_PRINT(("MHL 1K\n"));
 			DelayMS(T_SRC_VBUS_CBUS_TO_STABLE);
 			// Discovery enabled
@@ -1307,7 +1327,9 @@ void	ProcessRgnd( void )
 			//
 			CbusWakeUpPulseGenerator();
 			DelayMS(T_SRC_WAKE_PULSE_WIDTH_2);
+#ifdef CONFIG_USB_SWITCH_FSA9480
 			EnableFSA9480Interrupts(); 
+#endif
 		}
 		
 	}
@@ -1375,6 +1397,8 @@ void	SwitchToD3( void )
 	fwPowerState = TX_POWER_STATE_D3;
 
 }
+
+#if 0//not used
 /*===========================================================================
   FUNCTION For_check_resen_int
 
@@ -1479,6 +1503,7 @@ static void For_check_resen_int (void)
 	//ReadModifyWriteTPI(TPI_INTERRUPT_ENABLE_REG, 0x03, 	0x03);	 //enable HPD and RSEN interrupt
 
 }
+#endif
 
 ////////////////////////////////////////////////////////////////////
 // Int4Isr
@@ -1529,12 +1554,16 @@ static	void	Int4Isr( void )
 			{          
 				vbus_mhl_est_fail = TRUE;
 				MhlTxDrvProcessDisconnection();
+#ifdef CONFIG_USB_SWITCH_FSA9480
 				FSA9480_MhlSwitchSel(0); 
+#endif
 				return;
 			}
 			else
 			{
+#ifdef CONFIG_USB_SWITCH_FSA9480
 				FSA9480_MhlTvOff();//Rajucm: Mhl cable handling when TV Off 		
+#endif
 			}//3355
 		}
 		else
@@ -1660,7 +1689,7 @@ void MhlTxDrvProcessDisconnection ( void )
 // CbusReset
 //
 ///////////////////////////////////////////////////////////////////////////
-void	CbusReset()
+void	CbusReset( void )
 {
 	SET_BIT(SA_TX_Page0_Primary, 0x05, 3);
 	DelayMS(2);
@@ -1695,21 +1724,21 @@ static byte CBusProcessErrors( byte intStatus )
         /* If transfer abort or MSC abort, clear the abort reason register. */
 		if( intStatus & BIT_DDC_ABORT )
 		{
-			result = ddcAbortReason = ReadByteCBUS( REG_DDC_ABORT_REASON );
+			result = ddcAbortReason = ReadByteCBUS( (byte)REG_DDC_ABORT_REASON );
 			TX_DEBUG_PRINT( ("CBUS DDC ABORT happened, reason:: %02X\n", (int)(ddcAbortReason)));
 		}
 
         if ( intStatus & BIT_MSC_XFR_ABORT )
         {
-            result = mscAbortReason = ReadByteCBUS( REG_PRI_XFR_ABORT_REASON );
+            result = mscAbortReason = ReadByteCBUS( (byte)REG_PRI_XFR_ABORT_REASON );
 
             TX_DEBUG_PRINT( ("CBUS:: MSC Transfer ABORTED. Clearing 0x0D\n"));
-            WriteByteCBUS( REG_PRI_XFR_ABORT_REASON, 0xFF );
+            WriteByteCBUS( (byte)REG_PRI_XFR_ABORT_REASON, 0xFF );
         }
         if ( intStatus & BIT_MSC_ABORT )
         {
             TX_DEBUG_PRINT( ("CBUS:: MSC Peer sent an ABORT. Clearing 0x0E\n"));
-            WriteByteCBUS( REG_CBUS_PRI_FWR_ABORT_REASON, 0xFF );
+            WriteByteCBUS( (byte)REG_CBUS_PRI_FWR_ABORT_REASON, 0xFF );
         }
 
         // Now display the abort reason.
@@ -1949,9 +1978,11 @@ void SiiMhlTxInitialize( void )
 	TX_DEBUG_PRINT( ("MhlTx: SiiMhlTxInitialize\n") );
 
 	MhlTxResetStates( );
-
+	
+	mhl_cable_status = MHL_POWER_ON;			//NAGSM_Android_SEL_Kernel_Aakash_20101214
+	
 	SiiMhlTxChipInitialize ();
-	mhl_cable_status =MHL_POWER_ON;			//NAGSM_Android_SEL_Kernel_Aakash_20101214
+	
 }
 
 
@@ -2466,207 +2497,207 @@ void	AppRcpDemo( byte event, byte eventParameter)
       {
 
         case MHD_RCP_CMD_SELECT:
-          TX_DEBUG_PRINT(( "\nSelect received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nSelect received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_UP:
-          TX_DEBUG_PRINT(( "\nUp received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nUp received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_DOWN:
-          TX_DEBUG_PRINT(( "\nDown received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nDown received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_LEFT:
-          TX_DEBUG_PRINT(( "\nLeft received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nLeft received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_RIGHT:
-          TX_DEBUG_PRINT(( "\nRight received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nRight received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_RIGHT_UP:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_RIGHT_UP\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_RIGHT_UP\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_RIGHT_DOWN:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_RIGHT_DOWN \n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_RIGHT_DOWN \n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_LEFT_UP:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_LEFT_UP\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_LEFT_UP\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_LEFT_DOWN:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_LEFT_DOWN\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_LEFT_DOWN\n\n"/*, (int)eventParameter*/ ));
         break;      
 
         case MHD_RCP_CMD_ROOT_MENU:
-          TX_DEBUG_PRINT(( "\nRoot Menu received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nRoot Menu received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_SETUP_MENU:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_SETUP_MENU\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_SETUP_MENU\n\n"/*, (int)eventParameter*/ ));
         break;      
 
         case MHD_RCP_CMD_CONTENTS_MENU:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_CONTENTS_MENU\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_CONTENTS_MENU\n\n"/*, (int)eventParameter*/ ));
         break;      
 
         case MHD_RCP_CMD_FAVORITE_MENU:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_FAVORITE_MENU\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_FAVORITE_MENU\n\n"/*, (int)eventParameter*/ ));
         break;            
 
         case MHD_RCP_CMD_EXIT:
-          TX_DEBUG_PRINT(( "\nExit received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nExit received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_0:
-          TX_DEBUG_PRINT(( "\nNumber 0 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 0 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_1:
-          TX_DEBUG_PRINT(( "\nNumber 1 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 1 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_2:
-          TX_DEBUG_PRINT(( "\nNumber 2 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 2 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_3:
-          TX_DEBUG_PRINT(( "\nNumber 3 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 3 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_4:
-          TX_DEBUG_PRINT(( "\nNumber 4 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 4 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_5:
-          TX_DEBUG_PRINT(( "\nNumber 5 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 5 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_6:
-          TX_DEBUG_PRINT(( "\nNumber 6 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 6 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_7:
-          TX_DEBUG_PRINT(( "\nNumber 7 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 7 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_8:
-          TX_DEBUG_PRINT(( "\nNumber 8 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 8 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_NUM_9:
-          TX_DEBUG_PRINT(( "\nNumber 9 received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nNumber 9 received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_DOT:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_DOT\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_DOT\n\n"/*, (int)eventParameter*/ ));
         break;          
 
         case MHD_RCP_CMD_ENTER:
-          TX_DEBUG_PRINT(( "\nEnter received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nEnter received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_CLEAR:
-          TX_DEBUG_PRINT(( "\nClear received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nClear received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_CH_UP:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_CH_UP\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_CH_UP\n\n"/*, (int)eventParameter*/ ));
         break; 
 
         case MHD_RCP_CMD_CH_DOWN:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_CH_DOWN\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_CH_DOWN\n\n"/*, (int)eventParameter*/ ));
         break;       
 
         case MHD_RCP_CMD_PRE_CH:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_PRE_CH\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_PRE_CH\n\n"/*, (int)eventParameter*/ ));
         break;           
 
         case MHD_RCP_CMD_SOUND_SELECT:
-          TX_DEBUG_PRINT(( "\nSound Select received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nSound Select received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_INPUT_SELECT:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_INPUT_SELECT\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_INPUT_SELECT\n\n"/*, (int)eventParameter*/ ));
         break;    
 
         case MHD_RCP_CMD_SHOW_INFO:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_SHOW_INFO\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_SHOW_INFO\n\n"/*, (int)eventParameter*/ ));
         break;     
 
         case MHD_RCP_CMD_HELP:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_HELP\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_HELP\n\n"/*, (int)eventParameter*/ ));
         break;   
 
         case MHD_RCP_CMD_PAGE_UP:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_PAGE_UP\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_PAGE_UP\n\n"/*, (int)eventParameter*/ ));
         break;  
 
         case MHD_RCP_CMD_PAGE_DOWN:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_PAGE_DOWN\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_PAGE_DOWN\n\n"/*, (int)eventParameter*/ ));
         break;             
 
         case MHD_RCP_CMD_VOL_UP:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_VOL_UP\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_VOL_UP\n\n"/*, (int)eventParameter*/ ));
         break;             
 
         case MHD_RCP_CMD_VOL_DOWN:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_VOL_DOWN\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_VOL_DOWN\n\n"/*, (int)eventParameter*/ ));
         break;             
 
         case MHD_RCP_CMD_MUTE:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_MUTE\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_MUTE\n\n"/*, (int)eventParameter*/ ));
         break;             
                 
         case MHD_RCP_CMD_PLAY:
-          TX_DEBUG_PRINT(( "\nPlay received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nPlay received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_STOP:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_STOP\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_STOP\n\n"/*, (int)eventParameter*/ ));
         break;   
 
         case MHD_RCP_CMD_PAUSE:
-          TX_DEBUG_PRINT(( "\nPause received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nPause received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_RECORD:
-          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_RECORD\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\n MHD_RCP_CMD_RECORD\n\n"/*, (int)eventParameter*/ ));
         break;   
 
         case MHD_RCP_CMD_FAST_FWD:
-          TX_DEBUG_PRINT(( "\nFastfwd received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nFastfwd received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_REWIND:
-          TX_DEBUG_PRINT(( "\nRewind received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nRewind received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_EJECT:
-          TX_DEBUG_PRINT(( "\nEject received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nEject received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_FWD:
-          TX_DEBUG_PRINT(( "\nForward received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nForward received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_BKWD:
-          TX_DEBUG_PRINT(( "\nBackward received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nBackward received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_PLAY_FUNC:
-          TX_DEBUG_PRINT(( "\nPlay Function received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nPlay Function received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_PAUSE_PLAY_FUNC:
-          TX_DEBUG_PRINT(( "\nPause_Play Function received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nPause_Play Function received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         case MHD_RCP_CMD_STOP_FUNC:
-          TX_DEBUG_PRINT(( "\nStop Function received\n\n", (int)eventParameter ));
+          TX_DEBUG_PRINT(( "\nStop Function received\n\n"/*, (int)eventParameter*/ ));
         break;
 
         default:
@@ -2679,11 +2710,11 @@ void	AppRcpDemo( byte event, byte eventParameter)
 			break;
 
 		case	MHL_TX_EVENT_RCPK_RECEIVED:
-			printk("App: Received an RCPK = %02X\n");
+			printk("App: Received an RCPK\n");
 			break;
 
 		case	MHL_TX_EVENT_RCPE_RECEIVED:
-			printk("App: Received an RCPE = %02X\n");
+			printk("App: Received an RCPE\n");
 			break;
 
 		default:
@@ -2810,7 +2841,9 @@ void SiI9234_interrupt_event(void)
 	rsen  = I2C_ReadByte(SA_TX_Page0_Primary, 0x09) & BIT_2;
 	reg99RGNDRange = I2C_ReadByte(SA_TX_Page0_Primary, 0x99) & 0x03;
 	if(rsen == 0x00 && (reg99RGNDRange == 0x01 || reg99RGNDRange == 0x02)){
+#ifdef CONFIG_USB_SWITCH_FSA9480
 		FSA9480_MhlSwitchSel(0);
+#endif
 	}
 }
 

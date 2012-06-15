@@ -20,6 +20,10 @@ void __list_add(struct list_head *new,
 			      struct list_head *prev,
 			      struct list_head *next)
 {
+#ifdef CONFIG_SEC_DEBUG
+	BUG_ON(next->prev != prev);
+	BUG_ON(prev->next != next);
+#else
 	WARN(next->prev != prev,
 		"list_add corruption. next->prev should be "
 		"prev (%p), but was %p. (next=%p).\n",
@@ -28,12 +32,44 @@ void __list_add(struct list_head *new,
 		"list_add corruption. prev->next should be "
 		"next (%p), but was %p. (prev=%p).\n",
 		next, prev->next, prev);
+#endif
 	next->prev = new;
 	new->next = next;
 	new->prev = prev;
 	prev->next = new;
 }
 EXPORT_SYMBOL(__list_add);
+
+void __list_del_entry(struct list_head *entry)
+{
+	struct list_head *prev, *next;
+
+	prev = entry->prev;
+	next = entry->next;
+
+#ifdef CONFIG_SEC_DEBUG
+	BUG_ON(next == LIST_POISON1
+			|| prev == LIST_POISON2
+			|| prev->next != entry
+			|| next->prev != entry);
+#else
+	if (WARN(next == LIST_POISON1,
+		"list_del corruption, %p->next is LIST_POISON1 (%p)\n",
+		entry, LIST_POISON1) ||
+	    WARN(prev == LIST_POISON2,
+		"list_del corruption, %p->prev is LIST_POISON2 (%p)\n",
+		entry, LIST_POISON2) ||
+	    WARN(prev->next != entry,
+		"list_del corruption. prev->next should be %p, "
+		"but was %p\n", entry, prev->next) ||
+	    WARN(next->prev != entry,
+		"list_del corruption. next->prev should be %p, "
+		"but was %p\n", entry, next->prev))
+		return;
+#endif
+	__list_del(prev, next);
+}
+EXPORT_SYMBOL(__list_del_entry);
 
 /**
  * list_del - deletes entry from list.
@@ -43,13 +79,7 @@ EXPORT_SYMBOL(__list_add);
  */
 void list_del(struct list_head *entry)
 {
-	WARN(entry->prev->next != entry,
-		"list_del corruption. prev->next should be %p, "
-		"but was %p\n", entry, entry->prev->next);
-	WARN(entry->next->prev != entry,
-		"list_del corruption. next->prev should be %p, "
-		"but was %p\n", entry, entry->next->prev);
-	__list_del(entry->prev, entry->next);
+	__list_del_entry(entry);
 	entry->next = LIST_POISON1;
 	entry->prev = LIST_POISON2;
 }

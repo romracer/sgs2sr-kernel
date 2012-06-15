@@ -2,7 +2,7 @@
  * Idle processing for ARMv7-based Qualcomm SoCs.
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2007-2009, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2007-2009, 2011-2012 Code Aurora Forum. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -26,23 +26,18 @@
 /* 11 general purpose registers (r4-r14), 10 cp15 registers */
 #define CPU_SAVED_STATE_SIZE (4 * 11 + 4 * 10)
 #endif
+#ifdef CONFIG_ARCH_MSM_KRAIT
+#define SCM_SVC_BOOT 0x1
+#define SCM_CMD_TERMINATE_PC 0x2
+#endif
 
 ENTRY(msm_arch_idle)
-	stmfd   sp!, {lr}
-#ifdef CONFIG_MSM_JTAG_V7
-	bl      msm_save_jtag_debug
-#endif
-#ifdef CONFIG_MSM_ETM
-	bl      etm_save_reg_check
-#endif
 	wfi
-#ifdef CONFIG_MSM_ETM
-	bl      etm_restore_reg_check
+#ifdef CONFIG_ARCH_MSM8X60
+	mrc	p14, 1, r1, c1, c5, 4 /* read ETM PDSR to clear sticky bit */
+	mrc     p14, 0, r1, c1, c5, 4 /* read DBG PRSR to clear sticky bit */
+	isb
 #endif
-#ifdef CONFIG_MSM_JTAG_V7
-	bl      msm_restore_jtag_debug
-#endif
-	ldmfd   sp!, {lr}
 	bx	lr
 
 ENTRY(msm_pm_collapse)
@@ -61,7 +56,10 @@ ENTRY(msm_pm_collapse)
 	mrc     p15, 0, r1, c1, c0, 0 /* MMU control */
 	mrc     p15, 0, r2, c2, c0, 0 /* TTBR0 */
 	mrc     p15, 0, r3, c3, c0, 0 /* dacr */
+#ifdef CONFIG_ARCH_MSM_SCORPION
+	/* This instruction is not valid for non scorpion processors */
 	mrc     p15, 3, r4, c15, c0, 3 /* L2CR1 is the L2 cache control reg 1 */
+#endif
 	mrc     p15, 0, r5, c10, c2, 0 /* PRRR */
 	mrc     p15, 0, r6, c10, c2, 1 /* NMRR */
 	mrc     p15, 0, r7, c1, c0, 1 /* ACTLR */
@@ -75,39 +73,60 @@ ENTRY(msm_pm_collapse)
 	mrc     p15, 7, r2, c15, c0, 6 /* AVSDSCR is the Adaptive Voltage
 	                                * Scaling Delay Synthesizer Control
 					* Register */
+#ifndef CONFIG_ARCH_MSM_KRAIT
 	mrc     p15, 7, r3, c15, c1, 0 /* TSCSR is the Temperature Status and
 	                                * Control Register
 					*/
+#endif
+
 	stmia   r0!, {r1-r3}
 #endif
 
-#ifdef CONFIG_MSM_JTAG_V7
-	bl      msm_save_jtag_debug
+#ifdef CONFIG_MSM_JTAG
+	bl      msm_jtag_save_state
 #endif
-#ifdef CONFIG_MSM_ETM
-	bl      etm_save_reg_check
-#endif
-	bl      v7_flush_dcache_all
 
-	mrc     p15, 0, r1, c1, c0, 0    /* read current CR    */
-	bic     r0, r1, #(1 << 2)        /* clear dcache bit   */
+	ldr	r0, =msm_pm_flush_l2_flag
+	ldr	r0, [r0]
+	mov	r1, #0
+	mcr	p15, 2, r1, c0, c0, 0 /*CCSELR*/
+	isb
+	mrc	p15, 1, r1, c0, c0, 0 /*CCSIDR*/
+	mov	r2, #1
+	and	r1, r2, r1, ASR #30 /* Check if the cache is write back */
+	orr	r1, r0, r1
+	cmp	r1, #1
+	bne	skip
+	bl	v7_flush_dcache_all
+
+skip:	ldr	r0, =saved_state
+	ldr	r1, =saved_state_end
+	sub	r1, r1, r0
+	bl	v7_flush_kern_dcache_area
+
+	mrc     p15, 0, r4, c1, c0, 0    /* read current CR    */
+	bic     r0, r4, #(1 << 2)        /* clear dcache bit   */
 	bic     r0, r0, #(1 << 12)       /* clear icache bit   */
 	mcr     p15, 0, r0, c1, c0, 0    /* disable d/i cache  */
 
 	dsb
+#ifdef CONFIG_ARCH_MSM_KRAIT
+	ldr	r0, =SCM_SVC_BOOT
+	ldr	r1, =SCM_CMD_TERMINATE_PC
+	ldr	r2, =msm_pm_flush_l2_flag
+	ldr	r2, [r2]
+	bl	scm_call_atomic1
+#else
 	wfi
-
-	mcr     p15, 0, r1, c1, c0, 0    /* restore d/i cache  */
+#endif
+	mcr     p15, 0, r4, c1, c0, 0    /* restore d/i cache  */
 	isb
 
 #if defined(CONFIG_MSM_FIQ_SUPPORT)
 	cpsie   f
 #endif
-#ifdef CONFIG_MSM_ETM
-	bl	etm_restore_reg_check
-#endif
-#ifdef CONFIG_MSM_JTAG_V7
-	bl	msm_restore_jtag_debug
+#ifdef CONFIG_MSM_JTAG
+	bl	msm_jtag_restore_state
 #endif
 	ldr     r0, =saved_state        /* restore registers */
 #if (NR_CPUS >= 2)
@@ -143,14 +162,19 @@ ENTRY(msm_pm_collapse_exit)
 
 #ifdef CONFIG_MSM_CPU_AVS
 	ldmdb   r1!, {r2-r4}
+#ifndef CONFIG_ARCH_MSM_KRAIT
 	mcr     p15, 7, r4, c15, c1, 0 /* TSCSR */
+#endif
 	mcr     p15, 7, r3, c15, c0, 6 /* AVSDSCR */
 	mcr     p15, 7, r2, c15, c1, 7 /* AVSCSR */
 #endif
 	ldmdb   r1!, {r2-r11}
 	mcr     p15, 0, r4, c3, c0, 0 /* dacr */
 	mcr     p15, 0, r3, c2, c0, 0 /* TTBR0 */
+#ifdef CONFIG_ARCH_MSM_SCORPION
+	/* This instruction is not valid for non scorpion processors */
 	mcr     p15, 3, r5, c15, c0, 3 /* L2CR1 */
+#endif
 	mcr     p15, 0, r6, c10, c2, 0 /* PRRR */
 	mcr     p15, 0, r7, c10, c2, 1 /* NMRR */
 	mcr     p15, 0, r8, c1, c0, 1 /* ACTLR */
@@ -183,15 +207,21 @@ msm_pm_pa_to_va:
 	mcr     p15, 0, r3, c7, c5, 6   /* BPIALL */
 	dsb
 	isb
+#ifdef CONFIG_ARCH_MSM_KRAIT
+	mrc	p15, 0, r1, c0, c0, 0
+	ldr	r3, =0xff00fc00
+	and	r3, r1, r3
+	ldr 	r1, =0x51000400
+	cmp	r3, r1
+	mrceq	p15, 7, r3, c15, c0, 2
+	biceq	r3, r3, #0x400
+	mcreq	p15, 7, r3, c15, c0, 2
+#endif	
+#ifdef CONFIG_MSM_JTAG
 	stmfd   sp!, {lr}
-	bl      v7_flush_kern_cache_all
-#ifdef CONFIG_MSM_ETM
-	bl      etm_restore_reg_check
-#endif
-#ifdef CONFIG_MSM_JTAG_V7
-	bl      msm_restore_jtag_debug
-#endif
+	bl      msm_jtag_restore_state
 	ldmfd   sp!, {lr}
+#endif
 	mov     r0, #1
 	bx      lr
 	nop
@@ -218,7 +248,17 @@ ENTRY(msm_pm_write_boot_vector)
 	ldr     r2, =msm_pm_boot_vector
 	add     r2, r2, r0, LSL #2       /* locate boot vector for our cpu */
 	str     r1, [r2]
+	mov	r0, r2
+	ldr	r1, =4
+	stmfd	sp!, {lr}
+	bl	v7_flush_kern_dcache_area
+	ldmfd	sp!, {lr}
 	bx      lr
+
+ENTRY(msm_pm_set_l2_flush_flag)
+	ldr r1, =msm_pm_flush_l2_flag
+	str r0, [r1]
+	bx lr
 
 	.data
 
@@ -236,3 +276,11 @@ saved_state_end:
 
 msm_pm_boot_vector:
 	.space  4 * NR_CPUS
+
+/*
+ * Default the l2 flush flag to 1 so that caches are flushed during power
+ * collapse unless the  L2 driver decides to flush them only during L2
+ * Power collapse.
+ */
+msm_pm_flush_l2_flag:
+	.long 0x1

@@ -118,7 +118,7 @@ static inline int sparse_index_init(unsigned long section_nr, int nid)
  * to also work for the flat array case because
  * NR_SECTION_ROOTS==NR_MEM_SECTIONS.
  */
-int __section_nr(struct mem_section *ms)
+int __section_nr(struct mem_section* ms)
 {
 	unsigned long root_nr;
 	struct mem_section *root;
@@ -502,7 +502,7 @@ void __init sparse_init(void)
 	 * so alloc 2M (with 2M align) and 24 bytes in turn will
 	 * make next 2M slip to one more 2M later.
 	 * then in big system, the memory will have a lot of holes...
-	 * here try to allocate 2M pages continously.
+	 * here try to allocate 2M pages continuously.
 	 *
 	 * powerpc need to call sparse_init_one_section right after each
 	 * sparse_early_mem_map_alloc, so allocate usemap_map at first.
@@ -673,10 +673,10 @@ static void __kfree_section_memmap(struct page *memmap, unsigned long nr_pages)
 static void free_map_bootmem(struct page *page, unsigned long nr_pages)
 {
 	unsigned long maps_section_nr, removing_section_nr, i;
-	int magic;
+	unsigned long magic;
 
 	for (i = 0; i < nr_pages; i++, page++) {
-		magic = atomic_read(&page->_mapcount);
+		magic = (unsigned long) page->lru.next;
 
 		BUG_ON(magic == NODE_INFO);
 

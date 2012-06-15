@@ -83,6 +83,16 @@
 #define CY_SPI_DAV			139	/* set correct gpio id */
 #define CY_SPI_BUFSIZE			512
 
+/* Voltage and Current ratings */
+#define CY_TMA300_VTG_MAX_UV		5500000
+#define CY_TMA300_VTG_MIN_UV		1710000
+#define CY_TMA300_CURR_24HZ_UA		17500
+#define CY_TMA300_SLEEP_CURR_UA		10
+#define CY_I2C_VTG_MAX_UV		1800000
+#define CY_I2C_VTG_MIN_UV		1800000
+#define CY_I2C_CURR_UA			9630
+#define CY_I2C_SLEEP_CURR_UA		10
+
 
 /* define for inclusion of TTSP App Update Load File
  * use this define if update to the TTSP Device is desired
@@ -435,6 +445,13 @@
 	#define CY_GEST_GRP4	0x00
 #endif	/* CY_USE_GEST_GRP4 */
 
+struct cyttsp_regulator {
+	const char *name;
+	u32	max_uV;
+	u32	min_uV;
+	u32	hpm_load_uA;
+	u32	lpm_load_uA;
+};
 
 struct cyttsp_platform_data {
 	u32 panel_maxx;
@@ -460,11 +477,17 @@ struct cyttsp_platform_data {
 	u8 lp_intrvl;
 	u8 power_state;
 	bool wakeup;
+	int sleep_gpio;
+	int resout_gpio;
+	int irq_gpio;
+	struct cyttsp_regulator *regulator_info;
+	u8 num_regulators;
 	const char *fw_fname;
 	bool disable_ghost_det;
 #ifdef CY_USE_I2C_DRIVER
 	s32 (*init)(struct i2c_client *client);
 	s32 (*resume)(struct i2c_client *client);
+	s32 (*suspend)(struct i2c_client *client);
 #endif
 #ifdef CY_USE_SPI_DRIVER
 	s32 (*init)(struct spi_device *spi);

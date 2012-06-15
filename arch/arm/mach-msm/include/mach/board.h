@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/include/mach/board.h
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2008-2012, Code Aurora Forum. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -22,22 +22,10 @@
 #include <linux/input.h>
 #include <linux/usb.h>
 #include <linux/leds-pmic8058.h>
+#include <linux/clkdev.h>
+#include <linux/of_platform.h>
 #include <linux/msm_ssbi.h>
-#ifdef CONFIG_MSM_BUS_SCALING
 #include <mach/msm_bus.h>
-#endif
-
-#include <asm/clkdev.h>
-
-/* platform device data structures */
-struct msm_acpu_clock_platform_data {
-	uint32_t acpu_switch_time_us;
-	uint32_t max_speed_delta_khz;
-	uint32_t vdd_switch_time_us;
-	unsigned int max_axi_khz;
-	unsigned int max_vdd;
-	int (*acpu_set_vdd) (int mvolts);
-};
 
 struct msm_camera_io_ext {
 	uint32_t mdcphy;
@@ -49,11 +37,22 @@ struct msm_camera_io_ext {
 	uint32_t csiphy;
 	uint32_t csisz;
 	uint32_t csiirq;
+	uint32_t csiphyphy;
+	uint32_t csiphysz;
+	uint32_t csiphyirq;
+	uint32_t ispifphy;
+	uint32_t ispifsz;
+	uint32_t ispifirq;
 };
 
 struct msm_camera_io_clk {
 	uint32_t mclk_clk_rate;
 	uint32_t vfe_clk_rate;
+};
+
+struct msm_cam_expander_info {
+	struct i2c_board_info const *board_info;
+	int bus_id;
 };
 
 struct msm_camera_device_platform_data {
@@ -62,9 +61,12 @@ struct msm_camera_device_platform_data {
 	struct msm_camera_io_ext ioext;
 	struct msm_camera_io_clk ioclk;
 	uint8_t csid_core;
-#ifdef CONFIG_MSM_BUS_SCALING
+	uint8_t is_csiphy;
+	uint8_t is_csic;
+	uint8_t is_csid;
+	uint8_t is_ispif;
+	uint8_t is_vpe;
 	struct msm_bus_scale_pdata *cam_bus_scale_table;
-#endif
 };
 enum msm_camera_csi_data_format {
 	CSI_8BIT,
@@ -78,19 +80,6 @@ struct msm_camera_csi_params {
 	uint8_t settle_cnt;
 	uint8_t dpcm_scheme;
 };
-
-#if defined(CONFIG_CRYPTO_DEV_QCRYPTO) || \
-	defined(CONFIG_CRYPTO_DEV_QCRYPTO_MODULE) || \
-	defined(CONFIG_CRYPTO_DEV_QCEDEV) || \
-	defined(CONFIG_CRYPTO_DEV_QCEDEV_MODULE)
-
-struct msm_ce_hw_support {
-	uint32_t ce_shared;
-	uint32_t shared_ce_resource;
-	uint32_t hw_key_support;
-	uint32_t sha_hmac;
-};
-#endif
 
 #ifdef CONFIG_SENSORS_MT9T013
 struct msm_camera_legacy_device_platform_data {
@@ -108,6 +97,8 @@ struct msm_camera_legacy_device_platform_data {
 #define MSM_CAMERA_FLASH_SRC_PMIC (0x00000001<<0)
 #define MSM_CAMERA_FLASH_SRC_PWM  (0x00000001<<1)
 #define MSM_CAMERA_FLASH_SRC_CURRENT_DRIVER	(0x00000001<<2)
+#define MSM_CAMERA_FLASH_SRC_EXT     (0x00000001<<3)
+#define MSM_CAMERA_FLASH_SRC_LED (0x00000001<<3)
 
 struct msm_camera_sensor_flash_pmic {
 	uint8_t num_of_src;
@@ -133,6 +124,17 @@ struct msm_camera_sensor_flash_current_driver {
 	const struct pmic8058_leds_platform_data *driver_channel;
 };
 
+struct msm_camera_sensor_flash_external {
+	uint32_t led_en;
+	uint32_t led_flash_en;
+	struct msm_cam_expander_info *expander_info;
+};
+
+struct msm_camera_sensor_flash_led {
+	const char *led_name;
+	const int led_name_len;
+};
+
 struct msm_camera_sensor_flash_src {
 	int flash_sr_type;
 
@@ -141,6 +143,9 @@ struct msm_camera_sensor_flash_src {
 		struct msm_camera_sensor_flash_pwm pwm_src;
 		struct msm_camera_sensor_flash_current_driver
 			current_driver_src;
+		struct msm_camera_sensor_flash_external
+			ext_driver_src;
+		struct msm_camera_sensor_flash_led led_src;
 	} _fsrc;
 };
 
@@ -160,12 +165,67 @@ struct msm_camera_sensor_strobe_flash_data {
 	int state;
 };
 
+enum msm_camera_type {
+	BACK_CAMERA_2D,
+	FRONT_CAMERA_2D,
+	BACK_CAMERA_3D,
+	BACK_CAMERA_INT_3D,
+};
+
+enum camera_vreg_type {
+	REG_LDO,
+	REG_VS,
+};
+
+struct camera_vreg_t {
+	char *reg_name;
+	enum camera_vreg_type type;
+	int min_voltage;
+	int max_voltage;
+	int op_mode;
+};
+
+struct msm_gpio_set_tbl {
+	unsigned gpio;
+	unsigned long flags;
+	uint32_t delay;
+};
+
+struct msm_camera_gpio_conf {
+	void *cam_gpiomux_conf_tbl;
+	uint8_t cam_gpiomux_conf_tbl_size;
+	struct gpio *cam_gpio_common_tbl;
+	uint8_t cam_gpio_common_tbl_size;
+	struct gpio *cam_gpio_req_tbl;
+	uint8_t cam_gpio_req_tbl_size;
+	struct msm_gpio_set_tbl *cam_gpio_set_tbl;
+	uint8_t cam_gpio_set_tbl_size;
+};
+
 struct msm_camera_sensor_platform_info {
 	int mount_angle;
+	int sensor_reset_enable;	
+	int sensor_reset;
+	int sensor_pwd;
+	int vcm_pwd;
+	int vcm_enable;	
+	struct camera_vreg_t *cam_vreg;
+	int num_vreg;
+	int32_t (*ext_power_ctrl) (int enable);
+	struct msm_camera_gpio_conf *gpio_conf;
+	void(*sensor_power_control) (int);	
+};
+
+struct msm_actuator_info {
+	struct i2c_board_info const *board_info;
+	int bus_id;
+	int vcm_pwd;
+	int vcm_enable;
 };
 
 struct msm_camera_sensor_info {
 	const char *sensor_name;
+	int sensor_reset_enable;
 	int sensor_reset;
 	int sensor_pwd;
 	int vcm_pwd;
@@ -178,13 +238,22 @@ struct msm_camera_sensor_info {
 	uint8_t num_resources;
 	struct msm_camera_sensor_flash_data *flash_data;
 	int csi_if;
-	uint32_t irq;
+	uint32_t irq;  //samsung
 	struct msm_camera_csi_params csi_params;
 	struct msm_camera_sensor_strobe_flash_data *strobe_flash_data;
 	char *eeprom_data;
+	enum msm_camera_type camera_type;
+	struct msm_actuator_info *actuator_info;
 };
 
-struct clk;
+struct msm_camera_board_info {
+	struct i2c_board_info *board_info;
+	uint8_t num_i2c_board_info;
+};
+
+int msm_get_cam_resources(struct msm_camera_sensor_info *);
+
+struct clk_lookup;
 
 struct snd_endpoint {
 	int id;
@@ -247,6 +316,17 @@ struct msm_adspdec_database {
 	struct dec_instance_table *dec_instance_list;
 };
 
+enum msm_mdp_hw_revision {
+	MDP_REV_20 = 1,
+	MDP_REV_22,
+	MDP_REV_30,
+	MDP_REV_303,
+	MDP_REV_31,
+	MDP_REV_40,
+	MDP_REV_41,
+	MDP_REV_42,
+};
+
 struct msm_panel_common_pdata {
 	uintptr_t hw_revision_addr;
 	int gpio;
@@ -262,7 +342,13 @@ struct msm_panel_common_pdata {
 #ifdef CONFIG_MSM_BUS_SCALING
 	struct msm_bus_scale_pdata *mdp_bus_scale_table;
 #endif
+	int mdp_rev;
+	u32 ov0_wb_size;  /* overlay0 writeback size */
+	u32 ov1_wb_size;  /* overlay1 writeback size */
+	u32 mem_hid;
 };
+
+
 
 struct lcdc_platform_data {
 	int (*lcdc_gpio_config)(int on);
@@ -290,10 +376,30 @@ struct mddi_platform_data {
 struct mipi_dsi_platform_data {
 	int vsync_gpio;
 	int (*dsi_power_save)(int on);
+	int (*dsi_client_reset)(void);
+	int (*get_lane_config)(void);
+	int target_type;
 };
 
-struct mipi_dsi_novatek_platform_data {
+enum mipi_dsi_3d_ctrl {
+	FPGA_EBI2_INTF,
+	FPGA_SPI_INTF,
+};
+
+/* DSI PHY configuration */
+struct mipi_dsi_phy_ctrl {
+	uint32_t regulator[5];
+	uint32_t timing[12];
+	uint32_t ctrl[4];
+	uint32_t strength[4];
+	uint32_t pll[21];
+};
+
+struct mipi_dsi_panel_platform_data {
+	int fpga_ctrl_mode;
 	int fpga_3d_config_addr;
+	int *gpio;
+	struct mipi_dsi_phy_ctrl *phy_ctrl_settings;
 };
 
 struct msm_fb_platform_data {
@@ -311,6 +417,8 @@ struct msm_hdmi_platform_data {
 	int (*cec_power)(int on);
 	int (*init_irq)(void);
 	bool (*check_hdcp_hw_support)(void);
+	int gpio;
+	int bootup_ck;
 };
 
 struct msm_i2c_platform_data {
@@ -334,6 +442,16 @@ struct msm_i2c_ssbi_platform_data {
 	enum msm_ssbi_controller_type controller_type;
 };
 
+struct msm_vidc_platform_data {
+	int memtype;
+	u32 enable_ion;
+	int disable_dmx;
+	int disable_fullhd;
+#ifdef CONFIG_MSM_BUS_SCALING
+	struct msm_bus_scale_pdata *vidc_bus_client_pdata;
+#endif
+};
+
 #if defined(CONFIG_USB_PEHCI_HCD) || defined(CONFIG_USB_PEHCI_HCD_MODULE)
 struct isp1763_platform_data {
 	unsigned reset_gpio;
@@ -341,33 +459,34 @@ struct isp1763_platform_data {
 };
 #endif
 
-#if defined(CONFIG_TDMB) || defined(CONFIG_TDMB_MODULE)
-struct tdmb_platform_data {
-	void (*gpio_on) (void);
-	void (*gpio_off)(void);
-	int irq;
-};
-#endif
-
 /* common init routines for use by arch/arm/mach-msm/board-*.c */
 
-void __init msm_add_devices(void);
-void __init msm_map_common_io(void);
-void __init msm_map_qsd8x50_io(void);
-void __init msm_map_msm8x60_io(void);
-void __init msm_map_msm8960_io(void);
-void __init msm_map_msm7x30_io(void);
-void __init msm_map_comet_io(void);
-void __init msm_init_irq(void);
-void __init msm_clock_init(struct clk_lookup *clock_tbl, unsigned num_clocks);
-void __init msm_acpu_clock_init(struct msm_acpu_clock_platform_data *);
+#ifdef CONFIG_OF_DEVICE
+void msm_copper_init(struct of_dev_auxdata **);
+#endif
+void msm_add_devices(void);
+void msm_copper_add_devices(void);
+void msm_map_common_io(void);
+void msm_map_qsd8x50_io(void);
+void msm_map_msm8x60_io(void);
+void msm_map_msm8960_io(void);
+void msm_map_msm8930_io(void);
+void msm_map_apq8064_io(void);
+void msm_map_msm7x30_io(void);
+void msm_map_fsm9xxx_io(void);
+void msm_map_copper_io(void);
+void msm_init_irq(void);
+void msm_copper_init_irq(void);
+void vic_handle_irq(struct pt_regs *regs);
+void msm_copper_reserve(void);
+void msm_copper_very_early(void);
 
 struct mmc_platform_data;
-int __init msm_add_sdcc(unsigned int controller,
+int msm_add_sdcc(unsigned int controller,
 		struct mmc_platform_data *plat);
 
 struct msm_usb_host_platform_data;
-int __init msm_add_host(unsigned int host,
+int msm_add_host(unsigned int host,
 		struct msm_usb_host_platform_data *plat);
 #if defined(CONFIG_USB_FUNCTION_MSM_HSUSB) \
 	|| defined(CONFIG_USB_MSM_72K) || defined(CONFIG_USB_MSM_72K_MODULE)
@@ -376,8 +495,8 @@ void msm_hsusb_set_vbus_state(int online);
 static inline void msm_hsusb_set_vbus_state(int online) {}
 #endif
 
-void __init msm_snddev_init(void);
-void __init msm_snddev_init_timpani(void);
+void msm_snddev_init(void);
+void msm_snddev_init_timpani(void);
 void msm_snddev_poweramp_on(void);
 void msm_snddev_poweramp_off(void);
 void msm_snddev_hsed_voltage_on(void);

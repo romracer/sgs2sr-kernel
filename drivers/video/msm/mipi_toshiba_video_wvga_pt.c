@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include "msm_fb.h"
@@ -57,10 +52,8 @@ static int __init mipi_video_toshiba_wvga_pt_init(void)
 {
 	int ret;
 
-#ifdef CONFIG_FB_MSM_MIPI_PANEL_DETECT
 	if (msm_fb_detect_client("mipi_video_toshiba_wvga"))
 		return 0;
-#endif
 
 	pinfo.xres = 480;
 	pinfo.yres = 864; /* 856 for V1 surf */

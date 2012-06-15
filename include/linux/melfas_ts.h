@@ -16,15 +16,30 @@
 
 #ifndef _LINUX_MELFAS_TS_H
 #define _LINUX_MELFAS_TS_H
+#undef TA_DETECTION
 
 #define MELFAS_TS_NAME "melfas-ts"
+
+struct melfas_version {
+	uint8_t tsp_revision;	
+	uint8_t hardware;
+	uint8_t compatibility;
+	uint8_t core;
+	uint8_t private;
+	uint8_t public;
+	uint8_t product_code;
+};
 
 struct melfas_tsi_platform_data {
 	int x_size;
 	int y_size;
-	int  version;
+	struct melfas_version *version;
 	int (*power)(int on);
 	void (*gpio)(void);
+#ifdef TA_DETECTION
+	void (*register_cb)(void*);
+	void (*read_ta_status)(void*);
+#endif
 };
 
 #endif /* _LINUX_MELFAS_TS_H */

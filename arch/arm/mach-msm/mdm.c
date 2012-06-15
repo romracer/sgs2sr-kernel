@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/module.h>
@@ -31,26 +26,22 @@
 #include <linux/delay.h>
 #include <linux/reboot.h>
 #include <linux/debugfs.h>
-#include <linux/smp_lock.h>
 #include <linux/completion.h>
 #include <linux/workqueue.h>
 #include <linux/clk.h>
-#include <linux/mfd/pmic8058.h>
-#include <linux/wakelock.h>
 #include <asm/mach-types.h>
 #include <asm/uaccess.h>
-#include <asm/clkdev.h>
+#include <linux/mfd/pm8xxx/misc.h>
 #include <mach/mdm.h>
 #include <mach/restart.h>
 #include <mach/subsystem_notif.h>
 #include <mach/subsystem_restart.h>
-#include <mach/msm_serial_hs_lite.h>
 #include <linux/msm_charm.h>
 #include <mach/sec_debug.h> /* onlyjazz */
 #include "msm_watchdog.h"
 #include "devices.h"
 #include "clock.h"
-
+#include <linux/wakelock.h>
 
 #define CHARM_MDM2AP_WAKEUP
 
@@ -59,13 +50,20 @@
 //#define CHARM_MODEM_TIMEOUT	6000
 //#define CHARM_HOLD_TIME		4000
 #define CHARM_MODEM_TIMEOUT	1500
+#if defined(CONFIG_TARGET_LOCALE_USA)
+/* CHARM_HOLD_TIME 4000ms : Currently, there is a debounce timer on the charm PMIC. 
+ * It is necessary to hold the AP2MDM_PMIC_RESET low for ~3.5 seconds for the reset to fully take place.
+ */
 #define CHARM_HOLD_TIME		4000
-#define CHARM_MODEM_DELTA		100
+#else
+#define CHARM_HOLD_TIME		500
+#endif
+#define CHARM_MODEM_DELTA	100
 
 static void (*power_on_charm)(void);
 static void (*power_down_charm)(void);
 
-static int charm_debug_on=1; // for test 20110808
+static int charm_debug_on = 1;
 static int charm_status_irq;
 static int charm_errfatal_irq;
 static int charm_ready;
@@ -87,6 +85,14 @@ DECLARE_COMPLETION(charm_needs_reload);
 DECLARE_COMPLETION(charm_boot);
 DECLARE_COMPLETION(charm_ram_dumps);
 
+#if defined(CONFIG_USA_OPERATOR_ATT) && defined(CONFIG_TARGET_SERIES_P5LTE)
+int get_charm_ready(void)
+{
+	return charm_ready;
+}
+EXPORT_SYMBOL(get_charm_ready);
+#endif
+
 static void charm_disable_irqs(void)
 {
 	disable_irq_nosync(charm_errfatal_irq);
@@ -94,15 +100,14 @@ static void charm_disable_irqs(void)
 
 }
 
-
-static int charm_subsys_shutdown(const char * const crashed_subsys)
+static int charm_subsys_shutdown(const struct subsys_data *crashed_subsys)
 {
 	charm_ready = 0;
 	power_down_charm();
 	return 0;
 }
 
-static int charm_subsys_powerup(const char * const crashed_subsys)
+static int charm_subsys_powerup(const struct subsys_data *crashed_subsys)
 {
 	power_on_charm();
 	boot_type = CHARM_NORMAL_BOOT;
@@ -114,7 +119,7 @@ static int charm_subsys_powerup(const char * const crashed_subsys)
 }
 
 static int charm_subsys_ramdumps(int want_dumps,
-					const char * const crashed_subsys)
+				const struct subsys_data *crashed_subsys)
 {
 	charm_ram_dump_status = 0;
 	if (want_dumps) {
@@ -141,6 +146,12 @@ static int charm_panic_prep(struct notifier_block *this,
 
 	CHARM_DBG("%s: setting AP2MDM_ERRFATAL high for a non graceful reset\n",
 			 __func__);
+
+#if 0	/* onlyjazz.el20 : remove pm8058_stay_on also in ICS upgrade version in order to avoid por confusion */
+	if (get_restart_level() == RESET_SOC)
+		pm8xxx_stay_on();
+#endif
+
 	charm_disable_irqs();
 	gpio_set_value(AP2MDM_ERRFATAL, 1);
 	gpio_set_value(AP2MDM_WAKEUP, 1);
@@ -162,7 +173,6 @@ void charm_assert_panic(void)
 	gpio_set_value(AP2MDM_ERRFATAL, 1);
 	gpio_set_value(AP2MDM_WAKEUP, 1); // Wake up the MDM if sleeping to avoid MDM dump corruption
 	mdelay(20);
-	
 }
 #endif
 
@@ -203,16 +213,12 @@ static long charm_modem_ioctl(struct file *filp, unsigned int cmd,
 		else
 			charm_boot_status = 0;
 		charm_ready = 1;
-		/* STATUS pin restore to PULL NONE config */
-		gpio_tlmm_config(GPIO_CFG(MDM2AP_STATUS, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_8MA),1);
-		
-        gpio_set_value(AP2MDM_KPDPWR_N, 0) ;
 
+		gpio_set_value(AP2MDM_KPDPWR_N, 0);
 		if (!first_boot)
 			complete(&charm_boot);
 		else
 			first_boot = 0;
-
 		break;
 	case RAM_DUMP_DONE:
 		CHARM_DBG("%s: charm done collecting RAM dumps\n", __func__);
@@ -231,7 +237,6 @@ static long charm_modem_ioctl(struct file *filp, unsigned int cmd,
 			put_user(boot_type, (unsigned long __user *) arg);
 		INIT_COMPLETION(charm_needs_reload);
 		break;
-#if defined(CONFIG_KOR_MODEL_SHV_E120L) || defined(CONFIG_TARGET_LOCALE_USA)
 	case RESET_CHARM:
 		CHARM_DBG("%s: reset charm start\n", __func__);
 		gpio_direction_output(AP2MDM_KPDPWR_N, 0);
@@ -247,7 +252,6 @@ static long charm_modem_ioctl(struct file *filp, unsigned int cmd,
 		gpio_direction_output(AP2MDM_KPDPWR_N, 1);
 		CHARM_DBG("%s: reset charm ok\n", __func__);
 		break;	
-#endif		
 	default:
 		pr_err("%s: invalid ioctl cmd = %d\n", __func__, _IOC_NR(cmd));
 		ret = -EINVAL;
@@ -289,10 +293,9 @@ static void charm_fatal_fn(struct work_struct *work)
 {
 	pr_info("Reseting the charm due to an errfatal\n");
 
-#if defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_TARGET_LOCALE_USA)
-#else
+#if 0	/* onlyjazz.el20 : remove pm8058_stay_on also in ICS upgrade version in order to avoid por confusion */
 	if (get_restart_level() == RESET_SOC)
-		pm8058_stay_on();
+		pm8xxx_stay_on();
 #endif
 
 	subsystem_restart("external_modem");
@@ -316,6 +319,9 @@ static irqreturn_t charm_errfatal(int irq, void *dev_id)
 	CHARM_DBG("%s: charm got errfatal interrupt\n", __func__);
 	if (charm_ready && (gpio_get_value(MDM2AP_STATUS) == 1)) {
 		CHARM_DBG("%s: scheduling work now\n", __func__);
+#ifdef CHARM_MDM2AP_WAKEUP
+		wake_lock_timeout(&charm_wakelock, 30*HZ);
+#endif
 		queue_work(charm_queue, &charm_fatal_work);
 	}
 	return IRQ_HANDLED;
@@ -326,6 +332,9 @@ static irqreturn_t charm_status_change(int irq, void *dev_id)
 	CHARM_DBG("%s: charm sent status change interrupt\n", __func__);
 	if ((gpio_get_value(MDM2AP_STATUS) == 0) && charm_ready) {
 		CHARM_DBG("%s: scheduling work now\n", __func__);
+#ifdef CHARM_MDM2AP_WAKEUP
+		wake_lock_timeout(&charm_wakelock, 30*HZ);
+#endif
 		queue_work(charm_queue, &charm_status_work);
 	} else if (gpio_get_value(MDM2AP_STATUS) == 1) {
 		CHARM_DBG("%s: charm is now ready\n", __func__);
@@ -365,7 +374,6 @@ static int charm_debugfs_init(void)
 static int gsbi9_uart_notifier_cb(struct notifier_block *this,
 					unsigned long code, void *_cmd)
 {
-
 	switch (code) {
 	case SUBSYS_AFTER_SHUTDOWN:
 		platform_device_unregister(msm_device_uart_gsbi9);
@@ -387,9 +395,6 @@ static int __init charm_modem_probe(struct platform_device *pdev)
 {
 	int ret, irq;
 	struct charm_platform_data *d = pdev->dev.platform_data;
-        
-	/* hold STATUS pin as PULL DOWN */
-	gpio_tlmm_config(GPIO_CFG(MDM2AP_STATUS, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_16MA),1);	       
 
 	gpio_request(AP2MDM_STATUS, "AP2MDM_STATUS");
 	gpio_request(AP2MDM_ERRFATAL, "AP2MDM_ERRFATAL");
@@ -399,11 +404,7 @@ static int __init charm_modem_probe(struct platform_device *pdev)
 	gpio_request(MDM2AP_ERRFATAL, "MDM2AP_ERRFATAL");
 	gpio_request(AP2MDM_WAKEUP, "AP2MDM_WAKEUP");
 
-#if defined(CONFIG_KOR_MODEL_SHV_E120L)
-        gpio_direction_output(AP2MDM_STATUS, 0);
-#else
 	gpio_direction_output(AP2MDM_STATUS, 1);
-#endif
 	gpio_direction_output(AP2MDM_ERRFATAL, 0);
 	gpio_direction_output(AP2MDM_WAKEUP, 0);
 	gpio_direction_input(MDM2AP_STATUS);
@@ -440,7 +441,7 @@ static int __init charm_modem_probe(struct platform_device *pdev)
 	if (ret < 0) {
 		pr_err("%s: MDM2AP_WAKEUP IRQ#%d request failed with error=%d\
 			. No IRQ will be generated on errfatal.",
-			__func__, irq, ret);
+			__func__, charm_wakeup_irq, ret);
 		goto wakeup_err;
 	}
 
@@ -504,7 +505,6 @@ fatal_err:
 	gpio_free(AP2MDM_PMIC_RESET_N);
 	gpio_free(MDM2AP_STATUS);
 	gpio_free(MDM2AP_ERRFATAL);
-	gpio_free(AP2MDM_WAKEUP);
 #ifdef CHARM_MDM2AP_WAKEUP
 	gpio_free(MDM2AP_WAKEUP);
 #endif
@@ -519,14 +519,12 @@ static int __devexit charm_modem_remove(struct platform_device *pdev)
 	wake_lock_destroy(&charm_wakelock);
 	gpio_free(MDM2AP_WAKEUP);
 #endif
-
 	gpio_free(AP2MDM_STATUS);
 	gpio_free(AP2MDM_ERRFATAL);
 	gpio_free(AP2MDM_KPDPWR_N);
 	gpio_free(AP2MDM_PMIC_RESET_N);
 	gpio_free(MDM2AP_STATUS);
 	gpio_free(MDM2AP_ERRFATAL);
-	gpio_free(AP2MDM_WAKEUP);
 
 	return misc_deregister(&charm_modem_misc);
 }
@@ -542,7 +540,7 @@ static void charm_modem_shutdown(struct platform_device *pdev)
 
 	gpio_set_value(AP2MDM_STATUS, 0);
 	gpio_set_value(AP2MDM_WAKEUP, 1);
-    
+
 	for (i = CHARM_MODEM_TIMEOUT; i > 0; i -= CHARM_MODEM_DELTA) {
 		pet_watchdog();
 		msleep(CHARM_MODEM_DELTA);
@@ -551,18 +549,30 @@ static void charm_modem_shutdown(struct platform_device *pdev)
 	}
 
 	msleep(200); // Add delay for NFC Card Mode after power-off
-
-
-	if (i <= 0) 
-		pr_err("%s: MDM2AP_STATUS never went low.\n", __func__);
-
-	/* Hard reset using RESIN_N  */        
-	gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
-	for (i = CHARM_HOLD_TIME; i > 0; i -= CHARM_MODEM_DELTA) {
-		pet_watchdog();
-		msleep(CHARM_MODEM_DELTA);
+#if defined(CONFIG_TARGET_LOCALE_USA)
+	/* When PM8058 has already shut down, PM8028 is still pulsing.
+	 * After shut down the MDM9K by AP2MDM_STATUS , 
+	 * then always turn off the PM8028 by AP2MDM_PMIC_RESET 
+	 */
+	if (true) {
+		if (i <= 0)
+			pr_err("%s: MDM2AP_STATUS never went low. Doing a hard reset of the charm modem.\n", 
+				__func__);		
+		else		
+			pr_err("%s: MDM2AP_STATUS went low. but we still need doing a hard reset again.\n", 
+				__func__);		
+#else
+	if (i <= 0) {
+		pr_err("%s: MDM2AP_STATUS never went low.\n",
+			 __func__);
+#endif	
+		gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
+		for (i = CHARM_HOLD_TIME; i > 0; i -= CHARM_MODEM_DELTA) {
+			pet_watchdog();
+			msleep(CHARM_MODEM_DELTA);
+		}
+		gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
 	}
-	gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
 	gpio_set_value(AP2MDM_WAKEUP, 0);
 }
 
@@ -591,6 +601,4 @@ module_exit(charm_modem_exit);
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("msm8660 charm modem driver");
 MODULE_VERSION("1.0");
-MODULE_ALIAS("charm_modem")
-
-
+MODULE_ALIAS("charm_modem");

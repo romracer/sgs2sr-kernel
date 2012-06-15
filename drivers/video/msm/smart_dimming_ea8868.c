@@ -300,7 +300,7 @@ u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp)
 	}
 
 
-#if 0 
+#if 1 
 
 		printk("++++++++++++++++++++++++++++++ MTP VALUE ++++++++++++++++++++++++++++++\n");
 		for(i=IV_1;i<IV_MAX;i++){

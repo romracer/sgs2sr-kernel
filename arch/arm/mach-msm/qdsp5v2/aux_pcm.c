@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  *
  */
 #include <linux/module.h>
@@ -88,7 +83,7 @@ void aux_codec_adsp_codec_ctl_en(bool msm_adsp_en)
 			baddr + AUX_CODEC_CTL_OFFSET);
 		}
 	}
-	dsb();
+	mb();
 }
 
 /* Set who control aux pcm path: adsp or MSM */
@@ -111,7 +106,7 @@ void aux_codec_pcm_path_ctl_en(bool msm_adsp_en)
 			baddr + PCM_PATH_CTL_OFFSET);
 		}
 	}
-	dsb();
+	mb();
 	return;
 }
 EXPORT_SYMBOL(aux_codec_pcm_path_ctl_en);

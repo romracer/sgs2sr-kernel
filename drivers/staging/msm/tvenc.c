@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/module.h>
@@ -279,12 +274,13 @@ static int __init tvenc_driver_init(void)
 
 	if (IS_ERR(tvenc_clk)) {
 		printk(KERN_ERR "error: can't get tvenc_clk!\n");
-		return IS_ERR(tvenc_clk);
+		return PTR_ERR(tvenc_clk);
 	}
 
 	if (IS_ERR(tvdac_clk)) {
 		printk(KERN_ERR "error: can't get tvdac_clk!\n");
-		return IS_ERR(tvdac_clk);
+		clk_put(tvenc_clk);
+		return PTR_ERR(tvdac_clk);
 	}
 
 //	pm_qos_add_requirement(PM_QOS_SYSTEM_BUS_FREQ , "tvenc",

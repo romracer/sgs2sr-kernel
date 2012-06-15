@@ -32,11 +32,10 @@
 #include <sound/soc.h>
 #include "msm8x60-pcm.h"
 
-struct snd_soc_dai msm_dais[] = {
+static struct snd_soc_dai_driver msm_pcm_codec_dais[] = {
 {
-	.name = "CODEC_DAI",
+	.name = "msm-codec-dai",
 	.playback = {
-		.stream_name = "Playback",
 		.channels_max = 2,
 		.rates = SNDRV_PCM_RATE_8000_48000,
 		.rate_min = 8000,
@@ -44,16 +43,16 @@ struct snd_soc_dai msm_dais[] = {
 		.formats = SNDRV_PCM_FMTBIT_S16_LE,
 	},
 	.capture = {
-		.stream_name = "Capture",
 		.channels_max = 2,
 		.rate_min = 8000,
 		.rates = SNDRV_PCM_RATE_8000_48000,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE,
 	},
 },
+};
+static struct snd_soc_dai_driver msm_pcm_cpu_dais[] = {
 {
-	.name = "CPU_DAI",
-	.id = 0,
+	.name = "msm-cpu-dai",
 	.playback = {
 		.channels_min = 1,
 		.channels_max = 2,
@@ -71,60 +70,78 @@ struct snd_soc_dai msm_dais[] = {
 	},
 },
 };
-EXPORT_SYMBOL_GPL(msm_dais);
 
-int msm_pcm_probe(struct platform_device *devptr)
+static struct snd_soc_codec_driver soc_codec_dev_msm = {
+        .compress_type = SND_SOC_FLAT_COMPRESSION,
+};
+
+static __devinit int asoc_msm_codec_probe(struct platform_device *pdev)
 {
-	struct snd_soc_codec *codec;
-	int ret;
+	dev_info(&pdev->dev, "%s: dev name %s\n", __func__, dev_name(&pdev->dev));
+	return snd_soc_register_codec(&pdev->dev, &soc_codec_dev_msm,
+                        msm_pcm_codec_dais, ARRAY_SIZE(msm_pcm_codec_dais));
+}
 
-	struct snd_soc_device *socdev = platform_get_drvdata(devptr);
-
-	printk(KERN_ERR "msm_soc: create pcms\n");
-	codec = kzalloc(sizeof(struct snd_soc_codec), GFP_KERNEL);
-	if (codec == NULL)
-		return -ENOMEM;
-
-	codec->name = "MSM-CARD";
-	codec->owner = THIS_MODULE;
-	socdev->card->codec = codec;
-	mutex_init(&codec->mutex);
-
-	INIT_LIST_HEAD(&codec->dapm_widgets);
-	INIT_LIST_HEAD(&codec->dapm_paths);
-
-	/* register pcms */
-	ret = snd_soc_new_pcms(socdev, SNDRV_DEFAULT_IDX1, SNDRV_DEFAULT_STR1);
-	if (ret < 0) {
-		printk(KERN_ERR "msm_soc: failed to create pcms\n");
-		goto __nopcm;
-	}
-
+static int __devexit asoc_msm_codec_remove(struct platform_device *pdev)
+{
+	snd_soc_unregister_dai(&pdev->dev);
 	return 0;
-
-__nopcm:
-	kfree(codec);
-	return ret;
 }
 
-struct snd_soc_codec_device soc_codec_dev_msm = {
-	.probe          = msm_pcm_probe,
+static __devinit int asoc_msm_cpu_probe(struct platform_device *pdev)
+{
+	dev_info(&pdev->dev, "%s: dev name %s\n", __func__, dev_name(&pdev->dev));
+	return snd_soc_register_dai(&pdev->dev, msm_pcm_cpu_dais);
+}
+
+static int __devexit asoc_msm_cpu_remove(struct platform_device *pdev)
+{
+	snd_soc_unregister_dai(&pdev->dev);
+	return 0;
+}
+
+static struct platform_driver asoc_msm_codec_driver = {
+	.probe = asoc_msm_codec_probe,
+	.remove = __devexit_p(asoc_msm_codec_remove),
+	.driver = {
+			.name = "msm-codec-dai",
+			.owner = THIS_MODULE,
+	},
 };
-EXPORT_SYMBOL_GPL(soc_codec_dev_msm);
 
+static struct platform_driver asoc_msm_cpu_driver = {
+	.probe = asoc_msm_cpu_probe,
+	.remove = __devexit_p(asoc_msm_cpu_remove),
+	.driver = {
+			.name = "msm-cpu-dai",
+			.owner = THIS_MODULE,
+	},
+};
 
-static int __init msm_dai_init(void)
+static int __init msm_codec_dai_init(void)
 {
-	return snd_soc_register_dais(msm_dais, ARRAY_SIZE(msm_dais));
+	return platform_driver_register(&asoc_msm_codec_driver);
 }
 
-static void __exit msm_dai_exit(void)
+static void __exit msm_codec_dai_exit(void)
 {
-	snd_soc_unregister_dais(msm_dais, ARRAY_SIZE(msm_dais));
+	platform_driver_unregister(&asoc_msm_codec_driver);
 }
 
-module_init(msm_dai_init);
-module_exit(msm_dai_exit);
+static int __init msm_cpu_dai_init(void)
+{
+	return platform_driver_register(&asoc_msm_cpu_driver);
+}
+
+static void __exit msm_cpu_dai_exit(void)
+{
+	platform_driver_unregister(&asoc_msm_cpu_driver);
+}
+
+module_init(msm_codec_dai_init);
+module_exit(msm_codec_dai_exit);
+module_init(msm_cpu_dai_init);
+module_exit(msm_cpu_dai_exit);
 
 /* Module information */
 MODULE_DESCRIPTION("MSM Codec/Cpu Dai driver");

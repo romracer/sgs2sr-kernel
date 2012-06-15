@@ -1,3 +1,22 @@
+/*
+ *  wacom_i2c_func.c - Wacom G5 Digitizer Controller (I2C bus)
+ *
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
 #include <linux/wacom_i2c.h>
 #ifdef EPEN_CPU_LOCK
 #include <mach/cpufreq.h>
@@ -18,6 +37,8 @@
 #define LATTICE_SIZE_X (( MAX_COORD_X / CAL_PITCH)+2)
 #define LATTICE_SIZE_Y (( MAX_COORD_Y / CAL_PITCH)+2)
 
+#define CONFIG_SAMSUNG_KERNEL_DEBUG_USER
+
 extern unsigned char screen_rotate;
 extern unsigned char user_hand;
 
@@ -26,8 +47,10 @@ extern unsigned char onEmrProx;
 #ifdef EPEN_CPU_LOCK
 bool epen_cpu_lock_status = 0;
 #endif
+/* block wacom coordinate print */
+/* extern int sec_debug_level(void); */
 
-#define CONFIG_SAMSUNG_KERNEL_DEBUG_USER
+
 int wacom_i2c_test(struct wacom_i2c *wac_i2c)
 {
 	int ret, i;
@@ -166,6 +189,9 @@ int wacom_i2c_query(struct wacom_i2c *wac_i2c)
 	printk(KERN_NOTICE "[E-PEN]: %X, %X, %X, %X, %X, %X, %X, %X, %X\n",
 				data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8]);
 
+	if( (i == 10) && (ret < 0) )
+		return ret;
+
 	return 0;
 }
 
@@ -278,27 +304,14 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 
 		if (data[0]&0x80) {
 			/* enable emr device */
-            
-#ifdef EPEN_CPU_LOCK // rafael
-			if (epen_cpu_lock_status == 0) {
-#ifdef CONFIG_S5PV310_HI_ARMCLK_THAN_1_2GHZ
-				s5pv310_cpufreq_lock(DVFS_LOCK_ID_PEN, CPU_L3);
-#else
-				s5pv310_cpufreq_lock(DVFS_LOCK_ID_PEN, CPU_L2);
-#endif
-				epen_cpu_lock_status = 1;
-			}
-#endif            
-
-
 			if (!wac_i2c->pen_prox) {
 
 				wac_i2c->pen_prox = 1;
 
 				if(data[0] & 0x40)
-					wac_i2c->tool=EPEN_TOOL_RUBBER;
+					wac_i2c->tool = BTN_TOOL_RUBBER;
 				else
-					wac_i2c->tool=EPEN_TOOL_PEN;
+					wac_i2c->tool = BTN_TOOL_PEN;
 #if defined(CONFIG_SAMSUNG_KERNEL_DEBUG_USER)
 				pr_debug("[E-PEN] is in(%d)\n", wac_i2c->tool);
 #endif
@@ -347,23 +360,62 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 				input_report_abs(wac_i2c->input_dev, ABS_X, x);
 				input_report_abs(wac_i2c->input_dev, ABS_Y, y);
 				input_report_abs(wac_i2c->input_dev, ABS_PRESSURE, pressure);
-				input_report_key(wac_i2c->input_dev, EPEN_STYLUS, stylus);
+				input_report_key(wac_i2c->input_dev,
+						 BTN_STYLUS, stylus);
 				input_report_key(wac_i2c->input_dev, BTN_TOUCH, prox);
 				input_report_key(wac_i2c->input_dev, wac_i2c->tool, 1);
 				input_sync(wac_i2c->input_dev);
 #if defined(CONFIG_SAMSUNG_KERNEL_DEBUG_USER)
 				if(prox && !wac_i2c->pen_pressed)
-					pr_info("[E-PEN] is pressed(%d,%d)(%d)\n", x, y, wac_i2c->tool);
+				{
+#ifdef EPEN_CPU_LOCK			
+					if (epen_cpu_lock_status == 0) {
+#ifdef CONFIG_S5PV310_HI_ARMCLK_THAN_1_2GHZ
+						s5pv310_cpufreq_lock(DVFS_LOCK_ID_PEN, CPU_L4);
+#else
+						s5pv310_cpufreq_lock(DVFS_LOCK_ID_PEN, CPU_L3);
+#endif
+						epen_cpu_lock_status = 1;
+					}
+#endif					
+/*					if(sec_debug_level() != 0 )
+						printk(KERN_DEBUG "[E-PEN] is pressed(%d,%d,%d)(%d) \n", x, y, pressure, wac_i2c->tool);
+					else
+*/
+						printk(KERN_DEBUG "[E-PEN] pressed\n");
+				}
 				else if(!prox && wac_i2c->pen_pressed)
-					pr_info("[E-PEN] is released(%d,%d)(%d)\n", x, y, wac_i2c->tool);
+				{
+#ifdef EPEN_CPU_LOCK
+					if (epen_cpu_lock_status) {
+						s5pv310_cpufreq_lock_free(DVFS_LOCK_ID_PEN);
+						epen_cpu_lock_status = 0;
+					}
+#endif					
+/*					if(sec_debug_level() != 0 )
+						pr_info("[E-PEN] is released(%d,%d,%d)(%d) \n", x, y, pressure, wac_i2c->tool);
+					else
+*/					
+						printk(KERN_DEBUG "[E-PEN] released\n");
+				}
 #endif
 				wac_i2c->pen_pressed = prox;
 
 #if defined(CONFIG_SAMSUNG_KERNEL_DEBUG_USER)
-				if(stylus && !wac_i2c->side_pressed)
-					pr_info("[E-PEN] side on(%d,%d)(%d)\n", x, y, wac_i2c->tool);
-				else if(!stylus && wac_i2c->side_pressed)
-					pr_info("[E-PEN] side off(%d,%d)(%d)\n", x, y, wac_i2c->tool);
+				if(stylus && !wac_i2c->side_pressed){
+/*					if(sec_debug_level() != 0 )
+						printk(KERN_DEBUG "[E-PEN] side on(%d,%d)(%d)\n", x, y, wac_i2c->tool);
+					else
+*/
+						printk(KERN_DEBUG "[E-PEN] side on");
+				}
+				else if(!stylus && wac_i2c->side_pressed){
+/*					if(sec_debug_level() != 0 )
+						printk(KERN_DEBUG "[E-PEN] side off(%d,%d)(%d)\n", x, y, wac_i2c->tool);
+					else
+*/
+						printk(KERN_DEBUG "[E-PEN] side off");
+				}
 #endif
 				wac_i2c->side_pressed = stylus;
 			}
@@ -377,16 +429,27 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 				/* input_report_abs(wac->input_dev, ABS_X, x); */
 				/* input_report_abs(wac->input_dev, ABS_Y, y); */
 				input_report_abs(wac_i2c->input_dev, ABS_PRESSURE, 0);
-				input_report_key(wac_i2c->input_dev, EPEN_STYLUS, 0);
+				input_report_key(wac_i2c->input_dev,
+						 BTN_STYLUS, 0);
 				input_report_key(wac_i2c->input_dev, BTN_TOUCH, 0);
 				input_report_key(wac_i2c->input_dev, wac_i2c->tool, 0);
 				input_sync(wac_i2c->input_dev);
 
 #if defined(CONFIG_SAMSUNG_KERNEL_DEBUG_USER)
-				if (wac_i2c->pen_pressed || wac_i2c->side_pressed)
-					pr_info("[E-PEN] is out(%d)\n", wac_i2c->tool);
-				else
-					pr_debug("[E-PEN] is out(%d)\n", wac_i2c->tool);
+				if (wac_i2c->pen_pressed || wac_i2c->side_pressed){
+/*					if(sec_debug_level() != 0 )
+						printk(KERN_DEBUG "[E-PEN] is out(%d)\n", wac_i2c->tool);
+					else
+*/
+						printk(KERN_DEBUG "[E-PEN] is out");
+				}
+				else {
+/*					if(sec_debug_level() != 0 )
+						printk(KERN_DEBUG "[E-PEN] is out(%d)\n", wac_i2c->tool);
+					else
+*/
+						printk(KERN_DEBUG "[E-PEN] is out");
+				}
 #endif
 				/* check_emr_device(false); */
 				/* unset dvfs level */

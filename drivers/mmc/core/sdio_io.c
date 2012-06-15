@@ -41,10 +41,8 @@ EXPORT_SYMBOL_GPL(sdio_claim_host);
  */
 void sdio_release_host(struct sdio_func *func)
 {
-	if(!func)
-		return -ENODEV;
-	if(!func->card)
-		return -ENODEV;
+	BUG_ON(!func);
+	BUG_ON(!func->card);
 
 	mmc_release_host(func->card->host);
 }
@@ -113,10 +111,8 @@ int sdio_disable_func(struct sdio_func *func)
 	int ret;
 	unsigned char reg;
 
-	if(!func)
-		return -ENODEV;
-	if(!func->card)
-		return -ENODEV;
+	BUG_ON(!func);
+	BUG_ON(!func->card);
 
 	pr_debug("SDIO: Disabling device %s...\n", sdio_func_id(func));
 
@@ -696,13 +692,11 @@ void sdio_f0_writeb(struct sdio_func *func, unsigned char b, unsigned int addr,
 
 	BUG_ON(!func);
 
-#if 0
 	if ((addr < 0xF0 || addr > 0xFF) && (!mmc_card_lenient_fn0(func->card))) {
 		if (err_ret)
 			*err_ret = -EINVAL;
 		return;
 	}
-#endif
 
 	ret = mmc_io_rw_direct(func->card, 1, 0, addr, b, NULL);
 	if (err_ret)

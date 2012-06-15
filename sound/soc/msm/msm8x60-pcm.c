@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/init.h>
@@ -54,11 +49,11 @@ static struct snd_pcm_hardware msm_pcm_hardware = {
 	.rate_max =             48000,
 	.channels_min =         1,
 	.channels_max =         2,
-	.buffer_bytes_max =     3840 * 8,
-	.period_bytes_min =	3840,
-	.period_bytes_max =     3840,
-	.periods_min =          8,
-	.periods_max =          8,
+	.buffer_bytes_max =     960 * 10,
+	.period_bytes_min =     960 * 5,
+	.period_bytes_max =     960 * 5,
+	.periods_min =          2,
+	.periods_max =          2,
 	.fifo_size =            0,
 };
 
@@ -265,14 +260,14 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	atomic_set(&prtd->in_count, 0);
 	for (i = 0; i < MAX_COPP; i++) {
 		pr_debug("prtd->session_id = %d, copp_id= %d",
-				prtd->session_id, i);
+			prtd->session_id, i);
 		if (session_route.playback_session[substream->number][i]
-			!= DEVICE_IGNORE) {
+				!= DEVICE_IGNORE) {
 			pr_err("Device active\n");
 			if (i == PCM_RX)
 				dev_rate = 8000;
 			msm_snddev_set_dec(prtd->session_id,
-					i, 1, dev_rate, runtime->channels);
+				       i, 1, dev_rate, runtime->channels);
 		}
 	}
 	prtd->enabled = 1;
@@ -309,13 +304,12 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	for (i = 0; i < runtime->periods; i++)
 		q6asm_read_nolock(prtd->audio_client);
 	prtd->periods = runtime->periods;
-
 	for (i = 0; i < MAX_COPP; i++) {
 		pr_debug("prtd->session_id = %d, copp_id= %d",
 			prtd->session_id,
 			session_route.capture_session[prtd->session_id][i]);
 		if (session_route.capture_session[prtd->session_id][i]
-					!= DEVICE_IGNORE) {
+				!= DEVICE_IGNORE) {
 			if (i == PCM_RX)
 				dev_rate = 8000;
 			msm_snddev_set_enc(prtd->session_id, i, 1, dev_rate, 1);
@@ -748,23 +742,11 @@ static struct snd_pcm_ops msm_pcm_ops = {
 	.mmap		= msm_pcm_mmap,
 };
 
-
-
-static int msm_pcm_remove(struct platform_device *devptr)
-{
-	struct snd_soc_device *socdev = platform_get_drvdata(devptr);
-	snd_soc_free_pcms(socdev);
-	kfree(socdev->card->codec);
-	platform_set_drvdata(devptr, NULL);
-	return 0;
-}
-
-static int msm_pcm_new(struct snd_card *card,
-			struct snd_soc_dai *codec_dai,
-			struct snd_pcm *pcm)
+static int msm_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
 	int ret = 0;
-
+	struct snd_card *card = rtd->card->snd_card;
+	struct snd_pcm *pcm = rtd->pcm;
 
 	ret = snd_pcm_new_stream(pcm, SNDRV_PCM_STREAM_PLAYBACK, 2);
 	if (ret)
@@ -780,23 +762,43 @@ static int msm_pcm_new(struct snd_card *card,
 	return ret;
 }
 
-struct snd_soc_platform msm_soc_platform = {
-	.name		= "msm-audio",
-	.remove         = msm_pcm_remove,
-	.pcm_ops	= &msm_pcm_ops,
+struct snd_soc_platform_driver msm_soc_platform = {
+	.ops            = &msm_pcm_ops,
 	.pcm_new	= msm_pcm_new,
 };
 EXPORT_SYMBOL(msm_soc_platform);
 
+static __devinit int msm_pcm_probe(struct platform_device *pdev)
+{
+	dev_info(&pdev->dev, "%s: dev name %s\n", __func__, dev_name(&pdev->dev));
+	return snd_soc_register_platform(&pdev->dev,
+				&msm_soc_platform);
+}
+
+static int msm_pcm_remove(struct platform_device *pdev)
+{
+	snd_soc_unregister_platform(&pdev->dev);
+	return 0;
+}
+
+static struct platform_driver msm_pcm_driver = {
+	.probe = msm_pcm_probe,
+	.remove = __devexit_p(msm_pcm_remove),
+	.driver = {
+		.name = "msm-dsp-audio",
+		.owner = THIS_MODULE,
+	},
+};
+
 static int __init msm_soc_platform_init(void)
 {
-	return snd_soc_register_platform(&msm_soc_platform);
+	return platform_driver_register(&msm_pcm_driver);
 }
 module_init(msm_soc_platform_init);
 
 static void __exit msm_soc_platform_exit(void)
 {
-	snd_soc_unregister_platform(&msm_soc_platform);
+	 platform_driver_unregister(&msm_pcm_driver);
 }
 module_exit(msm_soc_platform_exit);
 

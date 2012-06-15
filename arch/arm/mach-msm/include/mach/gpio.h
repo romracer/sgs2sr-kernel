@@ -26,6 +26,8 @@
 
 #define FIRST_BOARD_GPIO	NR_GPIO_IRQS
 
+extern struct irq_chip msm_gpio_irq_extn;
+
 static inline int gpio_get_value(unsigned gpio)
 {
 	return __gpio_get_value(gpio);
@@ -182,13 +184,20 @@ enum msm_tlmm_hdrive_tgt {
 	TLMM_HDRV_SDC3_CLK,
 	TLMM_HDRV_SDC3_CMD,
 	TLMM_HDRV_SDC3_DATA,
+	TLMM_HDRV_SDC1_CLK,
+	TLMM_HDRV_SDC1_CMD,
+	TLMM_HDRV_SDC1_DATA,
 };
 
 enum msm_tlmm_pull_tgt {
 	TLMM_PULL_SDC4_CMD = 0,
 	TLMM_PULL_SDC4_DATA,
+	TLMM_PULL_SDC3_CLK,
 	TLMM_PULL_SDC3_CMD,
 	TLMM_PULL_SDC3_DATA,
+	TLMM_PULL_SDC1_CLK,
+	TLMM_PULL_SDC1_CMD,
+	TLMM_PULL_SDC1_DATA,
 };
 #ifdef CONFIG_SEC_AUDIO_I2S_DRIVING_CURRENT
 enum msm_tlmm_spkr_hdrive_tgt {
@@ -202,6 +211,7 @@ enum msm_tlmm_spkr_pull_tgt {
 	CODEC_SPKR_WS_PULL,
 };
 #endif
+
 #ifdef CONFIG_MSM_V2_TLMM
 void msm_tlmm_set_hdrive(enum msm_tlmm_hdrive_tgt tgt, int drv_str);
 void msm_tlmm_set_pull(enum msm_tlmm_pull_tgt tgt, int pull);
@@ -239,9 +249,9 @@ static inline int msm_gpio_install_direct_irq(unsigned gpio, unsigned irq,
 	return -ENOSYS;
 }
 #endif
+
 #ifdef CONFIG_SEC_AUDIO_I2S_DRIVING_CURRENT
 void msm_tlmm_set_spkr_hdrive(enum msm_tlmm_spkr_hdrive_tgt tgt, int drv_str);
 void msm_tlmm_set_spkr_pull(enum msm_tlmm_spkr_pull_tgt tgt, int drv_str);
 #endif
-
 #endif /* __ASM_ARCH_MSM_GPIO_H */

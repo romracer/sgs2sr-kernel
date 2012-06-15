@@ -837,16 +837,11 @@ static struct snd_pcm_ops msm_mvs_pcm_ops = {
 	.pointer = msm_pcm_pointer,
 
 };
-static int msm_pcm_remove(struct platform_device *devptr)
-{
-	return 0;
-}
 
-static int msm_pcm_new(struct snd_card *card,
-			struct snd_soc_dai *codec_dai,
-			struct snd_pcm *pcm)
+static int msm_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
 	int   i, ret, offset = 0;
+	struct snd_pcm *pcm = rtd->pcm;
 
 	audio_mvs_info.mem_chunk = kmalloc(
 		2 * MVS_MAX_VOC_PKT_SIZE * MVS_MAX_Q_LEN, GFP_KERNEL);
@@ -885,13 +880,32 @@ static int msm_pcm_new(struct snd_card *card,
 	return 0;
 }
 
-struct snd_soc_platform msm_mvs_soc_platform = {
-	.name		= "msm-mvs-audio",
-	.remove		= msm_pcm_remove,
-	.pcm_ops	= &msm_mvs_pcm_ops,
+struct snd_soc_platform_driver msm_mvs_soc_platform = {
+	.ops		= &msm_mvs_pcm_ops,
 	.pcm_new	= msm_pcm_new,
 };
 EXPORT_SYMBOL(msm_mvs_soc_platform);
+
+static __devinit int msm_pcm_probe(struct platform_device *pdev)
+{
+	return snd_soc_register_platform(&pdev->dev,
+				&msm_mvs_soc_platform);
+}
+
+static int msm_pcm_remove(struct platform_device *pdev)
+{
+	snd_soc_unregister_platform(&pdev->dev);
+	return 0;
+}
+
+static struct platform_driver msm_pcm_driver = {
+	.driver = {
+		.name = "msm-mvs-audio",
+		.owner = THIS_MODULE,
+	},
+	.probe = msm_pcm_probe,
+	.remove = __devexit_p(msm_pcm_remove),
+};
 
 static int __init msm_mvs_soc_platform_init(void)
 {
@@ -908,13 +922,13 @@ static int __init msm_mvs_soc_platform_init(void)
 				"audio_mvs_suspend");
 	wake_lock_init(&audio_mvs_info.idle_lock, WAKE_LOCK_IDLE,
 				"audio_mvs_idle");
-	return snd_soc_register_platform(&msm_mvs_soc_platform);
+	return platform_driver_register(&msm_pcm_driver);
 }
 module_init(msm_mvs_soc_platform_init);
 
 static void __exit msm_mvs_soc_platform_exit(void)
 {
-	snd_soc_unregister_platform(&msm_mvs_soc_platform);
+	 platform_driver_unregister(&msm_pcm_driver);
 }
 module_exit(msm_mvs_soc_platform_exit);
 

@@ -61,8 +61,11 @@
 // a high-to-low transition. This is used in the polling loop of
 // fDetectHiLoTransition(). Each pass through the loop takes approximately 15
 // usec. 100 msec is about 6740 loops. 13480
+#if defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined (CONFIG_KOR_MODEL_SHV_E160L)
+#define TRANSITION_TIMEOUT     500
+#else
 #define TRANSITION_TIMEOUT     0x100000 //6740
-
+#endif
 // XRES_DELAY is the time duration for which XRES is asserted. This defines
 // a 63 usec delay.
 // The minimum Xres time (from the device datasheet) is 10 usec.

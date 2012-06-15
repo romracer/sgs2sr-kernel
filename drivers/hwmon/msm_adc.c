@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/kernel.h>
@@ -104,7 +99,7 @@ static bool epm_fluid_enabled;
 static struct msm_adc_drv *msm_adc_drv;
 
 #if defined (CONFIG_PMIC8058_XOADC_CAL)
-static int conv_first_request;
+static bool conv_first_request;
 #endif
 
 static ssize_t msm_adc_show_curr(struct device *dev,
@@ -736,15 +731,15 @@ static int msm_adc_blocking_conversion(struct msm_adc_drv *msm_adc,
 					msm_adc_drv->pdev->dev.platform_data;
 	struct msm_adc_channels *channel = &pdata->channel[hwmon_chan];
 #if defined (CONFIG_PMIC8058_XOADC_CAL)
-	int ret;
+	int ret = 0;
 
-	if (!conv_first_request) {
+	if (conv_first_request) {
 		ret = pm8058_xoadc_calib_device(channel->adc_dev_instance);
 		if (ret) {
 			pr_err("pmic8058 xoadc calibration failed, retry\n");
 			return ret;
 		}
-		conv_first_request = 1;
+		conv_first_request = false;
 	}
 #endif
 	channel->adc_access_fn->adc_slot_request(channel->adc_dev_instance,
@@ -836,13 +831,13 @@ int32_t adc_channel_request_conv(void *h, struct completion *conv_complete_evt)
 #if defined (CONFIG_PMIC8058_XOADC_CAL)
 	int ret;
 
-	if (!conv_first_request) {
+	if (conv_first_request) {
 		ret = pm8058_xoadc_calib_device(channel->adc_dev_instance);
 		if (ret) {
-			pr_err("pm8058 xoadc calibration failed, retry\n");
+			pr_err("pmic8058 xoadc calibration failed, retry\n");
 			return ret;
 		}
-		conv_first_request = 1;
+		conv_first_request = false;
 	}
 #endif
 	channel->adc_access_fn->adc_slot_request(channel->adc_dev_instance,
@@ -863,9 +858,6 @@ int32_t adc_channel_request_conv(void *h, struct completion *conv_complete_evt)
 		slot->chan_adc_config = channel->adc_config_type;
 		slot->chan_adc_calib = channel->adc_calib_type;
 		queue_work(msm_adc_drv->wq, &slot->work);
-#ifdef CONFIG_SEC_DEBUG_PM8058_ADC_VERBOSE
-		pr_info("MSM:ADC:request_conv:%d\n", slot->chan_path);
-#endif		
 		return 0;
 	}
 	return -EBUSY;
@@ -881,9 +873,6 @@ int32_t adc_channel_read_result(void *h, struct adc_chan_result *chan_result)
 	int rc = 0;
 
 	mutex_lock(&client->lock);
-#ifdef CONFIG_SEC_DEBUG_PM8058_ADC_VERBOSE
-	pr_info("MSM:ADC:read_result\n");
-#endif		
 
 	slot = list_first_entry(&client->complete_list,
 				struct adc_conv_slot, list);
@@ -906,46 +895,6 @@ int32_t adc_channel_read_result(void *h, struct adc_chan_result *chan_result)
 		channel[slot->conv.result.chan].adc_dev_instance, slot);
 
 	return rc;
-}
-
-int32_t adc_calib_request(void *h, struct completion *calib_complete_evt)
-{
-	struct msm_client_data *client = (struct msm_client_data *)h;
-	struct msm_adc_platform_data *pdata =
-					msm_adc_drv->pdev->dev.platform_data;
-	struct msm_adc_channels *channel = &pdata->channel[client->adc_chan];
-	struct adc_conv_slot *slot;
-	int rc, calib_status;
-
-	channel->adc_access_fn->adc_slot_request(channel->adc_dev_instance,
-				&slot);
-	if (slot) {
-		slot->conv.result.chan = client->adc_chan;
-		slot->blocking = 0;
-		slot->compk = calib_complete_evt;
-		slot->adc_request = START_OF_CALIBRATION;
-		slot->chan_path = channel->chan_path_type;
-		slot->chan_adc_config = channel->adc_config_type;
-		slot->chan_adc_calib = channel->adc_calib_type;
-		rc = channel->adc_access_fn->adc_calibrate(
-			channel->adc_dev_instance, slot, &calib_status);
-
-		if (calib_status == CALIB_NOT_REQUIRED) {
-			channel->adc_access_fn->adc_restore_slot(
-					channel->adc_dev_instance, slot);
-			/* client will always wait in case when
-				calibration is not required */
-			complete(calib_complete_evt);
-		} else {
-			atomic_inc(&msm_adc_drv->total_outst);
-			mutex_lock(&client->lock);
-			client->num_outstanding++;
-			mutex_unlock(&client->lock);
-		}
-
-		return rc;
-	}
-	return -EBUSY;
 }
 
 static void msm_rpc_adc_conv_cb(void *context, u32 param,
@@ -997,9 +946,6 @@ void msm_adc_conv_cb(void *context, u32 param,
 {
 	struct adc_conv_slot *slot = context;
 	struct msm_adc_drv *msm_adc = msm_adc_drv;
-#ifdef CONFIG_SEC_DEBUG_PM8058_ADC_VERBOSE
-	pr_info("MSM:ADC:adc_conv_cb\n");
-#endif
 
 	switch (slot->adc_request) {
 	case START_OF_CONV:
@@ -1326,9 +1272,6 @@ void msm_adc_wq_work(struct work_struct *work)
 	case END_OF_CONV:
 		adc_properties = channel->adc_access_fn->adc_get_properties(
 						channel->adc_dev_instance);
-#ifdef CONFIG_SEC_DEBUG_PM8058_ADC_VERBOSE
-		pr_info("MSM:ADC:Workqueue for ADC read rslt\n");
-#endif
 		if (channel->adc_access_fn->adc_read_adc_code)
 			channel->adc_access_fn->adc_read_adc_code(
 					channel->adc_dev_instance, &adc_code);
@@ -1375,12 +1318,8 @@ void msm_adc_wq_work(struct work_struct *work)
 				wake_up_interruptible_all(
 					&msm_adc_drv->total_outst_wait);
 
-			if (slot->compk) { /* Kernel space request */
-#ifdef CONFIG_SEC_DEBUG_PM8058_ADC_VERBOSE
-				pr_info("MSM:ADC:Workqueue send comp event\n");
-#endif
+			if (slot->compk) /* Kernel space request */
 				complete(slot->compk);
-			}
 			if (slot->adc_request == END_OF_CALIBRATION)
 				channel->adc_access_fn->adc_restore_slot(
 					channel->adc_dev_instance, slot);
@@ -1466,7 +1405,7 @@ static int msm_adc_probe(struct platform_device *pdev)
 	msm_adc_drv = msm_adc;
 	msm_adc->pdev = pdev;
 
-	if (pdata->target_hw == MSM_8x60) {
+	if (pdata->target_hw == MSM_8x60 || pdata->target_hw == FSM_9xxx) {
 		rc = msm_adc_init_hwmon(pdev, msm_adc);
 		if (rc) {
 			dev_err(&pdev->dev, "msm_adc_dev_init failed\n");
@@ -1505,6 +1444,9 @@ static int msm_adc_probe(struct platform_device *pdev)
 		else
 			msm_rpc_adc_init(pdev);
 	}
+#if defined (CONFIG_PMIC8058_XOADC_CAL)
+	conv_first_request = true;
+#endif
 
 	pr_info("msm_adc successfully registered\n");
 

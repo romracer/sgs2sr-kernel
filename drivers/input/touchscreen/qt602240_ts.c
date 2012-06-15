@@ -30,11 +30,13 @@
 #include "mxt768e.h"
 #endif
 #include <mach/sec_debug.h>
+#include <linux/input/mt.h>   // SLOT
 
 #include <../mach-msm/smd_private.h>
 #include <../mach-msm/smd_rpcrouter.h>
 
 
+#undef TOUCH_NON_SLOT // Use only for GB
 
 #define OBJECT_TABLE_START_ADDRESS	7
 #define OBJECT_TABLE_ELEMENT_SIZE	6
@@ -98,7 +100,16 @@
 
 
 #define T48_CALCFG_TA     0x52
+
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R)
+#define	T48_CALCFG                0x42
+#else
+#if defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+#define	T48_CALCFG                0x72 //20120418
+#else
 #define	T48_CALCFG                0x40
+#endif
+#endif
 
 #define CPURATE_FOR_TOUCH_BOOSTER		1512000
 
@@ -124,6 +135,9 @@
 static bool gbfilter;
 #endif
 
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727)|| defined (CONFIG_USA_MODEL_SGH_T989)
+#define MXT_REG_VERSION "1021"
+#endif
 
 struct object_t {
 	u8 object_type;
@@ -204,14 +218,14 @@ static u8 mxt_version_disp;
 static u8 tsp_version_disp;
 static int threshold = 55;
 static int threshold_e = 50; 
-static int optiacl_gain;
+// static int optiacl_gain;
 static int firm_status_data;
 static bool lock_status;
 static int touch_state; /* 1:release, 2:press, 3:others */
 static bool boot_or_resume = 1;/*1: boot_or_resume,0: others*/
 
 static int palm_chk_flag;
-static bool auto_cal_flag; /* 1: enabled,0: disabled*/
+// static bool auto_cal_flag; /* 1: enabled,0: disabled*/
 static bool ta_status_pre = 0;
 static unsigned char is_inputmethod = 0;
 #ifdef CLEAR_MEDIAN_FILTER_ERROR
@@ -230,6 +244,11 @@ static int ghosttouchcount = 0;
 static int tsp_reboot_count = 0;
 static int cFailbyPattenTracking = 0;
 
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727)|| defined (CONFIG_USA_MODEL_SGH_T989)
+static unsigned int gResume_flag = 0;
+static unsigned char not_yet_count = 0;
+
+#endif
 static void mxt224_optical_gain(u8 family_id, uint16_t dbg_mode);
 static void TSP_forced_release_for_call(void);
 static int tsp_pattern_tracking(int fingerindex, s16 x, s16 y);
@@ -237,7 +256,7 @@ static void report_input_data(struct mxt224_data *data);
 static void TSP_forced_reboot(void);
 
 
-extern unsigned int  get_hw_rev();
+extern unsigned int  get_hw_rev(void);
 
 static int read_mem(struct mxt224_data *data, u16 reg, u8 len, u8 *buf)
 {
@@ -364,6 +383,65 @@ static int __devinit calculate_infoblock_crc(struct mxt224_data *data,
 	return 0;
 }
 
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+void NoiseEntryStartFunc(void)
+{
+	u16 obj_address=0;
+	u16 size = 1;
+	int ret = 0;
+	u8 value;
+
+
+	//object_address = get_object_address(TOUCH_MULTITOUCHSCREEN_T9, 0);
+
+	ret = get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9, &size, &obj_address);
+
+#if 0	
+	if (object_address == OBJECT_NOT_FOUND) {
+		dprintk("\n[TSP][ERROR] TOUCH_MULTITOUCHSCREEN_T9 object_address : %d\n", __LINE__);
+		return -1;
+	}
+#endif	
+
+	if(gResume_flag)
+	{
+
+		// Threshold
+		value = 90;	
+		//status = write_mem(object_address+7, 1, &data);
+		write_mem(copy_data, obj_address+7, 1, &value); 
+
+		// TouchDI
+		value = 3;
+		//status = write_mem(object_address+8, 1, &data);
+		write_mem(copy_data, obj_address+8, 1, &value); 
+		printk(KERN_ERR"[TSP] Noise Start Flag In t(80) di(3)\n");
+
+
+
+	}
+	else
+	{
+		
+		// Threshold
+		value = 40; 
+		//status = write_mem(object_address+7, 1, &data);
+		write_mem(copy_data, obj_address+7, 1, &value); 
+
+
+		// TouchDI
+		value = 2;//
+		//status = write_mem(object_address+8, 1, &data);
+		write_mem(copy_data, obj_address+8, 1, &value); 
+
+		printk(KERN_ERR"[TSP] Noise Start Flag Out t(default) di(default)\n");
+		
+
+
+	}
+}
+#endif
+
 static unsigned int qt_time_point;
 static unsigned int qt_time_diff;
 static unsigned int qt_timer_state;
@@ -401,9 +479,10 @@ uint8_t calibrate_chip(void)
         /* resume calibration must be performed with zero settings */
         atchcalst_tmp = 0;
         atchcalsthr_tmp = 0;
-
+	
+#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined(CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)
 		ret = write_mem(copy_data, obj_address+4, 1, &atchcalst_tmp);	/* TCHAUTOCAL */
-
+#endif
 		ret = write_mem(copy_data, obj_address+6, 1, &atchcalst_tmp);      /* atchcalst */
 		ret1 = write_mem(copy_data, obj_address+7, 1, &atchcalsthr_tmp);  /*atchcalsthr */
 
@@ -449,6 +528,12 @@ uint8_t calibrate_chip(void)
         }
 
     }
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+    else
+    {
+		printk(KERN_ERR"[TSP]calibration ignore!!!\n");
+    }
+#endif
     return ret;
 }
 
@@ -479,9 +564,13 @@ static void mxt224_ta_probe(int ta_status)
 	u8 blen;	
 	u8 calcfg_dis;
 	u8 calcfg_en;
-	u16 i;
+	// u16 i;
 	u8 size;	
 	u8 active_depth;
+	
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+        u8 charge_time;
+#endif
 
 	printk(KERN_ERR"[TSP] mxt224_ta_probe \n");
 	if (!mxt224_enabled) {
@@ -495,38 +584,64 @@ static void mxt224_ta_probe(int ta_status)
 		threshold_e = 40;		
 		calcfg_dis = T48_CALCFG_TA;
 		calcfg_en = T48_CALCFG_TA | 0x20;
+		
+		#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+		noise_threshold = 32;
+		active_depth = 35;	//20120418
+		#else		
 		noise_threshold = 40;
-		movfilter = 46;
-		blen = 16;
-		active_depth = 38;		
-		#ifdef CLEAR_MEDIAN_FILTER_ERROR
-		gErrCondition =  ERR_RTN_CONDITION_MAX;
-		noise_median.mferr_setting = false;
+		active_depth = 38;	//20120418	
 		#endif
 
-		
+		movfilter = 46;
+		blen = 16;
+
+		#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+                charge_time = 22;
+		#endif		
+
+		#ifdef CLEAR_MEDIAN_FILTER_ERROR
+		gErrCondition =  ERR_RTN_CONDITION_MAX;
+		#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+                noise_median.mferr_setting = false;
+		#endif
+		#endif
+
+
 	} else {
-	    if (boot_or_resume==1)
+		#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)
+		if (boot_or_resume==1)
 			threshold = 55;
 		else
 		    threshold = 40;
 		threshold_e = 50;
-        calcfg_dis = T48_CALCFG;
+		#endif
+
+		calcfg_dis = T48_CALCFG;
 		calcfg_en = T48_CALCFG | 0x20;
 		noise_threshold = 30;
 		movfilter = 11;		
-		blen = 32;		
-		active_depth = 32;
+		blen = 32;
+		#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+		active_depth = 26;//20120418
+		charge_time = 22;
+		#else
+		active_depth = 56;
+		#endif
 		#ifdef CLEAR_MEDIAN_FILTER_ERROR
 		gErrCondition =  ERR_RTN_CONDITION_IDLE;
 		noise_median.mferr_count=0;
 		noise_median.mferr_setting = false;
+		#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
 		noise_median.median_on_flag = false;
+		#endif
 		#endif
 
 	}
 	
 	if (copy_data->family_id==0x81) {
+
+		#if !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)
 		#ifdef CLEAR_MEDIAN_FILTER_ERROR
 		if(!ta_status)
 		{
@@ -541,22 +656,32 @@ static void mxt224_ta_probe(int ta_status)
 			register_address=7;
 			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
 			// move Filter
+			#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R)
+			value = 81;
+			#else
 			value = 46;
+			#endif
 			register_address=13;
 			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-
-			value = 3;
-			write_mem(copy_data, obj_address+34, 1, &value); 
 		}
 		#endif
+		#endif
 
-		value = active_depth; 
+		#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R)
+		value = 26;
+		#else
+		value = active_depth;
+		#endif
 		ret = get_object_info(copy_data, SPT_CTECONFIG_T46, &size_one, &obj_address);
 		write_mem(copy_data, obj_address+3, 1, &value);
-
 		
 		ret = get_object_info(copy_data, GEN_ACQUISITIONCONFIG_T8, &size_one, &obj_address);
 		size_one = 1;
+
+		#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+	        value = charge_time;
+		write_mem(copy_data, obj_address, size_one, &value);
+		#else
 		if (ta_status)
 		{
 			value = 22;
@@ -567,16 +692,14 @@ static void mxt224_ta_probe(int ta_status)
 			value = 27;
 			write_mem(copy_data, obj_address, size_one, &value);
 		}
-
+		#endif
 	
 		value = calcfg_dis;
 		register_address=2;
 		ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
-	    size = size_one;
+	       size = size_one;
 		size_one = 1;
 		write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//		printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
 		
 		if (ta_status)
 		write_config(copy_data, PROCG_NOISESUPPRESSION_T48, copy_data->noise_suppression_cfg_ta);
@@ -593,16 +716,16 @@ static void mxt224_ta_probe(int ta_status)
 			value = t48_jump_limit;
 			register_address=51;
 			ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
-			size_one = 1;
-			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//			printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
+		size_one = 1;
+		write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
+		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
 			
 			value = t48_mrgthr;
 			register_address=42;
 			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//			printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,register_address,val);
 		}
 		
 		/*for (i = 0; i < size; i++) {
@@ -620,48 +743,48 @@ static void mxt224_ta_probe(int ta_status)
 		value = (u8)movfilter;
 		register_address=13;		
 		write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//		printk(KERN_ERR"[TSP]TA_probe MXT224 T%d Byte%d is %d\n", 9, register_address, val);
+		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+		printk(KERN_ERR"[TSP]TA_probe MXT224 T%d Byte%d is %d\n", 9, register_address, val);
 
 		value = noise_threshold;
 		register_address = 8;
 		ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T22, &size_one, &obj_address);
 		size_one = 1;
 		write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//		printk(KERN_ERR"[TSP]TA_probe MXT224 T%d Byte%d is %d\n", 22, register_address, val);		
+		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+		printk(KERN_ERR"[TSP]TA_probe MXT224 T%d Byte%d is %d\n", 22, register_address, val);		
 
 		if(is_inputmethod == 1)   /* T48 Config change for TA connection */
 		{
-			ret = get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9, &size_one, &obj_address);
+		ret = get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9, &size_one, &obj_address);
 			register_address = 16;		
 			value = (u8)t48_mrgthr;
-			size_one = 1;
-			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//			printk(KERN_ERR "T%d Byte%d is %d\n", 9, register_address, val);
+		size_one = 1;
+		write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
+		read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR "T%d Byte%d is %d\n", 9, register_address, val);
 			
 			register_address = 30;				
 			value = (u8)t48_jump_limit;
 			size_one = 1;
 			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//			printk(KERN_ERR "T%d Byte%d is %d\n", 9, register_address, val);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR "T%d Byte%d is %d\n", 9, register_address, val);
 
 			value = t48_jump_limit;
 			register_address=51;
 			ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
 			size_one = 1;
 			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//			printk(KERN_ERR"[TSP] MXT224E T%d Byte%d is %d\n",48,register_address,val);
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR"[TSP] MXT224E T%d Byte%d is %d\n",48,register_address,val);
 			
 			value = t48_mrgthr;
 			register_address=42;
 			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
-//			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
-//			printk(KERN_ERR"[TSP] MXT224E T%d Byte%d is %d\n",48,register_address,val);
-		}
+			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
+			printk(KERN_ERR"[TSP] MXT224E T%d Byte%d is %d\n",48,register_address,val);
+	}
 
 	}
 	ta_status_pre = (bool)ta_status;
@@ -669,19 +792,22 @@ static void mxt224_ta_probe(int ta_status)
 
 void check_chip_calibration(unsigned char one_touch_input_flag)
 {
-    u8 data_buffer[100] = { 0 };
-    u8 try_ctr = 0;
-    u8 data_byte = 0xF3; /* dianostic command to get touch flags */
-    u8 tch_ch = 0, atch_ch = 0;
+	u8 data_buffer[100] = { 0 };
+	u8 try_ctr = 0;
+	u8 data_byte = 0xF3; /* dianostic command to get touch flags */
+	u8 tch_ch = 0, atch_ch = 0;
 	/* u8 atchcalst, atchcalsthr; */
-    u8 check_mask;
-    u8 i,j =0;
-    u8 x_line_limit;
+	u8 check_mask;
+	u8 i,j =0;
+	u8 x_line_limit;
 	int ret;
 	u16 size;
 	u16 object_address=0;
+	
+	#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
 	bool ta_status_check;
 	u8 val;
+	#endif
 
 
         /* we have had the first touchscreen or face suppression message
@@ -782,8 +908,23 @@ void check_chip_calibration(unsigned char one_touch_input_flag)
 
 
             /* process counters and decide if we must re-calibrate or if cal was good */
+		#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+		    if (tch_ch+atch_ch >= 25) {
+				/* cal was bad - must recalibrate
+				and check afterwards */
+				printk(KERN_ERR"[TSP] tch_ch+atch_ch  calibration was bad\n");
+				calibrate_chip();
+				qt_timer_state=0;
+	            qt_time_point = jiffies_to_msecs(jiffies);
+		    }
+	        else 
+		#endif
 		if ((tch_ch > 0) && (atch_ch == 0)) {  /* jwlee change. */
                 /* cal was good - don't need to check any more */
+		
+				#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+				not_yet_count = 0;
+				#endif
 			#if 0  // Removed  by Xtopher
 			/* hugh 0312 */
 			if(auto_cal_flag == 0) {
@@ -837,6 +978,17 @@ void check_chip_calibration(unsigned char one_touch_input_flag)
 						write_mem(copy_data, object_address+9, 1, &atchfrccalratio);
 
 					}
+				#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+					if (copy_data->read_ta_status) {
+						copy_data->read_ta_status(&ta_status_check);
+						if(!ta_status_check)
+						{
+							get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size, &object_address);
+							data_byte = 5;
+							write_mem(copy_data, object_address+27, 1, &data_byte);
+							}
+						}
+				#endif
 					#if 0  // Xtopher blocked, it causes trouble when system wake-up             
 					if ((copy_data->read_ta_status)&&(boot_or_resume == 1)) {
                     boot_or_resume = 0;
@@ -875,12 +1027,33 @@ void check_chip_calibration(unsigned char one_touch_input_flag)
                 calibrate_chip();
                 qt_timer_state=0;
                 qt_time_point = jiffies_to_msecs(jiffies);
+		
+		#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+		not_yet_count = 0;
+		#endif
+
 		} else {
-                /* we cannot confirm if good or bad - we must wait for next touch  message to confirm */
-				printk(KERN_ERR"[TSP] calibration was not decided yet\n");
+			#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+				if(atch_ch >= 1)					
+				{	not_yet_count++;
+					printk(KERN_ERR"[TSP] not_yet_count : %d\n",not_yet_count);
+				}
+				if (not_yet_count > 25) {											// KYLE
+					  printk(KERN_ERR"[TSP] not_yet_count calibration was bad\n");
+					  //not_yet_count
+					  calibrate_chip();
+					  qt_timer_state = 0;/* 0430 hugh 1 --> 0 */
+					  qt_time_point = jiffies_to_msecs(jiffies);
+					  not_yet_count = 0;
+				}
+				else
+			#endif
+				{
+		/* we cannot confirm if good or bad - we must wait for next touch  message to confirm */
+		printk(KERN_ERR"[TSP] calibration was not decided yet\n");
                 cal_check_flag = 1u;
                 /* Reset the 100ms timer */
-			qt_timer_state = 0;/* 0430 hugh 1 --> 0 */
+		qt_timer_state = 0;/* 0430 hugh 1 --> 0 */
                 qt_time_point = jiffies_to_msecs(jiffies);
             }
 
@@ -888,7 +1061,7 @@ void check_chip_calibration(unsigned char one_touch_input_flag)
 
 	}
 
-
+}
 
 
 
@@ -1259,7 +1432,7 @@ static void report_input_data(struct mxt224_data *data)
 
 		if (data->fingers[i].z == -1)
 			continue;
-
+#if defined(TOUCH_NON_SLOT)
 		input_report_abs(data->input_dev, ABS_MT_POSITION_X, data->fingers[i].x);
 		input_report_abs(data->input_dev, ABS_MT_POSITION_Y, data->fingers[i].y);
 		input_report_abs(data->input_dev, ABS_MT_TOUCH_MAJOR, data->fingers[i].z);
@@ -1272,9 +1445,33 @@ static void report_input_data(struct mxt224_data *data)
 		#endif
 
 		input_mt_sync(data->input_dev);
+#else   // SLOT
+		input_mt_slot(data->input_dev, i);
+		input_mt_report_slot_state(data->input_dev,
+					MT_TOOL_FINGER, !!data->fingers[i].z);
+
+
+		if(data->fingers[i].z != 0){
+			input_report_abs(data->input_dev, ABS_MT_POSITION_X, data->fingers[i].x);
+			input_report_abs(data->input_dev, ABS_MT_POSITION_Y, data->fingers[i].y);
+			
+			input_report_abs(data->input_dev, ABS_MT_PRESSURE, data->fingers[i].w);
+			
+			//input_report_abs(data->input_dev, ABS_MT_WIDTH_MAJOR, data->fingers[i].w);
+			input_report_abs(data->input_dev, ABS_MT_TOUCH_MAJOR, data->fingers[i].z);
+		}
+		//input_report_abs(data->input_dev, ABS_MT_TRACKING_ID, i);
+
+		#ifdef _SUPPORT_SHAPE_TOUCH_
+		input_report_abs(data->input_dev, ABS_MT_COMPONENT, data->fingers[i].component);
+		/* printk(KERN_ERR"the component data is %d\n",data->fingers[i].component); */
+		#endif
+
+		//input_mt_sync(data->input_dev);
+#endif
 
 		if (touch_is_pressed_arr[i] < 2) {
-			if (g_debug_switch)
+		if (g_debug_switch)
 				printk(KERN_DEBUG "[TSP] ID-%d, %4d,%4d  UD:%d \n", i, data->fingers[i].x, data->fingers[i].y, touch_is_pressed_arr[i]);
 			else
 				printk(KERN_DEBUG "[TSP] ID-%d,UD:%d \n", i, 
@@ -1436,9 +1633,10 @@ ERR_RTN_CONTIOIN Check_Err_Condition(void)
 		switch(gErrCondition)
 		{
 			case ERR_RTN_CONDITION_IDLE:
+		#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)				
 				rtn = ERR_RTN_CONDITION_T9;
 				break;
-#if 0
+
 			case ERR_RTN_CONDITION_T9:
 				rtn = ERR_RTN_CONDITION_T48;
 				break;
@@ -1446,7 +1644,10 @@ ERR_RTN_CONTIOIN Check_Err_Condition(void)
 			case ERR_RTN_CONDITION_T48:
 				rtn = ERR_RTN_CONDITION_IDLE;
 				break;
-#endif
+		#endif	
+			default:
+				rtn = ERR_RTN_CONDITION_T9;
+				break;
 		}
 	return rtn;
 }
@@ -1456,7 +1657,7 @@ ERR_RTN_CONTIOIN Check_Err_Condition(void)
 static int median_err_setting(void)
 {
 	u16 obj_address;
-	u8 size_one;
+	u16 size_one;
 	u8 value, state;
 	bool ta_status_check;
 	int ret = 0;
@@ -1470,40 +1671,52 @@ static int median_err_setting(void)
 		{
 			case ERR_RTN_CONDITION_T9:
 			{
+				
+			#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)				
+//				printk(KERN_DEBUG"[TSP] Median ERROR ERR_RTN_CONDITION_T9\n");//20120418
+				get_object_info(copy_data, GEN_ACQUISITIONCONFIG_T8, &size_one, &obj_address);
+				value = 22;
+				write_mem(copy_data, obj_address, 1, &value);				
+				ret = get_object_info(copy_data, SPT_CTECONFIG_T46, &size_one, &obj_address);
+				value = 32;
+				write_mem(copy_data, obj_address+3, 1, &value);
+				ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
+				value = 114;
+				write_mem(copy_data, obj_address+2, 1, &value); 					
+#if defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)			
+				value = 20;	
+#else
+				value = 2;	
+#endif
+				write_mem(copy_data, obj_address+3, 1, &value);
+				value = 1;
+				write_mem(copy_data, obj_address+8, 1, &value);
+				value = 2;
+				write_mem(copy_data, obj_address+9, 1, &value); 				
+				value = 100;
+				write_mem(copy_data, obj_address+22, 1, &value);
+				value = 100;
+				write_mem(copy_data, obj_address+25, 1, &value);
+				value = 0;
+				write_mem(copy_data, obj_address+34, 1, &value);
+				value = 40;											
+				write_mem(copy_data, obj_address+35, 1, &value);
+				value = 81;
+				write_mem(copy_data, obj_address+39, 1, &value);
+				break;
+			#else			
 				ret = get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9, &size_one, &obj_address);
 				value = 16;
 				write_mem(copy_data, obj_address+6, 1, &value);
 				value = 40;
 				write_mem(copy_data, obj_address+7, 1, &value);
-				value = 80;
+				value = 47;
 				write_mem(copy_data, obj_address+13, 1, &value);
-				ret = get_object_info(copy_data, SPT_CTECONFIG_T46, &size_one, &obj_address);
-				value = 32;
-				write_mem(copy_data, obj_address+3, 1, &value);
-				ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
-				value = 29;
-				write_mem(copy_data, obj_address+3, 1, &value);
-				value = 1;
-				write_mem(copy_data, obj_address+8, 1, &value);
-				value = 2;
-				write_mem(copy_data, obj_address+9, 1, &value);
-				value = 100;
-				write_mem(copy_data, obj_address+17, 1, &value);
-				value = 64;
-				write_mem(copy_data, obj_address+19, 1, &value);
-				value = 20;
-				write_mem(copy_data, obj_address+22, 1, &value);
-				value = 38;
-				write_mem(copy_data, obj_address+25, 1, &value);
-				value = 16;
-				write_mem(copy_data, obj_address+34, 1, &value);
-				value = 40;
-				write_mem(copy_data, obj_address+35, 1, &value);
-				value = 80;
-				write_mem(copy_data, obj_address+39, 1, &value);
+			#endif		
 			}
+			#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)
 				break;
-#if 0
+			
 			case ERR_RTN_CONDITION_T48:
 			{
 				ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
@@ -1526,9 +1739,12 @@ static int median_err_setting(void)
 				write_mem(copy_data, obj_address+3, 1, &value); 
 			}
 			break;
-#endif
+			#endif
+
+			default:
+			break;
 		}
-#if 0
+	#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)
 		ret = get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
 		read_mem(copy_data, obj_address+2, 1, &value);
 		printk(KERN_ERR"[TSP]TA_probe MXT224E T%d Byte%d is %d\n",48,2,value);
@@ -1537,15 +1753,15 @@ static int median_err_setting(void)
 		mdelay(5);
 		value = value | 0x20;
 		write_mem(copy_data, obj_address+2, 1, &value);
-#endif
+	#endif		
 	}
 	else
 	{
-/*
+	#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)
 	  get_object_info(copy_data, SPT_USERDATA_T38, &size_one, &obj_address);
 	  read_mem(copy_data, obj_address+1, 1, &value);
 	  printk(KERN_ERR"[TSP]info value is %d\n",value);
-*/	
+	#endif	
 	  value= 1;
 	  if(noise_median.mferr_count < 3)
 	   noise_median.mferr_count++;
@@ -1553,7 +1769,8 @@ static int median_err_setting(void)
 	  {
 	   printk(KERN_DEBUG"[TSP] median thr noise level too high. %d\n", noise_median.mferr_count/value);
 	   state= noise_median.mferr_count/value;
-/*	   
+	   
+	#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)	   
 	   get_object_info(copy_data, SPT_USERDATA_T38, &size_one, &obj_address);
 	   read_mem(copy_data, obj_address+2, 1, & noise_median.t48_mfinvlddiffthr_for_mferr);
 	   printk(KERN_ERR"[TSP]mfinvlddiffthr value is %d\n", noise_median.t48_mfinvlddiffthr_for_mferr);
@@ -1565,8 +1782,13 @@ static int median_err_setting(void)
 	   printk(KERN_ERR"[TSP]t48_thr_for_mferr value is %d\n",noise_median.t48_thr_for_mferr);
 	   read_mem(copy_data, obj_address+6, 1, &noise_median.t48_movfilter_for_mferr);
 	   printk(KERN_ERR"[TSP]t48_movfilter_for_mferr value is %d\n",noise_median.t48_movfilter_for_mferr);
-*/	   
+	#endif
+	
+	#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)		   	
 	   get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
+	#else
+	   ret |= get_object_info(copy_data, PROCG_NOISESUPPRESSION_T48, &size_one, &obj_address);
+	#endif
 	   
 	   if(state == 1)
 	   {
@@ -1578,7 +1800,12 @@ static int median_err_setting(void)
 		write_mem(copy_data, obj_address+35, 1, &value);
 		value = noise_median.t48_movfilter_for_mferr;
 		write_mem(copy_data, obj_address+39, 1, &value);
+		
+	#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)			
 		get_object_info(copy_data, SPT_CTECONFIG_T46, &size_one, &obj_address);
+	#else
+		ret |= get_object_info(copy_data, SPT_CTECONFIG_T46, &size_one, &obj_address);
+	#endif
 		value = noise_median.t46_actvsyncsperx_for_mferr;
 		write_mem(copy_data, obj_address+3, 1, &value); }
 	   else if(state >= 2)
@@ -1597,15 +1824,23 @@ static int median_err_setting(void)
 		write_mem(copy_data, obj_address+35, 1, &value);
 		value = 65; //movfilter
 		write_mem(copy_data, obj_address+39, 1, &value);
+		
+	#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)			
 		get_object_info(copy_data, SPT_CTECONFIG_T46, &size_one, &obj_address);
+	#else
+		ret |= get_object_info(copy_data, SPT_CTECONFIG_T46, &size_one, &obj_address);
+	#endif
 		value = 63; //actvsyncsperx
 		write_mem(copy_data, obj_address+3, 1, &value);
 	   }
+	   noise_median.mferr_setting = true;
 	  }
-	 }
-   noise_median.mferr_setting = true;
-	
-
+	 }	
+#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)			
+	return 0;
+#else
+	return ret;
+#endif
 }
 
 
@@ -1618,14 +1853,26 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 	int id;
 	u8 msg[data->msg_object_size];
 	u8 touch_message_flag = 0;
-	u8 value, size_one,ret;
+	u16 size_one;
+	u8 value, ret;
 	u16 obj_address = 0;
+	
+	#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R)	|| defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)		
 	unsigned int register_address = 0;
+	#else
+	#ifndef CLEAR_MEDIAN_FILTER_ERROR
+	unsigned int register_address = 0;
+	#endif
+	#endif
 	bool ta_status=0;
 	
 	disable_irq_nosync(irq);
 
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)		
+    if((palm_chk_flag == 2) && (data->family_id==0x80)) { //20120213
+#else
     if(palm_chk_flag == 2) {
+#endif
 		palm_recovery();
 	}
 
@@ -1652,7 +1899,14 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 		else if ((msg[0] == 0x1) && ((msg[1]&0x10) == 0x00)) {/* caliration */
 			 Doing_calibration_falg = 0; 
 			printk(KERN_ERR"[TSP] Calibration End!!!!!!");
-
+			
+			#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)		
+			if(cal_check_flag == 1)
+		    	{
+			    	qt_timer_state=0;
+			    	qt_time_point = jiffies_to_msecs(jiffies);
+		    	}
+			#else
 			if(cal_check_flag == 0)
 			{
 				palm_recovery();
@@ -1663,10 +1917,14 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 				qt_timer_state=0;
 	                	qt_time_point = jiffies_to_msecs(jiffies);
 			}
-				
+			#endif		
 			}
-
+		
+	#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)	
+		if ((msg[0] == 14)&&(data->family_id==0x80)) { /* Palm release */
+	#else
 		if (msg[0] == 14) { /* Palm release */
+	#endif			
 			if((msg[1]&0x01)== 0x00) {
 				touch_is_pressed = 0;
 			} else if ((msg[1]&0x01) == 0x01) { /* Palm Press */
@@ -1677,12 +1935,28 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 			}
 		}
 
+	#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)		
 		if ((msg[0] == 0xf)&& (data->family_id==0x80)) { /* freq error release */
+	#else
+		if (msg[0] == 0xf) { /* freq error release */
+	#endif			
 			printk(KERN_ERR"[TSP] Starting irq with 0x%2x, 0x%2x, 0x%2x, 0x%2x, 0x%2x, 0x%2x, 0x%2x, 0x%2x", msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7]);
 			if ((msg[1]&0x08) == 0x08)
 				calibrate_chip();
 		}
-		
+
+
+	#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)		
+		#ifdef CLEAR_MEDIAN_FILTER_ERROR
+		if((msg[0] == 18) && (data->family_id==0x81)) {
+			//printk(KERN_ERR"[TSP] Starting irq with 0x%2x, 0x%2x, 0x%2x, 0x%2x, 0x%2x, 0x%2x, 0x%2x, 0x%2x", msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7]);
+			if((msg[4]&0x5) == 0x5){
+				printk(KERN_ERR"[TSP] median filter state error!!!\n");
+				median_err_setting();
+				}
+			}		
+		#endif
+	#else
 		#ifdef CLEAR_MEDIAN_FILTER_ERROR
 		if((msg[0] == 18) && (data->family_id==0x81))
 		{
@@ -1695,12 +1969,11 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 				{
 				printk(KERN_ERR"[TSP] median filter ON!!!\n");
 				copy_data->read_ta_status(&ta_status);
-				if((!ta_status)&&(noise_median.mferr_setting == false)&&(noise_median.median_on_flag == false))
+				if(!ta_status)
 						{
-					ret = get_object_info(copy_data, TOUCH_MULTITOUCHSCREEN_T9, &size_one, &obj_address);
-					value = 0;
-					write_mem(copy_data, obj_address+34, 1, &value); 
-					noise_median.median_on_flag = true;
+					ret = get_object_info(copy_data, SPT_CTECONFIG_T46, &size_one, &obj_address);
+					value = 38;
+					write_mem(copy_data, obj_address+3, 1, &value); 
 				}
 			}
 		}
@@ -1722,6 +1995,7 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 			}
 		}		
 		#endif
+	#endif		
 
 		
 		
@@ -1754,9 +2028,10 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 					continue;
 				}
 			*/
+		#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)					
 			if (data->finger_mask & (1U << id))
 				report_input_data(data);
-
+		#endif
 			if (msg[1] & RELEASE_MSG_MASK) {
 				data->fingers[id].z = 0;
 				data->fingers[id].w = msg[5];
@@ -1776,13 +2051,24 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 					/*pr_emerg("%s: dvfs lock\n", __func__);*/
 
 				if (lock_status == 0) {
-					lock_status=1;
-				}
+						 lock_status=1;
+						}
 
-				if(msg[1] & PRESS_MSG_MASK)
+					if(msg[1] & PRESS_MSG_MASK)
 					touch_is_pressed_arr[id] = 1;
+					
+			#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)		
+				else if(msg[1] & MOVE_MSG_MASK) {
+					touch_is_pressed_arr[id] = 2;					
+					if(gResume_flag) {
+						gResume_flag = 0;
+						//NoiseEntryStartFunc();
+						}
+					}
+			#else	
 				else if(msg[1] & MOVE_MSG_MASK)
 					touch_is_pressed_arr[id] = 2;
+			#endif
 
 #ifdef CONFIG_TOUCHSCREEN_MXT768E
 				data->fingers[id].z = 40;
@@ -1809,9 +2095,9 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 #endif
 				data->finger_mask |= 1U << id;
 #if defined(DRIVER_FILTER)
-				if(msg[1] & PRESS_MSG_MASK){
+                if(msg[1] & PRESS_MSG_MASK){
 					/* printk(KERN_ERR "[TSP] Before Finger[%d] Down  (%d,%d) size : %d", id, data->fingers[id].x, data->fingers[id].y, data->fingers[id].w); */
-					equalize_coordinate(1, id, &data->fingers[id].x, &data->fingers[id].y);
+                equalize_coordinate(1, id, &data->fingers[id].x, &data->fingers[id].y);
 					/* printk(KERN_ERR "[TSP] Finger[%d] Down  (%d,%d) size : %d", id, data->fingers[id].x, data->fingers[id].y, data->fingers[id].w); */
 #if defined (CONFIG_JPN_MODEL_SC_03D)
 					/* for debugging log */
@@ -1820,7 +2106,7 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 #endif
 				} else if (msg[1] & MOVE_MSG_MASK) {
 					/* printk(KERN_ERR "[TSP] Before Finger[%d] MOVE  (%d,%d) size : %d", id, data->fingers[id].x, data->fingers[id].y, data->fingers[id].w); */
-					equalize_coordinate(0, id, &data->fingers[id].x, &data->fingers[id].y);
+				equalize_coordinate(0, id, &data->fingers[id].x, &data->fingers[id].y);
 					/* printk(KERN_ERR "[TSP] Finger[%d] MOVE  (%d,%d) size : %d", id, data->fingers[id].x, data->fingers[id].y, data->fingers[id].w); */
 				}
 #endif
@@ -1839,6 +2125,10 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 		}
 
 
+	#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)				
+		if (data->finger_mask)
+			report_input_data(data);
+	#endif
 		// Verified by Xtopher, check_chip_cal shoud be called at here
 	    if(touch_message_flag && (cal_check_flag/*==2*/)) {
 			/* printk(KERN_ERR"[TSP]check chip calibration is called\n"); */
@@ -1852,8 +2142,10 @@ static irqreturn_t mxt224_irq_thread(int irq, void *ptr)
 	} while (!gpio_get_value(data->gpio_read_done));
 #endif	
 
+#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)					
 	if (data->finger_mask)
 		report_input_data(data);
+#endif
 	#if 0 // Xtopher blocked, chaning of optical gain doesn't need after applying config at machine
 	if(!optiacl_gain) {
 		mxt224_optical_gain(data->family_id,QT_REFERENCE_MODE);
@@ -1874,16 +2166,22 @@ static int mxt224_internal_suspend(struct mxt224_data *data)
 
 #if defined (CONFIG_KOR_MODEL_SHV_E110S)
 		if(get_hw_rev()<0x04){
-			/* Set power config. */
-			/* Set Idle Acquisition Interval to 32 ms. */
-			/*power_config_sleep.idleacqint = 0; */
-			/* Set Active Acquisition Interval to 16 ms. */
-			/*power_config_sleep.actvacqint = 0;*/
-			
-			ret = write_config(data, GEN_POWERCONFIG_T7, sleep_power_cfg);
-			if (ret)
-				return ret;
+	/* Set power config. */
+	/* Set Idle Acquisition Interval to 32 ms. */
+	/*power_config_sleep.idleacqint = 0; */
+	/* Set Active Acquisition Interval to 16 ms. */
+	/*power_config_sleep.actvacqint = 0;*/
+
+	ret = write_config(data, GEN_POWERCONFIG_T7, sleep_power_cfg);
+	if (ret)
+		return ret;
 		}
+#elif defined(CONFIG_EUR_MODEL_GT_I9210)
+	if(get_hw_rev()<0x05){
+		ret = write_config(data, GEN_POWERCONFIG_T7, sleep_power_cfg);
+		if (ret)
+			return ret;
+	}
 #elif defined (CONFIG_USA_MODEL_SGH_T989) || defined (CONFIG_USA_MODEL_SGH_I727)
 #if defined (CONFIG_USA_MODEL_SGH_I727)
 	if(get_hw_rev()<0x06)
@@ -1891,7 +2189,7 @@ static int mxt224_internal_suspend(struct mxt224_data *data)
 	if(get_hw_rev()<0x09)
 #endif
 		{
-			
+
 			ret = write_config(data, GEN_POWERCONFIG_T7, sleep_power_cfg);
 			if (ret)
 				return ret;
@@ -1941,6 +2239,18 @@ static int mxt224_internal_resume(struct mxt224_data *data)
 		{
 			data->power_on();
 		}
+#elif defined(CONFIG_EUR_MODEL_GT_I9210)
+	data->power_on();
+	if(get_hw_rev()<0x05)
+	{
+		i = 0;
+		do {
+			ret = write_config(data, GEN_POWERCONFIG_T7, data->power_cfg);
+			msleep(20);
+			i++;
+		} while (ret && i < 10);
+		msleep(20);
+	}
 #elif defined (CONFIG_USA_MODEL_SGH_T989) || defined (CONFIG_USA_MODEL_SGH_I727)
 		data->power_on();
 #if defined (CONFIG_USA_MODEL_SGH_I727)
@@ -1973,6 +2283,10 @@ static int mxt224_internal_resume(struct mxt224_data *data)
 #endif
 
 	boot_or_resume = 1;
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)		
+	noise_median.mferr_count = 0;
+	noise_median.mferr_setting = false;
+#endif
 	return ret;
 }
 
@@ -1988,6 +2302,16 @@ static void mxt224_early_suspend(struct early_suspend *h)
 	touch_is_pressed = 0;
 	qt_timer_state = 0;	
 	cghost_clear = 0;
+
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)		
+	#ifdef CLEAR_MEDIAN_FILTER_ERROR
+	noise_median.mferr_count=0;
+	noise_median.mferr_setting = false;
+	#endif	
+	not_yet_count = 0;
+	gResume_flag = 0;
+	//NoiseEntryStartFunc();
+#endif
 	
 	disable_irq(data->client->irq);
 #if 0 //#if defined (CONFIG_KOR_MODEL_SHV_E110S)
@@ -2011,11 +2335,17 @@ static void mxt224_late_resume(struct early_suspend *h)
 
 	mxt224_enabled = 1;
 	is_inputmethod = 0;   // I know it's fault, but app couldn't solve the issue wighout this known fault.
-	qt_timer_state = 0;	
+	qt_timer_state = 0;
+	#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)			
+	gResume_flag = 1;
+	#endif
+	
 	#ifdef CLEAR_MEDIAN_FILTER_ERROR
 	noise_median.mferr_count=0;
-	noise_median.mferr_setting = false;
+	noise_median.mferr_setting = false;	
+	#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)			
 	noise_median.median_on_flag = false;
+	#endif
 	#endif	
 	if(data->read_ta_status) {
 		data->read_ta_status(&ta_status);
@@ -2091,6 +2421,7 @@ void TSP_forced_release_for_call(void)
 
 		copy_data->fingers[i].z = 0;
 
+#if defined(TOUCH_NON_SLOT)
 		input_report_abs(copy_data->input_dev, ABS_MT_POSITION_X, copy_data->fingers[i].x);
 		input_report_abs(copy_data->input_dev, ABS_MT_POSITION_Y, copy_data->fingers[i].y);
 		input_report_abs(copy_data->input_dev, ABS_MT_TOUCH_MAJOR, copy_data->fingers[i].z);
@@ -2099,13 +2430,31 @@ void TSP_forced_release_for_call(void)
 
 		input_mt_sync(copy_data->input_dev);
 
-		touch_is_pressed_arr[i] = 0;
+#else   // SLOT
+		input_mt_slot(copy_data->input_dev, i);
+		input_mt_report_slot_state(copy_data->input_dev,	MT_TOOL_FINGER, !!copy_data->fingers[i].z);
 
+
+		input_report_abs(copy_data->input_dev, ABS_MT_POSITION_X, copy_data->fingers[i].x);
+		input_report_abs(copy_data->input_dev, ABS_MT_POSITION_Y, copy_data->fingers[i].y);
+
+		input_report_abs(copy_data->input_dev, ABS_MT_PRESSURE, copy_data->fingers[i].w);
+
+		//input_report_abs(copy_data->input_dev, ABS_MT_WIDTH_MAJOR, copy_data->fingers[i].w);
+		input_report_abs(copy_data->input_dev, ABS_MT_TOUCH_MAJOR, copy_data->fingers[i].z);
+		//input_report_abs(copy_data->input_dev, ABS_MT_TRACKING_ID, i);
+
+		//input_mt_sync(copy_data->input_dev);
+#endif
+
+
+		touch_is_pressed_arr[i] = 0;
+	
 		if (copy_data->fingers[i].z == 0)
 			copy_data->fingers[i].z = -1;
 	}
 
-	calibrate_chip();
+	//calibrate_chip();
 	msleep(20); 
 
 	copy_data->finger_mask = 0;
@@ -2152,9 +2501,10 @@ static ssize_t qt602240_object_setting(struct device *dev,
 	read_mem(data, address+(u16)object_register, (u8)size, &val);
 
 	printk(KERN_ERR "[TSP] T%d Byte%d is %d\n", object_type, object_register, val);
+#if !defined (CONFIG_USA_MODEL_SGH_I577) || !defined(CONFIG_CAN_MODEL_SGH_I577R) || !defined (CONFIG_USA_MODEL_SGH_I727) || !defined (CONFIG_USA_MODEL_SGH_T989)	
 	/*test program*/
 	printk(KERN_ERR "[TSP] mxt224_ta_probe(1) called by qt602240_object_setting \n");
-	mxt224_ta_probe(1);
+#endif
 	return count;
 
 }
@@ -2292,7 +2642,7 @@ int read_all_data(uint16_t dbg_mode)
 {
 	u8 read_page, read_point;
 	u16 max_value = MAX_VALUE, min_value = MIN_VALUE;
-	uint16_t qt_refrence;
+	// uint16_t qt_refrence;
 	u16 object_address = 0;
 	u8 data_buffer[2] = { 0 };
 	u8 node = 0;
@@ -2324,6 +2674,7 @@ int read_all_data(uint16_t dbg_mode)
 	msleep(50); /* msleep(20);  */
 #endif
 	if (copy_data->family_id==0x81) {
+
 		max_value = max_value + 16384;
 		min_value = min_value + 16384;
 	}
@@ -2335,7 +2686,7 @@ int read_all_data(uint16_t dbg_mode)
 				qt_refrence_node[num] = ((uint16_t)data_buffer[1]<<8)+ (uint16_t)data_buffer[0];
 			if (copy_data->family_id==0x81) {
 				if ((qt_refrence_node[num] > MIN_VALUE + 16384) || (qt_refrence_node[num] < MAX_VALUE + 16384)) {
-					state = 1;
+				state = 1;
 					printk(KERN_ERR"[TSP] Mxt224-E qt_refrence_node[%3d] = %5d \n", num, qt_refrence_node[num]);				
 				//	break;
 				}
@@ -2345,7 +2696,7 @@ int read_all_data(uint16_t dbg_mode)
 					printk(KERN_ERR"[TSP] Mxt224 qt_refrence_node[%3d] = %5d \n", num, qt_refrence_node[num]);
 				//	break;
 			}
-			}	
+			}
 
 			if (data_buffer[0] != 0) {
 				if(qt_refrence_node[num] > max_value)
@@ -2384,8 +2735,8 @@ int read_all_data(uint16_t dbg_mode)
 int read_all_delta_data(uint16_t dbg_mode)
 {
 	u8 read_page, read_point;
-	u16 max_value = MAX_VALUE, min_value = MIN_VALUE;
-	uint16_t qt_refrence;
+	// u16 max_value = MAX_VALUE, min_value = MIN_VALUE;
+	// uint16_t qt_refrence;
 	u16 object_address = 0;
 	u8 data_buffer[2] = { 0 };
 	u8 node = 0;
@@ -2601,7 +2952,7 @@ static int mxt224_load_fw(struct device *dev, const char *fn)
 	ret = get_object_info(data, GEN_COMMANDPROCESSOR_T6, &size_one, &obj_address);
 	if (ret) {
 		printk(KERN_ERR "[TSP] fail to get object_info\n");
-		return ret;
+		goto out;
 	}
 
 	size_one = 1;
@@ -2673,7 +3024,7 @@ static ssize_t set_tsp_module_off_show(struct device *dev, struct device_attribu
 	disable_irq(copy_data->client->irq);
 	ret = mxt224_internal_suspend(copy_data);
 
-	if (ret  = 0)
+	if (ret == 0)
 		*buf = '1';
 	else
 		*buf = '0';
@@ -2704,7 +3055,7 @@ static ssize_t set_tsp_module_on_show(struct device *dev, struct device_attribut
 	calibrate_chip();
 
 	
-	if (ret  = 0)
+	if (ret == 0)
 		*buf = '1';
 	else
 		*buf = '0';
@@ -2840,7 +3191,7 @@ static int atoi(char *str)
 	int count = 0;
 	if( str == NULL ) 
 		return -1;
-	while( str[count] != NULL && str[count] >= '0' && str[count] <= '9' )
+	while( str[count] != 0 && str[count] >= '0' && str[count] <= '9' )
 	{		
 		result = result * 10 + str[count] - '0';
 		++count;
@@ -2861,7 +3212,7 @@ ssize_t disp_all_refdata_store(struct device *dev, struct device_attribute *attr
 								   const char *buf, size_t size)
 {
 
-	index = atoi(buf);
+	index = atoi((char *)buf);
   	return size;
 }
 
@@ -2893,7 +3244,7 @@ ssize_t disp_all_deltadata_store(struct device *dev, struct device_attribute *at
 								   const char *buf, size_t size)
 {
 
-	index_delta = atoi(buf);
+	index_delta = atoi((char *)buf);
   	return size;
 }
 
@@ -3138,8 +3489,8 @@ ssize_t set_tsp_for_inputmethod_store(struct device *dev, struct device_attribut
 			write_mem(copy_data, obj_address+(u16)register_address, size_one, &value);
 			read_mem(copy_data, obj_address+(u16)register_address, (u8)size_one, &val);
 			printk(KERN_ERR"[TSP] MXT224E T%d Byte%d is %d\n",48,register_address,val);
-		}
-		
+	}
+
 	}
 
 
@@ -3169,6 +3520,13 @@ static ssize_t mxt_touchtype_show(struct device *dev, struct device_attribute *a
 	return strlen(buf);
 }
 
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)	
+static ssize_t mxt_reg_version_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	pr_info("Atmel Last register version is %s\n", MXT_REG_VERSION);
+	return sprintf(buf, "%s\n", MXT_REG_VERSION);
+}
+#endif
 static DEVICE_ATTR(set_module_off, S_IRUGO | S_IWUSR | S_IWGRP, set_tsp_module_off_show, NULL);
 static DEVICE_ATTR(set_module_on, S_IRUGO | S_IWUSR | S_IWGRP, set_tsp_module_on_show, NULL);
 static DEVICE_ATTR(set_refer0, S_IRUGO | S_IWUSR | S_IWGRP, set_refer0_mode_show, NULL);
@@ -3196,6 +3554,9 @@ static DEVICE_ATTR(tsp_firm_update_status, S_IRUGO | S_IWUSR | S_IWGRP, set_mxt_
 static DEVICE_ATTR(tsp_threshold, S_IRUGO | S_IWUSR | S_IWGRP, key_threshold_show, key_threshold_store);	/* touch threshold return, store */
 static DEVICE_ATTR(tsp_firm_version_phone, S_IRUGO | S_IWUSR | S_IWGRP, set_mxt_firm_version_show, NULL);/* PHONE*/	/* firmware version resturn in phone driver version */
 static DEVICE_ATTR(tsp_firm_version_panel, S_IRUGO | S_IWUSR | S_IWGRP, set_mxt_firm_version_read_show, NULL);/*PART*/	/* firmware version resturn in TSP panel version */
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)	
+static DEVICE_ATTR(tsp_reg_version, S_IRUGO, mxt_reg_version_show, NULL);/*REGISTER*/
+#endif
 static DEVICE_ATTR(set_tsp_for_inputmethod, S_IRUGO | S_IWUSR | S_IWGRP, set_tsp_for_inputmethod_show, set_tsp_for_inputmethod_store); /* For 3x4 Input Method, Jump limit changed API */
 static DEVICE_ATTR(call_release_touch, S_IRUGO | S_IWUSR | S_IWGRP, mxt224_call_release_touch, NULL);
 static DEVICE_ATTR(mxt_touchtype, S_IRUGO | S_IWUSR | S_IWGRP,	mxt_touchtype_show, NULL);
@@ -3437,7 +3798,7 @@ void QT_reprogram(struct mxt224_data *data)
 
 void mxt224_orient_hw_barnch(struct mxt224_data *data)
 {
-	#if defined (CONFIG_KOR_MODEL_SHV_E110S)
+#if defined (CONFIG_KOR_MODEL_SHV_E110S)
 	if (get_hw_rev() ==0x01 ){
 		if( data->family_id == 0x81 )
 		{
@@ -3452,15 +3813,15 @@ void mxt224_orient_hw_barnch(struct mxt224_data *data)
 		data->orient_barnch(MXT224_ORIENT_SWAP_NN);
 	}
 #elif defined (CONFIG_JPN_MODEL_SC_03D)
-	data->orient_barnch(MXT224_ORIENT_SWAP_NN);
+		data->orient_barnch(MXT224_ORIENT_SWAP_NN);
 #elif defined (CONFIG_USA_MODEL_SGH_I727) ||defined (CONFIG_USA_MODEL_SGH_T989)
-	data->orient_barnch(MXT224_ORIENT_SWAP_NN);
+		data->orient_barnch(MXT224_ORIENT_SWAP_NN);
 #elif defined (CONFIG_KOR_MODEL_SHV_E120L)
 	#if defined(CONFIG_KOR_SHV_E120L_WXGA)
 		data->orient_barnch(MXT224_ORIENT_SWAP_NN);
-	#else
+    #else
 		data->orient_barnch(MXT224_ORIENT_SWAP_XY);
-	#endif
+    #endif
 #endif
 }
 
@@ -3478,7 +3839,7 @@ static int __devinit mxt224_probe(struct i2c_client *client, const struct i2c_de
 	u8 **tsp_config;
 	u16 size_one;
 	u8 user_info_value;
-	u16 obj_address;
+	u16 obj_address = 0;
 
 
 tsp_reinit:;
@@ -3517,9 +3878,6 @@ tsp_reinit:;
 	data->read_ta_status = pdata->read_ta_status;
 	data->orient_barnch = pdata->orient_barnch;
 
-
-
-
 	data->client = client;
 	i2c_set_clientdata(client, data);
 
@@ -3534,7 +3892,7 @@ tsp_reinit:;
 	input_dev->name = "sec_touchscreen";
 
 	set_bit(EV_ABS, input_dev->evbit);
-
+#if defined(TOUCH_NON_SLOT)
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, pdata->min_x,
 			pdata->max_x, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, pdata->min_y,
@@ -3545,6 +3903,26 @@ tsp_reinit:;
 			pdata->max_w, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_TRACKING_ID, 0,
 			data->num_fingers - 1, 0, 0);
+#else // SLOT
+	set_bit(MT_TOOL_FINGER, input_dev->keybit);
+	set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
+
+	input_mt_init_slots(input_dev, data->num_fingers);
+
+	input_set_abs_params(input_dev, ABS_MT_POSITION_X, pdata->min_x,
+			pdata->max_x, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, pdata->min_y,
+			pdata->max_y, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_PRESSURE, pdata->min_w,
+			pdata->max_w, 0, 0);
+	//input_set_abs_params(input_dev, ABS_MT_WIDTH_MAJOR, pdata->min_w,
+	//		pdata->max_w, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, pdata->min_z,
+			 pdata->max_z, 0, 0);
+
+	//	input_set_abs_params(input_dev, ABS_MT_TRACKING_ID, 0,
+	//			data->num_fingers - 1, 0, 0);
+#endif
 
 #ifdef _SUPPORT_SHAPE_TOUCH_
 	input_set_abs_params(input_dev, ABS_MT_COMPONENT, 0, 255, 0, 0);
@@ -3584,10 +3962,10 @@ tsp_reinit:;
 	}
 
 	if (data->family_id == 0x80) {	/*  : MXT-224 */
-		tsp_config = pdata->config;
+		tsp_config = (u8 **)pdata->config;
 		printk(KERN_ERR "[TSP] TSP chip is MXT224\n");
 	} else if (data->family_id == 0x81)  {	/* tsp_family_id - 0x81 : MXT-224E */
-		tsp_config = pdata->config_e;
+		tsp_config = (u8 **)pdata->config_e;
 		printk(KERN_ERR "[TSP] TSP chip is MXT224-E\n");
 		atchcalst = 5;/*8*/
 		atchcalsthr = 35;/*8*/
@@ -3676,7 +4054,7 @@ tsp_reinit:;
 
 	for (i = 0; i < data->num_fingers; i++)
 		data->fingers[i].z = -1;
-
+	
 	ret = request_threaded_irq(client->irq, NULL, mxt224_irq_thread,
 		IRQF_TRIGGER_LOW | IRQF_ONESHOT, "mxt224_ts", data);
 
@@ -3708,6 +4086,10 @@ tsp_reinit:;
 
 	if (device_create_file(sec_touchscreen, &dev_attr_tsp_firm_version_panel) < 0)
 		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_tsp_firm_version_panel.attr.name);
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)
+	if (device_create_file(sec_touchscreen, &dev_attr_tsp_reg_version) < 0)
+		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_tsp_reg_version.attr.name);
+#endif
 
 	if (device_create_file(sec_touchscreen, &dev_attr_set_tsp_for_inputmethod) < 0)
 		printk(KERN_ERR "Failed to create device file(%s)!\n", dev_attr_set_tsp_for_inputmethod.attr.name);
@@ -3791,17 +4173,27 @@ if (device_create_file(sec_touchscreen, &dev_attr_mxt_touchtype) < 0)
 	register_early_suspend(&data->early_suspend);
 #endif
 
-	#ifdef CLEAR_MEDIAN_FILTER_ERROR   	
+#ifdef CLEAR_MEDIAN_FILTER_ERROR
+#if defined (CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_T989)	
 	noise_median.median_on_flag = false;
 	noise_median.mferr_setting = false;
 	noise_median.mferr_count = 0;
-	noise_median.t46_actvsyncsperx_for_mferr = 45;
-	noise_median.t48_mfinvlddiffthr_for_mferr = 15;
-	noise_median.t48_mferrorthr_for_mferr = 19;
-	noise_median.t48_thr_for_mferr = 40;
+	noise_median.t46_actvsyncsperx_for_mferr = 48;//20120225
+	noise_median.t48_mfinvlddiffthr_for_mferr = 20;//20120225
+	noise_median.t48_mferrorthr_for_mferr = 22;//20120225
+	noise_median.t48_thr_for_mferr = 45;//20120225
+	noise_median.t48_movfilter_for_mferr = 81;//20120225
+#else	
+	noise_median.mferr_setting = false;
+	noise_median.mferr_count = 0;
+	noise_median.t46_actvsyncsperx_for_mferr = 63;
+	noise_median.t48_mfinvlddiffthr_for_mferr = 20;
+	noise_median.t48_mferrorthr_for_mferr = 22;
+	noise_median.t48_thr_for_mferr = 45;
 	noise_median.t48_movfilter_for_mferr = 0;
-	#endif
-
+#endif
+#endif
+	
 	printk(KERN_ERR "[TSP] mxt224_probe   e\n");
 
 	return 0;

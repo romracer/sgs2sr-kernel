@@ -2542,12 +2542,14 @@ static const u32 s5k5bafx_common[] = {
 	0x002A03FC,
 	0x0F120001,
 
+        0xffff0064, /* ADD  100ms */
+	
 	0x0028D000,
 	0x002AB0CC,
 	0x0F12000B,
 	/* END of Initial*/
 
-	0xffff0096, //ADD 150ms, kmkim
+	//0xffff0032, /* ADD 50ms */
 };
 
 /* Set-data based on SKT VT standard ,when using 3G network */
@@ -3054,7 +3056,7 @@ static const u32 s5k5bafx_vt_common[] =
 	0x002A04A0,
 	0x0F128000, /* lt_uLeiInit:AE start      */
 	0x002A049A,
-	0x0F1200FA, /* lt_uMinExp   0.5ms·Î º¯°æ */
+	0x0F1200FA, /* lt_uMinExp   0.5ms  */
 	
 	/* Set CIS/APS/Analog */
 	0x0028D000,
@@ -3363,8 +3365,8 @@ static const u32 s5k5bafx_vt_common[] =
 	0x0F120000, /* REG_0TC_PCFG_sGlamour              */
 	0x0F120000, /* REG_0TC_PCFG_sColorTemp            */
 	0x0F120000, /* REG_0TC_PCFG_uDeviceGammaIndex     */
-	0x0F120001, /* REG_0TC_PCFG_uPrevMirror           */
-	0x0F120001, /* REG_0TC_PCFG_uCaptureMirror        */
+	0x0F120000, /* 01 REG_0TC_PCFG_uPrevMirror           */
+	0x0F120000, /* 01 REG_0TC_PCFG_uCaptureMirror        */
 	0x0F120000, /* REG_0TC_PCFG_uRotation             */
 	
 	/* Preview Config 1 (640x480, Not Fixed 15 ~ 30fps) */
@@ -3385,8 +3387,8 @@ static const u32 s5k5bafx_vt_common[] =
 	0x0F120000, /* REG_1TC_PCFG_sGlamour              */
 	0x0F120000, /* REG_1TC_PCFG_sColorTemp            */
 	0x0F120000, /* REG_1TC_PCFG_uDeviceGammaIndex     */
-	0x0F120001, /* REG_1TC_PCFG_uPrevMirror           */
-	0x0F120001, /* REG_1TC_PCFG_uCaptureMirror        */
+	0x0F120000, /* 01 REG_1TC_PCFG_uPrevMirror           */
+	0x0F120000, /* 01 REG_1TC_PCFG_uCaptureMirror        */
 	0x0F120000, /* REG_1TC_PCFG_uRotation             */
 	
 	
@@ -5105,13 +5107,14 @@ static const u32 s5k5bafx_vt_common[] =
 	/* Update Changed Registers */
 	0x002A03FC,
 	0x0F120001, /* REG_TC_DBG_ReInitCmd */
+	0xffff0064, /* ADD 100ms */
 	
 	0x0028D000,
 	0x002AB0CC,
 	0x0F12000B, /* Non contious mode */
 	/* VT-Call END of Initial */
 	
-	0xffff0096, //ADD 150ms, kmkim
+	0xffff0032, //ADD 50ms, kmkim
 
 };
 
@@ -5621,7 +5624,7 @@ static const u32 s5k5bafx_vt_wifi_common[] =
 	0x002A04A0,
 	0x0F128000, /* lt_uLeiInit:AE start      */
 	0x002A049A,
-	0x0F1200FA, /* lt_uMinExp   0.5ms·Î º¯°æ */
+	0x0F1200FA, /* lt_uMinExp   0.5ms  */
 	
 	
 	/* Set CIS/APS/Analog */
@@ -5928,8 +5931,8 @@ static const u32 s5k5bafx_vt_wifi_common[] =
 	0x0F120000, /* REG_0TC_PCFG_sGlamour              */
 	0x0F120000, /* REG_0TC_PCFG_sColorTemp            */
 	0x0F120000, /* REG_0TC_PCFG_uDeviceGammaIndex     */
-	0x0F120003, /* REG_0TC_PCFG_uPrevMirror           */
-	0x0F120003, /* REG_0TC_PCFG_uCaptureMirror        */
+	0x0F120000, /* 03 REG_0TC_PCFG_uPrevMirror           */
+	0x0F120000, /* 03 REG_0TC_PCFG_uCaptureMirror        */
 	0x0F120000, /* REG_0TC_PCFG_uRotation             */
 	
 	/* Preview Config 1 (640x480, Not Fixed 15 ~ 30fps) */
@@ -5950,8 +5953,8 @@ static const u32 s5k5bafx_vt_wifi_common[] =
 	0x0F120000, /* REG_1TC_PCFG_sGlamour              */
 	0x0F120000, /* REG_1TC_PCFG_sColorTemp            */
 	0x0F120000, /* REG_1TC_PCFG_uDeviceGammaIndex     */
-	0x0F120003, /* REG_1TC_PCFG_uPrevMirror           */
-	0x0F120003, /* REG_1TC_PCFG_uCaptureMirror        */
+	0x0F120000, /* 03 REG_1TC_PCFG_uPrevMirror           */
+	0x0F120000, /* 03 REG_1TC_PCFG_uCaptureMirror        */
 	0x0F120000, /* REG_1TC_PCFG_uRotation             */
 	
 	
@@ -7667,6 +7670,7 @@ static const u32 s5k5bafx_vt_wifi_common[] =
 	/* Update Changed Registers */
 	0x002A03FC,
 	0x0F120001, /* REG_TC_DBG_ReInitCmd */
+	0xffff0064, /* ADD 100ms */
 	
 	0x0028D000,
 	0x002AB0CC,
@@ -7675,7 +7679,7 @@ static const u32 s5k5bafx_vt_wifi_common[] =
 };
 
 /*===========================================*/
-/* CAMERA_PREVIEW - ÃÔ¿µ ÈÄ ÇÁ¸®ºä º¹±Í½Ã ¼ÂÆÃ */
+/* CAMERA_PREVIEW - Ô¿   Í½  */
 /*============================================*/
 
 static const u32 s5k5bafx_preview[] =
@@ -7704,7 +7708,7 @@ static const u32 s5k5bafx_preview[] =
 };
 
 /*===========================================*/
-/*	CAMERA_SNAPSHOT  - ÃÔ¿µ 		  */
+/*	CAMERA_SNAPSHOT  - Ô¿ 		  */
 /*============================================*/
 
 static const u32 s5k5bafx_capture[] =
@@ -8236,7 +8240,7 @@ static const u32 s5k5bafx_recording_60Hz_common[] = {
 	0x002A04A0,
 	0x0F128000, /* lt_uLeiInit:AE start      */
 	0x002A049A,
-	0x0F1200FA, /* lt_uMinExp   0.5ms·Î º¯°æ */
+	0x0F1200FA, /* lt_uMinExp   0.5ms  */
 	
 	
 	/* Set CIS/APS/Analog */
@@ -10286,12 +10290,12 @@ static const u32 s5k5bafx_recording_60Hz_common[] = {
 	0x002A03FC,
 	0x0F120001, /* REG_TC_DBG_ReInitCmd */
 	
+	0xffff0064, /* ADD 100ms */
 	0x0028D000,
 	0x002AB0CC,
 	0x0F12000B, /* Non contious mode */
 	/* Recording 25fps Anti-Flicker 60Hz END of Initial */
 	
-	0xffff0064, //ADD 100ms, kmkim
 };
 
 
@@ -10794,7 +10798,7 @@ static const u32 s5k5bafx_vt_15fps[] =
 	0x0F120001, /* REG_TC_GP_EnablePreview */
 	0x0F120001, /* REG_TC_GP_EnablePreviewChanged  */
 
-	0xffff0096, /* delay 150ms */
+	0xffff0064, /* delay 100ms */
 
 	0x0028D000, /*mipi */
 	0x002AB0CC,
@@ -10904,31 +10908,78 @@ static const u32 s5k5bafx_pattern_off[] = {
 
 
 static const u32 s5k5bafx_vflip[] = {
-	0xFCFCD000,
+	/* Mirror: x-flip Setting */
 
+	0xFFFF000A,  /* Delay 10msec */
+	0xFCFCD000,
 	0x00287000,
 	0x002A0262,
-	0x0F120000,		/* REG_0TC_PCFG_uPrevMirror	      */
-	0x0F120000,		/* REG_0TC_PCFG_uCaptureMirror	      */
-	0x0F120000,		/* REG_0TC_PCFG_uRotation	      */ 
-
-	0x002A0288,
-	0x0F120000,		/* REG_1TC_PCFG_uPrevMirror           */
-	0x0F120000,		/* REG_1TC_PCFG_uCaptureMirror        */
-	0x0F120000,		/* REG_1TC_PCFG_uRotation             */
-
+	0x0F120001,  /* REG_0TC_PCFG_uPrevMirror   [1]x [2]y [3]xy */
+	0x0F120001,  /* REG_0TC_PCFG_uCaptureMirror [1]x [2]y [3]xy */
+	
+	/* Apply preview config */
 	0x002A021C,
-	0x0F120000, /* REG_TC_GP_ActivePrevConfig     */
+	0x0F120000,  /* REG_TC_GP_ActivePrevConfig */
 	0x002A0220,
-	0x0F120001, /* REG_TC_GP_PrevOpenAfterChange  */
+	0x0F120001,  /* REG_TC_GP_PrevOpenAfterChange */
 	0x002A01F8,
-	0x0F120001, /* REG_TC_GP_NewConfigSync        */
+	0x0F120001,  /* REG_TC_GP_NewConfigSync */
 	0x002A021E,
-	0x0F120001, /* REG_TC_GP_PrevConfigChanged    */
+	0x0F120001,  /* REG_TC_GP_PrevConfigChanged */
 	0x002A01F0,
-	0x0F120001, /* REG_TC_GP_EnablePreview        */
-	0x0F120001, /* REG_TC_GP_EnablePreviewChanged */
-
+	0x0F120001,  /* REG_TC_GP_EnablePreview */
+	0x0F120001,  /* REG_TC_GP_EnablePreviewChanged */
+	
+	/* Set MIPI */
+	0x002A03AC,
+	0x0F120000,  /* REG_TC_FLS_Mode        */
+	0x002A03F2,
+	0x0F120001,  /* REG_TC_OIF_EnMipiLanes */
+	0x0F1200C3,  /* REG_TC_OIF_EnPackets   */
+	0x0F120001,  /* REG_TC_OIF_CfgChanged  */
+	
+	/* MIPI */
+	0x0028D000,
+	0x002AB0CC,
+	0x0F12000B,
 };
 
+static const u32 s5k5bafx_vflip_off[] = {
+	
+	/* Mirror: Default Setting */
+
+	0xFFFF000A,  /* Delay 10msec */
+	0xFCFCD000,
+	0x00287000,
+	0x002A0262,
+	0x0F120000,  /* REG_0TC_PCFG_uPrevMirror   [1]x [2]y [3]xy */
+	0x0F120000,  /* REG_0TC_PCFG_uCaptureMirror [1]x [2]y [3]xy */
+	
+	/* Apply preview config */
+	0x002A021C,
+	0x0F120000,  /* REG_TC_GP_ActivePrevConfig */
+	0x002A0220,
+	0x0F120001,  /* REG_TC_GP_PrevOpenAfterChange */
+	0x002A01F8,
+	0x0F120001,  /* REG_TC_GP_NewConfigSync */
+	0x002A021E,
+	0x0F120001,  /* REG_TC_GP_PrevConfigChanged */
+	0x002A01F0,
+	0x0F120001,  /* REG_TC_GP_EnablePreview */
+	0x0F120001,  /* REG_TC_GP_EnablePreviewChanged */
+	
+	/* Set MIPI */
+	0x002A03AC,
+	0x0F120000,  /* REG_TC_FLS_Mode        */
+	0x002A03F2,
+	0x0F120001,  /* REG_TC_OIF_EnMipiLanes */
+	0x0F1200C3,  /* REG_TC_OIF_EnPackets   */
+	0x0F120001,  /* REG_TC_OIF_CfgChanged  */
+	
+	/* MIPI */
+	0x0028D000,
+	0x002AB0CC,
+	0x0F12000B,
+
+};
 #endif /* __SEC_S5K5BAFX_REG_H */

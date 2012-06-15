@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/init.h>
@@ -31,13 +26,11 @@
 #include <sound/tlv.h>
 #include <sound/initval.h>
 #include <sound/control.h>
+#include <sound/q6afe.h>
 #include <asm/dma.h>
 #include <asm/mach-types.h>
 #include <mach/qdsp6v2/audio_dev_ctl.h>
-#include <mach/qdsp6v2/q6afe.h>
-#ifdef CONFIG_SEC_DHA_SOL_MAL
 #include <mach/qdsp6v2/q6voice.h>
-#endif /* CONFIG_SEC_DHA_SOL_MAL*/
 
 #define LOOPBACK_ENABLE		0x1
 #define LOOPBACK_DISABLE	0x0
@@ -52,8 +45,7 @@ EXPORT_SYMBOL(msm_vol_ctl);
 struct pcm_session session_route;
 EXPORT_SYMBOL(session_route);
 
-#if defined(CONFIG_USA_MODEL_SGH_T989 ) || defined(CONFIG_USA_MODEL_SGH_I727) \
-  || defined(CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_TARGET_LOCALE_USA)
 bool dualmic_enabled = true;
 EXPORT_SYMBOL(dualmic_enabled);
 #endif 
@@ -95,9 +87,9 @@ static int msm_v_call_info(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 1;
+	uinfo->count = 2; /* start, session_id */
 	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 1;
+	uinfo->value.integer.max = SESSION_ID_BASE + MAX_VOC_SESSIONS;
 	return 0;
 }
 
@@ -105,6 +97,7 @@ static int msm_v_call_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	ucontrol->value.integer.value[0] = 0;
+	ucontrol->value.integer.value[1] = 0;
 	return 0;
 }
 
@@ -112,12 +105,22 @@ static int msm_v_call_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	int start = ucontrol->value.integer.value[0];
+	u32 session_id = ucontrol->value.integer.value[1];
+
+	if ((session_id != 0) &&
+	    ((session_id < SESSION_ID_BASE) ||
+	     (session_id >= SESSION_ID_BASE + MAX_VOC_SESSIONS))) {
+		pr_err("%s: Invalid session_id 0x%x\n", __func__, session_id);
+
+		return -EINVAL;
+	}
+
 	if (start)
 		broadcast_event(AUDDEV_EVT_START_VOICE, DEVICE_IGNORE,
-							SESSION_IGNORE);
+							session_id);
 	else
 		broadcast_event(AUDDEV_EVT_END_VOICE, DEVICE_IGNORE,
-							SESSION_IGNORE);
+							session_id);
 	return 0;
 }
 
@@ -125,9 +128,9 @@ static int msm_v_mute_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 2;
+	uinfo->count = 3; /* dir, mute, session_id */
 	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 2;
+	uinfo->value.integer.max = SESSION_ID_BASE + MAX_VOC_SESSIONS;
 	return 0;
 }
 
@@ -135,6 +138,8 @@ static int msm_v_mute_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	ucontrol->value.integer.value[0] = 0;
+	ucontrol->value.integer.value[1] = 0;
+	ucontrol->value.integer.value[2] = 0;
 	return 0;
 }
 
@@ -143,16 +148,26 @@ static int msm_v_mute_put(struct snd_kcontrol *kcontrol,
 {
 	int dir = ucontrol->value.integer.value[0];
 	int mute = ucontrol->value.integer.value[1];
-	return msm_set_voice_mute(dir, mute);
+	u32 session_id = ucontrol->value.integer.value[2];
+
+	if ((session_id != 0) &&
+	    ((session_id < SESSION_ID_BASE) ||
+	     (session_id >= SESSION_ID_BASE + MAX_VOC_SESSIONS))) {
+		pr_err("%s: Invalid session_id 0x%x\n", __func__, session_id);
+
+		return -EINVAL;
+	}
+
+	return msm_set_voice_mute(dir, mute, session_id);
 }
 
 static int msm_v_volume_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 2; /* Volume */
+	uinfo->count = 3; /* dir, volume, session_id */
 	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 100;
+	uinfo->value.integer.max = SESSION_ID_BASE + MAX_VOC_SESSIONS;
 	return 0;
 }
 
@@ -160,6 +175,8 @@ static int msm_v_volume_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	ucontrol->value.integer.value[0] = 0;
+	ucontrol->value.integer.value[1] = 0;
+	ucontrol->value.integer.value[2] = 0;
 	return 0;
 }
 
@@ -168,8 +185,17 @@ static int msm_v_volume_put(struct snd_kcontrol *kcontrol,
 {
 	int dir = ucontrol->value.integer.value[0];
 	int volume = ucontrol->value.integer.value[1];
+	u32 session_id = ucontrol->value.integer.value[2];
 
-	return msm_set_voice_vol(dir, volume);
+	if ((session_id != 0) &&
+	    ((session_id < SESSION_ID_BASE) ||
+	     (session_id >= SESSION_ID_BASE + MAX_VOC_SESSIONS))) {
+		pr_err("%s: Invalid session_id 0x%x\n", __func__, session_id);
+
+		return -EINVAL;
+	}
+
+	return msm_set_voice_vol(dir, volume, session_id);
 }
 
 static int msm_volume_info(struct snd_kcontrol *kcontrol,
@@ -348,13 +374,12 @@ static int msm_device_put(struct snd_kcontrol *kcontrol,
 		rc = PTR_ERR(dev_info);
 		return rc;
 	}
-	pr_info("%s:device %s(%d) set %d : opened_dev(%d,%d)\n", __func__, dev_info->name, route_cfg.dev_id, set, opened_dev1, opened_dev2);
+	pr_info("%s:device %s set %d\n", __func__, dev_info->name, set);
 
 	if (set) {
 		pr_info("Device %s Opened = %d\n", dev_info->name, dev_info->opened);
 		if (!dev_info->opened) {
-#if defined(CONFIG_USA_MODEL_SGH_T989 ) || defined(CONFIG_USA_MODEL_SGH_I727) \
-  || defined(CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_TARGET_LOCALE_USA)
 			if(!strcmp(dev_info->name, "dualmic_handset_ef_tx"))
 			{
 				pr_debug("%s : dualmic_enabled\n",__func__);
@@ -384,12 +409,12 @@ static int msm_device_put(struct snd_kcontrol *kcontrol,
 			pr_info("Device trying to open : %s\n", dev_info->name);
 			rc = dev_info->dev_ops.open(dev_info);
 			if (rc < 0) {
-/*[[Safeguard code for device open issue -START 
+/*[[Safeguard code for device open issue -START //balaji.k	
      This fix would work incase of EBUSY error when device is being opened & previous instance of device is not closed */
 				if(rc == -EBUSY)
 				{
 				
-					struct msm_snddev_info * last_dev_info;
+					struct msm_snddev_info * last_dev_info = NULL;
 					int closing_dev = -1;
 					pr_err("DEV_BUSY: Ebusy Error %s : route_cfg.dev_id 1: %d\n",  __func__, route_cfg.dev_id);
 //Closing the last active device after sending the broadcast
@@ -404,6 +429,12 @@ static int msm_device_put(struct snd_kcontrol *kcontrol,
 						closing_dev = last_active_rx_opened_dev;
 					}
 
+					// to fix exception error
+					if (IS_ERR(last_dev_info)) {
+						pr_err("last_dev:%s:pass invalid dev_id\n", __func__);
+						rc = PTR_ERR(last_dev_info);
+						return rc;
+					}
 						
 					broadcast_event(AUDDEV_EVT_REL_PENDING,
 						closing_dev,
@@ -475,13 +506,7 @@ static int msm_device_put(struct snd_kcontrol *kcontrol,
 			
 			printk("Last active Open Txdev (%d) and Rxdev(%d)\n", last_active_tx_opened_dev,  last_active_rx_opened_dev);
 		}
-//Safeguard code for device open issue -END]] 		
-			if(opened_dev1 == -1)
-				opened_dev1 = route_cfg.dev_id;
-			else
-				opened_dev2 = route_cfg.dev_id;
-			pr_info("%s:open done : opened_dev(%d,%d)\n", __func__, opened_dev1, opened_dev2);
-
+//Safeguard code for device open issue -END]] //balaji.k		
 			dev_info->opened = 1;
 			broadcast_event(AUDDEV_EVT_DEV_RDY, route_cfg.dev_id,
 							SESSION_IGNORE);
@@ -516,8 +541,7 @@ static int msm_device_put(struct snd_kcontrol *kcontrol,
 		}
 	} else {
 		if (dev_info->opened) {
-#if defined(CONFIG_USA_MODEL_SGH_T989 ) || defined(CONFIG_USA_MODEL_SGH_I727) \
-  || defined(CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_TARGET_LOCALE_USA)
 			if((!strcmp(dev_info->name,"dualmic_handset_ef_tx"))&&(!strcmp(dev_info->name,"handset_call_rx")))
 			{			
 				pr_debug("%s : dualmic_disabled\n",__func__);
@@ -527,19 +551,12 @@ static int msm_device_put(struct snd_kcontrol *kcontrol,
 			broadcast_event(AUDDEV_EVT_REL_PENDING,
 						route_cfg.dev_id,
 						SESSION_IGNORE);
-			printk("Device trying to close : %s\n", dev_info->name);			
 			rc = dev_info->dev_ops.close(dev_info);
 			if (rc < 0) {
 				pr_err("%s:Snd device failed close!\n",
 					__func__);
 				return rc;
 			} else {
-				if(opened_dev1 == route_cfg.dev_id)
-					opened_dev1 = -1;
-				else if(opened_dev2 == route_cfg.dev_id)
-					opened_dev2 = -1;
-				pr_info("%s:close done : opened_dev(%d,%d)\n", __func__, opened_dev1, opened_dev2);
-
 				dev_info->opened = 0;
 				broadcast_event(AUDDEV_EVT_DEV_RLS,
 					route_cfg.dev_id,
@@ -911,7 +928,7 @@ static int pcm_route_put_rx(struct snd_kcontrol *kcontrol,
 				 __func__, (session_id),
 				dev_info->name);
 	session_route.playback_session[session_id][dev_info->copp_id] =
-							dev_info->copp_id;
+							 dev_info->copp_id;
 	if (dev_info->opened) {
 		dev_info->sessions = dev_info->sessions | session_mask;
 		broadcast_event(AUDDEV_EVT_DEV_RDY,
@@ -1051,8 +1068,6 @@ static int msm_loopback_put(struct snd_kcontrol *kcontrol,
 	}
 	return rc;
 }
-
-//Qualcomm CR Add
 static int msm_device_mute_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
@@ -1076,11 +1091,7 @@ static int msm_device_mute_put(struct snd_kcontrol *kcontrol,
 	int mute = ucontrol->value.integer.value[1];
 	struct msm_snddev_info *dev_info;
 	int rc = 0;
-	int gain = 0x4000;		// Qualcomm 30550L patch original code
-	//u16 gain = 0x2000;
-
-	pr_info("%s: dev_id = %d, mute = %d\n",
-			__func__, dev_id, mute);
+	u16 gain = 0x2000;
 
 	dev_info = audio_dev_ctrl_find_dev(dev_id);
 	if (IS_ERR(dev_info)) {
@@ -1104,46 +1115,35 @@ static int msm_device_mute_put(struct snd_kcontrol *kcontrol,
 				"control.", __func__, dev_info->name);
 		return rc;
 	}
-	pr_debug("Muting device id %d(%s)\n", dev_id, dev_info->name);
+	pr_debug("Muting/Unmuting device id %d(%s)\n", dev_id, dev_info->name);
 
 	return rc;
 }
-// Qualcomm CR end
 
-#ifdef CONFIG_SEC_DHA_SOL_MAL
-static int msm_sec_dha_info(struct snd_kcontrol *kcontrol,
+static int msm_voc_session_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 14;
-	uinfo->value.integer.min = -32768;
-	uinfo->value.integer.max = 32767;
+	uinfo->count = 1;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = SESSION_ID_BASE + MAX_VOC_SESSIONS;
 	return 0;
 }
 
-static int msm_sec_dha_get(struct snd_kcontrol *kcontrol,
+static int msm_voice_session_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
+	ucontrol->value.integer.value[0] =
+					voice_get_session_id("Voice session");
 	return 0;
 }
 
-static int msm_sec_dha_put(struct snd_kcontrol *kcontrol,
+static int msm_voip_session_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
-	int i=0;
-
-	int dha_mode = ucontrol->value.integer.value[0];
-	int dha_select = ucontrol->value.integer.value[1];
-	short dha_param[12] = {0,};
-
-	for(i=0; i<12; i++){
-		dha_param[i] = (short)ucontrol->value.integer.value[2+i];
-		//pr_err("msm_dha_put : param - %d\n", dha_param[i]);
-	}
-
-	return voice_sec_set_dha_data(dha_mode, dha_select, dha_param);
+	ucontrol->value.integer.value[0] = voice_get_session_id("VoIP session");
+	return 0;
 }
-#endif /* CONFIG_SEC_DHA_SOL_MAL*/
 
 static struct snd_kcontrol_new snd_dev_controls[AUDIO_DEV_CTL_MAX_DEV];
 
@@ -1234,47 +1234,53 @@ static struct snd_kcontrol_new snd_msm_controls[] = {
 						 msm_v_mute_put, 0),
 	MSM_EXT("Voice Call", msm_v_call_info, msm_v_call_get, \
 						msm_v_call_put, 0),
-	MSM_EXT("Device_Volume", msm_device_volume_info, msm_device_volume_get, \
-			msm_device_volume_put, 0),
-	MSM_EXT("Reset", msm_reset_info, msm_reset_get, \
-			msm_reset_put, 0),
-	MSM_EXT("ANC", msm_anc_info, msm_anc_get, \
-			msm_anc_put, 0),
-	MSM_EXT("Device_Mute", msm_device_mute_info, msm_device_mute_get, \
-			msm_device_mute_put, 0),
-	MSM_EXT("Loopback_Mode", msm_loopback_mode_info, msm_loopback_mode_get, \
-			msm_loopback_mode_put, 0),
+	MSM_EXT("Device_Volume", msm_device_volume_info,
+			msm_device_volume_get, msm_device_volume_put, 0),
+	MSM_EXT("Reset", msm_reset_info,
+			msm_reset_get, msm_reset_put, 0),
+	MSM_EXT("ANC", msm_anc_info, msm_anc_get, msm_anc_put, 0),
+	MSM_EXT("Device_Mute", msm_device_mute_info,
+			msm_device_mute_get, msm_device_mute_put, 0),
 };
 
 static struct snd_kcontrol_new snd_msm_secondary_controls[] = {
-	MSM_EXT("PCM Playback Sink", \
+	MSM_EXT("PCM Playback Sink",
 			pcm_route_info, pcm_route_get_rx, pcm_route_put_rx, 0),
-	MSM_EXT("PCM Capture Source", \
+	MSM_EXT("PCM Capture Source",
 			pcm_route_info, pcm_route_get_tx, pcm_route_put_tx, 0),
-	MSM_EXT("Sound Device Loopback", \
-			msm_loopback_info, msm_loopback_get, msm_loopback_put, 0),
-#ifdef CONFIG_SEC_DHA_SOL_MAL 
-	MSM_EXT("Sec Set DHA data", \
-			msm_sec_dha_info, msm_sec_dha_get, msm_sec_dha_put, 0),
-#endif /* CONFIG_SEC_DHA_SOL_MAL*/
+	MSM_EXT("Sound Device Loopback", msm_loopback_info,
+			msm_loopback_get, msm_loopback_put, 0),
+	MSM_EXT("VoiceVolume Ext",
+		      msm_v_volume_info, msm_v_volume_get, msm_v_volume_put, 0),
+	MSM_EXT("VoiceMute Ext",
+			msm_v_mute_info, msm_v_mute_get, msm_v_mute_put, 0),
+	MSM_EXT("Voice Call Ext",
+			msm_v_call_info, msm_v_call_get, msm_v_call_put, 0),
+	MSM_EXT("Voice session",
+			msm_voc_session_info, msm_voice_session_get, NULL, 0),
+	MSM_EXT("VoIP session",
+			msm_voc_session_info, msm_voip_session_get, NULL, 0),
+	MSM_EXT("Loopback Mode", 
+	        msm_loopback_mode_info, msm_loopback_mode_get, msm_loopback_mode_put, 0),
 };
 
-static int msm_new_mixer(struct snd_card *card)
+static int msm_new_mixer(struct snd_soc_codec *codec)
 {
 	unsigned int idx;
 	int err;
 	int dev_cnt;
 
-	strcpy(card->mixername, "MSM Mixer");
+	strcpy(codec->card->snd_card->mixername, "MSM Mixer");
 	for (idx = 0; idx < ARRAY_SIZE(snd_msm_controls); idx++) {
-		err = snd_ctl_add(card,	snd_ctl_new1(&snd_msm_controls[idx],
+		err = snd_ctl_add(codec->card->snd_card,
+				snd_ctl_new1(&snd_msm_controls[idx],
 					NULL));
 		if (err < 0)
 			pr_err("%s:ERR adding ctl\n", __func__);
 	}
 
 	for (idx = 0; idx < ARRAY_SIZE(snd_msm_secondary_controls); idx++) {
-		err = snd_ctl_add(card,
+		err = snd_ctl_add(codec->card->snd_card,
 			snd_ctl_new1(&snd_msm_secondary_controls[idx],
 			NULL));
 		if (err < 0)
@@ -1284,8 +1290,9 @@ static int msm_new_mixer(struct snd_card *card)
 
 	for (idx = 0; idx < dev_cnt; idx++) {
 		if (!snd_dev_ctl_index(idx)) {
-			err = snd_ctl_add(card, snd_ctl_new1(
-				&snd_dev_controls[idx], NULL));
+			err = snd_ctl_add(codec->card->snd_card,
+				snd_ctl_new1(&snd_dev_controls[idx],
+					NULL));
 			if (err < 0)
 				pr_err("%s:ERR adding ctl\n", __func__);
 		} else
@@ -1297,58 +1304,69 @@ static int msm_new_mixer(struct snd_card *card)
 	return 0;
 }
 
-static int msm_soc_dai_init(struct snd_soc_codec *codec)
+static int msm_soc_dai_init(
+	struct snd_soc_pcm_runtime *rtd)
 {
 
 	int ret = 0;
-	ret = msm_new_mixer(codec->card);
+	struct snd_soc_codec *codec = rtd->codec;
+
+	init_waitqueue_head(&the_locks.enable_wait);
+	init_waitqueue_head(&the_locks.eos_wait);
+	init_waitqueue_head(&the_locks.write_wait);
+	init_waitqueue_head(&the_locks.read_wait);
+	memset(&session_route, DEVICE_IGNORE, sizeof(struct pcm_session));
+
+	ret = msm_new_mixer(codec);
 	if (ret < 0)
 		pr_err("%s: ALSA MSM Mixer Fail\n", __func__);
 
 	return ret;
 }
 
-static struct snd_soc_dai_link msm_dai = {
-	.name = "ASOC",
-	.stream_name = "ASOC",
-	.codec_dai = &msm_dais[0],
-	.cpu_dai = &msm_dais[1],
-	.init	= msm_soc_dai_init,
+static struct snd_soc_dai_link msm_dai[] = {
+{
+	.name = "MSM Primary I2S",
+	.stream_name = "DSP 1",
+	.cpu_dai_name = "msm-cpu-dai.0",
+	.platform_name = "msm-dsp-audio.0",
+	.codec_name = "msm-codec-dai.0",
+	.codec_dai_name = "msm-codec-dai",
+	.init   = &msm_soc_dai_init,
+},
+#ifdef CONFIG_MSM_8x60_VOIP
+{
+	.name = "MSM Primary Voip",
+	.stream_name = "MVS",
+	.cpu_dai_name = "mvs-cpu-dai.0",
+	.platform_name = "msm-mvs-audio.0",
+	.codec_name = "mvs-codec-dai.0",
+	.codec_dai_name = "mvs-codec-dai",
+},
+#endif
 };
 
-struct snd_soc_card snd_soc_card_msm = {
-	.name = "msm-audio",
-	.dai_link	= &msm_dai,
-	.num_links = 1,
-	.platform = &msm_soc_platform,
-};
-
-/* msm_audio audio subsystem */
-static struct snd_soc_device msm_audio_snd_devdata = {
-	.card = &snd_soc_card_msm,
-	.codec_dev = &soc_codec_dev_msm,
+static struct snd_soc_card snd_soc_card_msm = {
+	.name		= "msm-audio",
+	.dai_link	= msm_dai,
+	.num_links = ARRAY_SIZE(msm_dai),
 };
 
 static int __init msm_audio_init(void)
 {
 	int ret;
 
-	msm_audio_snd_device = platform_device_alloc("soc-audio", 0);
+	msm_audio_snd_device = platform_device_alloc("soc-audio", -1);
 	if (!msm_audio_snd_device)
 		return -ENOMEM;
 
-	platform_set_drvdata(msm_audio_snd_device, &msm_audio_snd_devdata);
-	msm_audio_snd_devdata.dev = &msm_audio_snd_device->dev;
+	platform_set_drvdata(msm_audio_snd_device, &snd_soc_card_msm);
 	ret = platform_device_add(msm_audio_snd_device);
 	if (ret) {
 		platform_device_put(msm_audio_snd_device);
 		return ret;
 	}
-	init_waitqueue_head(&the_locks.enable_wait);
-	init_waitqueue_head(&the_locks.eos_wait);
-	init_waitqueue_head(&the_locks.write_wait);
-	init_waitqueue_head(&the_locks.read_wait);
-	memset(&session_route, DEVICE_IGNORE, sizeof(struct pcm_session));
+
 	src_dev = DEVICE_IGNORE;
 	dst_dev = DEVICE_IGNORE;
 

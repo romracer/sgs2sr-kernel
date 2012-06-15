@@ -37,8 +37,8 @@ __mutex_fastpath_lock(atomic_t *count, void (*fail_fn)(atomic_t *))
 		: "=&r" (__res), "=&r" (__ex_flag)
 		: "r" (&(count)->counter)
 		: "cc","memory" );
-	__res |= __ex_flag;
 
+	__res |= __ex_flag;
 	if (unlikely(__res != 0))
 		fail_fn(count);
 	else

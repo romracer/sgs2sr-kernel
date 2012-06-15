@@ -46,13 +46,23 @@ struct msm_ipc_router_smd_xprt {
 
 static struct msm_ipc_router_smd_xprt smd_remote_xprt;
 
+struct msm_ipc_router_smd_xprt_work {
+	struct msm_ipc_router_xprt *xprt;
+	struct work_struct work;
+};
+
 static void smd_xprt_read_data(struct work_struct *work);
+static void smd_xprt_open_event(struct work_struct *work);
+static void smd_xprt_close_event(struct work_struct *work);
 static DECLARE_DELAYED_WORK(work_read_data, smd_xprt_read_data);
 static struct workqueue_struct *smd_xprt_workqueue;
 
 static wait_queue_head_t write_avail_wait_q;
 static struct rr_packet *in_pkt;
 static int is_partial_in_pkt;
+
+static DEFINE_SPINLOCK(modem_reset_lock);
+static int modem_reset;
 
 static int msm_ipc_router_smd_remote_write_avail(void)
 {
@@ -67,6 +77,8 @@ static int msm_ipc_router_smd_remote_write(void *data,
 	struct sk_buff *ipc_rtr_pkt;
 	int align_sz, align_data = 0;
 	int offset, sz_written = 0;
+	int ret, num_retries = 0;
+	unsigned long flags;
 
 	if (!pkt)
 		return -EINVAL;
@@ -75,8 +87,22 @@ static int msm_ipc_router_smd_remote_write(void *data,
 		return -EINVAL;
 
 	align_sz = ALIGN_SIZE(pkt->length);
-	while (smd_write_start(smd_remote_xprt.channel, (len + align_sz)) < 0)
+	while ((ret = smd_write_start(smd_remote_xprt.channel,
+				      (len + align_sz))) < 0) {
+		spin_lock_irqsave(&modem_reset_lock, flags);
+		if (modem_reset) {
+			spin_unlock_irqrestore(&modem_reset_lock, flags);
+			pr_err("%s: Modem reset\n", __func__);
+			return -ENETRESET;
+		}
+		spin_unlock_irqrestore(&modem_reset_lock, flags);
+		if (num_retries >= 5) {
+			pr_err("%s: Error %d @ smd_write_start\n",
+				__func__, ret);
+			return ret;
+		}
 		msleep(50);
+	}
 
 	D("%s: Ready to write\n", __func__);
 	skb_queue_walk(pkt->pkt_fragment_q, ipc_rtr_pkt) {
@@ -85,10 +111,18 @@ static int msm_ipc_router_smd_remote_write(void *data,
 			if (!smd_write_avail(smd_remote_xprt.channel))
 				smd_enable_read_intr(smd_remote_xprt.channel);
 
-			wait_event_interruptible_timeout(write_avail_wait_q,
-				smd_write_avail(smd_remote_xprt.channel),
-				msecs_to_jiffies(50));
+			wait_event(write_avail_wait_q,
+				(smd_write_avail(smd_remote_xprt.channel) ||
+				modem_reset));
 			smd_disable_read_intr(smd_remote_xprt.channel);
+			spin_lock_irqsave(&modem_reset_lock, flags);
+			if (modem_reset) {
+				spin_unlock_irqrestore(&modem_reset_lock,
+							flags);
+				pr_err("%s: Modem reset\n", __func__);
+				return -ENETRESET;
+			}
+			spin_unlock_irqrestore(&modem_reset_lock, flags);
 
 			sz_written = smd_write_segment(smd_remote_xprt.channel,
 					  ipc_rtr_pkt->data + offset,
@@ -103,10 +137,17 @@ static int msm_ipc_router_smd_remote_write(void *data,
 		if (smd_write_avail(smd_remote_xprt.channel) < align_sz)
 			smd_enable_read_intr(smd_remote_xprt.channel);
 
-		wait_event_interruptible_timeout(write_avail_wait_q,
-			(smd_write_avail(smd_remote_xprt.channel) >=
-			 align_sz), msecs_to_jiffies(50));
+		wait_event(write_avail_wait_q,
+			((smd_write_avail(smd_remote_xprt.channel) >=
+			 align_sz) || modem_reset));
 		smd_disable_read_intr(smd_remote_xprt.channel);
+		spin_lock_irqsave(&modem_reset_lock, flags);
+		if (modem_reset) {
+			spin_unlock_irqrestore(&modem_reset_lock, flags);
+			pr_err("%s: Modem reset\n", __func__);
+			return -ENETRESET;
+		}
+		spin_unlock_irqrestore(&modem_reset_lock, flags);
 
 		smd_write_segment(smd_remote_xprt.channel,
 				  &align_data, align_sz, 0);
@@ -128,6 +169,17 @@ static void smd_xprt_read_data(struct work_struct *work)
 	int pkt_size, sz_read, sz;
 	struct sk_buff *ipc_rtr_pkt;
 	void *data;
+	unsigned long flags;
+
+	spin_lock_irqsave(&modem_reset_lock, flags);
+	if (modem_reset) {
+		spin_unlock_irqrestore(&modem_reset_lock, flags);
+		release_pkt(in_pkt);
+		is_partial_in_pkt = 0;
+		pr_err("%s: Modem reset\n", __func__);
+		return;
+	}
+	spin_unlock_irqrestore(&modem_reset_lock, flags);
 
 	D("%s pkt_size: %d, read_avail: %d\n", __func__,
 		smd_cur_packet_size(smd_remote_xprt.channel),
@@ -156,8 +208,10 @@ static void smd_xprt_read_data(struct work_struct *work)
 			D("%s: Allocated rr_packet\n", __func__);
 		}
 
-		if ((pkt_size >= MIN_FRAG_SZ) &&
-		    (smd_read_avail(smd_remote_xprt.channel) < MIN_FRAG_SZ))
+		if (((pkt_size >= MIN_FRAG_SZ) &&
+		     (smd_read_avail(smd_remote_xprt.channel) < MIN_FRAG_SZ)) ||
+		    ((pkt_size < MIN_FRAG_SZ) &&
+		     (smd_read_avail(smd_remote_xprt.channel) < pkt_size)))
 			return;
 
 		sz = smd_read_avail(smd_remote_xprt.channel);
@@ -204,14 +258,74 @@ static void smd_xprt_read_data(struct work_struct *work)
 	}
 }
 
+static void smd_xprt_open_event(struct work_struct *work)
+{
+	struct msm_ipc_router_smd_xprt_work *xprt_work =
+		container_of(work, struct msm_ipc_router_smd_xprt_work, work);
+
+	msm_ipc_router_xprt_notify(xprt_work->xprt,
+				IPC_ROUTER_XPRT_EVENT_OPEN, NULL);
+	D("%s: Notified IPC Router of OPEN Event\n", __func__);
+	kfree(xprt_work);
+}
+
+static void smd_xprt_close_event(struct work_struct *work)
+{
+	struct msm_ipc_router_smd_xprt_work *xprt_work =
+		container_of(work, struct msm_ipc_router_smd_xprt_work, work);
+
+	msm_ipc_router_xprt_notify(xprt_work->xprt,
+				IPC_ROUTER_XPRT_EVENT_CLOSE, NULL);
+	D("%s: Notified IPC Router of CLOSE Event\n", __func__);
+	kfree(xprt_work);
+}
+
 static void msm_ipc_router_smd_remote_notify(void *_dev, unsigned event)
 {
-	if (event == SMD_EVENT_DATA) {
+	unsigned long flags;
+	struct msm_ipc_router_smd_xprt_work *xprt_work;
+
+	switch (event) {
+	case SMD_EVENT_DATA:
 		if (smd_read_avail(smd_remote_xprt.channel))
 			queue_delayed_work(smd_xprt_workqueue,
 					   &work_read_data, 0);
 		if (smd_write_avail(smd_remote_xprt.channel))
 			wake_up(&write_avail_wait_q);
+		break;
+
+	case SMD_EVENT_OPEN:
+		spin_lock_irqsave(&modem_reset_lock, flags);
+		modem_reset = 0;
+		spin_unlock_irqrestore(&modem_reset_lock, flags);
+		xprt_work = kmalloc(sizeof(struct msm_ipc_router_smd_xprt_work),
+				    GFP_ATOMIC);
+		if (!xprt_work) {
+			pr_err("%s: Couldn't notify %d event to IPC Router\n",
+				__func__, event);
+			return;
+		}
+		xprt_work->xprt = &smd_remote_xprt.xprt;
+		INIT_WORK(&xprt_work->work, smd_xprt_open_event);
+		queue_work(smd_xprt_workqueue, &xprt_work->work);
+		break;
+
+	case SMD_EVENT_CLOSE:
+		spin_lock_irqsave(&modem_reset_lock, flags);
+		modem_reset = 1;
+		spin_unlock_irqrestore(&modem_reset_lock, flags);
+		wake_up(&write_avail_wait_q);
+		xprt_work = kmalloc(sizeof(struct msm_ipc_router_smd_xprt_work),
+				    GFP_ATOMIC);
+		if (!xprt_work) {
+			pr_err("%s: Couldn't notify %d event to IPC Router\n",
+				__func__, event);
+			return;
+		}
+		xprt_work->xprt = &smd_remote_xprt.xprt;
+		INIT_WORK(&xprt_work->work, smd_xprt_close_event);
+		queue_work(smd_xprt_workqueue, &xprt_work->work);
+		break;
 	}
 }
 
@@ -243,11 +357,6 @@ static int msm_ipc_router_smd_remote_probe(struct platform_device *pdev)
 	}
 
 	smd_disable_read_intr(smd_remote_xprt.channel);
-
-	msm_ipc_router_xprt_notify(&smd_remote_xprt.xprt,
-				  IPC_ROUTER_XPRT_EVENT_OPEN,
-				  NULL);
-	D("%s: Notified IPC Router of OPEN Event\n", __func__);
 
 	smsm_change_state(SMSM_APPS_STATE, 0, SMSM_RPCINIT);
 

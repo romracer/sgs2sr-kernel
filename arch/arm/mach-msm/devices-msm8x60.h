@@ -1,29 +1,13 @@
 /* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 #ifndef __ARCH_ARM_MACH_MSM_DEVICES_MSM8X60_H
@@ -38,47 +22,64 @@
 #define MSM_SSBI1_I2C_BUS_ID     6
 #define MSM_SSBI2_I2C_BUS_ID     7
 #define MSM_SSBI3_I2C_BUS_ID     8
+#if 1//defined(CONFIG_KOR_MODEL_SHV_E110S)
+#define MSM_AMP_I2C_BUS_ID        9
+#define MSM_OPT_I2C_BUS_ID		10
+#define MSM_GYRO_I2C_BUS_ID		11
+#define MSM_MAG_I2C_BUS_ID		12
+#define MSM_TKEY_I2C_BUS_ID		13
+#endif
 
-#if defined(CONFIG_PN544)
+#if defined(CONFIG_PN544_NFC)
 #define MSM_GSBI10_QUP_I2C_BUS_ID		14
 #endif
 
 #if defined (CONFIG_EPEN_WACOM_G5SP)
-#define MSM_GSBI11_QUP_I2C_BUS_ID	18
+#define MSM_GSBI11_QUP_I2C_BUS_ID 18
 #endif 
+
+#ifdef CONFIG_SND_SOC_MSM8660_APQ
+extern struct platform_device msm_pcm;
+extern struct platform_device msm_pcm_routing;
+extern struct platform_device msm_cpudai0;
+extern struct platform_device msm_cpudai1;
+extern struct platform_device msm_cpudai_hdmi_rx;
+extern struct platform_device msm_cpudai_bt_rx;
+extern struct platform_device msm_cpudai_bt_tx;
+extern struct platform_device msm_cpudai_fm_rx;
+extern struct platform_device msm_cpudai_fm_tx;
+extern struct platform_device msm_cpu_fe;
+extern struct platform_device msm_stub_codec;
+extern struct platform_device msm_voice;
+extern struct platform_device msm_voip;
+extern struct platform_device msm_lpa_pcm;
+extern struct platform_device msm_pcm_hostless;
+#endif
 
 #ifdef CONFIG_SPI_QUP
 extern struct platform_device msm_gsbi1_qup_spi_device;
 extern struct platform_device msm_gsbi10_qup_spi_device;
 #endif
 
-#ifdef CONFIG_MSM_BUS_SCALING
 extern struct platform_device msm_bus_apps_fabric;
 extern struct platform_device msm_bus_sys_fabric;
 extern struct platform_device msm_bus_mm_fabric;
 extern struct platform_device msm_bus_sys_fpb;
 extern struct platform_device msm_bus_cpss_fpb;
-#endif
+extern struct platform_device msm_bus_def_fab;
 
 extern struct platform_device msm_device_smd;
-extern struct platform_device msm_kgsl_3d0;
-#ifdef CONFIG_MSM_KGSL_2D
-extern struct platform_device msm_kgsl_2d0;
-extern struct platform_device msm_kgsl_2d1;
-#endif
 extern struct platform_device msm_device_gpio;
 extern struct platform_device msm_device_vidc;
 
 extern struct platform_device msm_charm_modem;
-
+extern struct platform_device msm_device_tz_log;
 #ifdef CONFIG_HW_RANDOM_MSM
 extern struct platform_device msm_device_rng;
 #endif
 
 void __init msm8x60_init_irq(void);
-#ifdef CONFIG_MSM_KGSL_2D
 void __init msm8x60_check_2d_hardware(void);
-#endif
 
 #ifdef CONFIG_MSM_DSPS
 extern struct platform_device msm_dsps_device;

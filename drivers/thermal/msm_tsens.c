@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 /*
  * Qualcomm TSENS Thermal Manager driver
@@ -29,6 +24,7 @@
 
 #include <linux/io.h>
 #include <mach/msm_iomap.h>
+#include <linux/pm.h>
 
 /* Trips: from very hot to very cold */
 enum tsens_trip_type {
@@ -93,6 +89,7 @@ struct tsens_tm_device {
 	bool prev_reading_avail;
 	int offset;
 	struct work_struct work;
+	uint32_t pm_tsens_thr_data;
 };
 
 struct tsens_tm_device *tmdev;
@@ -184,7 +181,6 @@ static int tsens_tz_set_mode(struct thermal_zone_device *thermal,
 		}
 
 		writel(reg, TSENS_CNTL_ADDR);
-		dsb();
 	}
 	tm_sensor->mode = mode;
 
@@ -299,7 +295,6 @@ static int tsens_tz_activate_trip_type(struct thermal_zone_device *thermal,
 		writel(reg_cntl & ~mask, TSENS_CNTL_ADDR);
 	}
 
-	dsb();
 	return 0;
 }
 
@@ -418,7 +413,6 @@ static int tsens_tz_set_trip_temp(struct thermal_zone_device *thermal,
 		return -EINVAL;
 
 	writel(reg_th | code, TSENS_THRESHOLD_ADDR);
-	dsb();
 	return 0;
 }
 
@@ -450,7 +444,7 @@ static irqreturn_t tsens_isr(int irq, void *data)
 
 	writel(reg | TSENS_LOWER_STATUS_CLR | TSENS_UPPER_STATUS_CLR,
 			TSENS_CNTL_ADDR);
-	dsb();
+
 	return IRQ_WAKE_THREAD;
 }
 
@@ -479,9 +473,6 @@ static irqreturn_t tsens_isr_thread(int irq, void *data)
 			if (lower_th_x)
 				mask |= TSENS_LOWER_STATUS_CLR;
 			if (upper_th_x || lower_th_x) {
-				thermal_zone_device_update(
-							tm->sensor[i].tz_dev);
-
 				/* Notify user space */
 				schedule_work(&tm->work);
 				adc_code = readl(TSENS_S0_STATUS_ADDR
@@ -495,9 +486,54 @@ static irqreturn_t tsens_isr_thread(int irq, void *data)
 		sensor >>= 1;
 	}
 	writel(reg & mask, TSENS_CNTL_ADDR);
-	dsb();
 	return IRQ_HANDLED;
 }
+
+#ifdef CONFIG_PM
+static int tsens_suspend(struct device *dev)
+{
+	unsigned int reg;
+
+	tmdev->pm_tsens_thr_data = readl_relaxed(TSENS_THRESHOLD_ADDR);
+	reg = readl_relaxed(TSENS_CNTL_ADDR);
+	writel_relaxed(reg & ~(TSENS_SLP_CLK_ENA | TSENS_EN), TSENS_CNTL_ADDR);
+	tmdev->prev_reading_avail = 0;
+
+	disable_irq_nosync(TSENS_UPPER_LOWER_INT);
+	mb();
+	return 0;
+}
+
+static int tsens_resume(struct device *dev)
+{
+	unsigned int reg;
+
+	reg = readl_relaxed(TSENS_CNTL_ADDR);
+	writel_relaxed(reg | TSENS_SW_RST, TSENS_CNTL_ADDR);
+	reg |= TSENS_SLP_CLK_ENA | TSENS_EN | (TSENS_MEASURE_PERIOD << 16) |
+		TSENS_MIN_STATUS_MASK | TSENS_MAX_STATUS_MASK |
+		(((1 << TSENS_NUM_SENSORS) - 1) << 3);
+
+	reg = (reg & ~TSENS_CONFIG_MASK) | (TSENS_CONFIG << TSENS_CONFIG_SHIFT);
+	writel_relaxed(reg, TSENS_CNTL_ADDR);
+
+	if (tmdev->sensor->mode == THERMAL_DEVICE_DISABLED) {
+		writel_relaxed(reg & ~((((1 << TSENS_NUM_SENSORS) - 1) << 3)
+			| TSENS_SLP_CLK_ENA | TSENS_EN), TSENS_CNTL_ADDR);
+	}
+
+	writel_relaxed(tmdev->pm_tsens_thr_data, TSENS_THRESHOLD_ADDR);
+
+	enable_irq(TSENS_UPPER_LOWER_INT);
+	mb();
+	return 0;
+}
+
+static const struct dev_pm_ops tsens_pm_ops = {
+	.suspend	= tsens_suspend,
+	.resume		= tsens_resume,
+};
+#endif
 
 static int __devinit tsens_tm_probe(struct platform_device *pdev)
 {
@@ -561,11 +597,9 @@ static int __devinit tsens_tm_probe(struct platform_device *pdev)
 			pr_err("%s: thermal_zone_device_register() failed.\n",
 			__func__);
 			kfree(tmdev);
-			dsb();
 			return -ENODEV;
 		}
 		tmdev->sensor[i].sensor_num = i;
-		thermal_zone_device_update(tmdev->sensor[i].tz_dev);
 		tmdev->sensor[i].mode = THERMAL_DEVICE_DISABLED;
 	}
 
@@ -580,7 +614,6 @@ static int __devinit tsens_tm_probe(struct platform_device *pdev)
 	writel(reg & ~((((1 << TSENS_NUM_SENSORS) - 1) << 3)
 			| TSENS_SLP_CLK_ENA | TSENS_EN), TSENS_CNTL_ADDR);
 	pr_notice("%s: OK\n", __func__);
-	dsb();
 	return 0;
 }
 
@@ -591,7 +624,7 @@ static int __devexit tsens_tm_remove(struct platform_device *pdev)
 
 	reg = readl(TSENS_CNTL_ADDR);
 	writel(reg & ~(TSENS_SLP_CLK_ENA | TSENS_EN), TSENS_CNTL_ADDR);
-	dsb();
+
 	for (i = 0; i < TSENS_NUM_SENSORS; i++)
 		thermal_zone_device_unregister(tmdev->sensor[i].tz_dev);
 	platform_set_drvdata(pdev, NULL);
@@ -607,6 +640,9 @@ static struct platform_driver tsens_tm_driver = {
 	.driver	= {
 		.name = "tsens-tm",
 		.owner = THIS_MODULE,
+#ifdef CONFIG_PM
+		.pm	= &tsens_pm_ops,
+#endif
 	},
 };
 

@@ -23,6 +23,8 @@
 #include "adsp.h"
 #include <mach/debug_mm.h>
 
+#define MAX_FLUSH_SIZE 160
+
 static inline void *high_low_short_to_ptr(unsigned short high,
 					  unsigned short low)
 {
@@ -80,13 +82,15 @@ static int verify_vdec_pkt_cmd(struct msm_adsp_module *module,
 	unsigned long subframe_pkt_addr;
 	unsigned long subframe_pkt_size;
 	unsigned short *frame_header_pkt;
-	int i, num_addr, skip, start_pos = 0, xdim_pos = 1, ydim_pos = 2;
+	int i, num_addr, col_addr = 0, skip;
+	int start_pos = 0, xdim_pos = 1, ydim_pos = 2;
 	unsigned short *frame_buffer_high, *frame_buffer_low;
 	unsigned long frame_buffer_size;
 	unsigned short frame_buffer_size_high, frame_buffer_size_low;
 	struct file *filp = NULL;
 	unsigned long offset = 0;
 	struct pmem_addr pmem_addr;
+	unsigned long Codec_Id = 0;
 
 	MM_DBG("cmd_size %d cmd_id %d cmd_data %x\n", cmd_size, cmd_id,
 					(unsigned int)cmd_data);
@@ -108,14 +112,33 @@ static int verify_vdec_pkt_cmd(struct msm_adsp_module *module,
 				&subframe_pkt_size,
 				&filp, &offset))
 		return -1;
-
+	Codec_Id = pkt->codec_selection_word;
+	/*Invalidate cache before accessing the cached pmem buffer*/
+	if (filp) {
+		pmem_addr.vaddr = subframe_pkt_addr;
+		pmem_addr.length = (((subframe_pkt_size*2) + 31) & (~31)) + 32;
+		pmem_addr.offset = offset;
+		if (pmem_cache_maint (filp, PMEM_INV_CACHES,  &pmem_addr)) {
+			MM_ERR("Cache operation failed for phys addr high %x"
+				" addr low %x\n", pkt->subframe_packet_high,
+				pkt->subframe_packet_low);
+			return -EINVAL;
+		}
+	}
 	/* deref those ptrs and check if they are a frame header packet */
 	frame_header_pkt = (unsigned short *)subframe_pkt_addr;
 	switch (frame_header_pkt[0]) {
 	case 0xB201: /* h.264 vld in dsp */
+	   if (Codec_Id == 0x8) {
 		num_addr = 16;
 		skip = 0;
 		start_pos = 5;
+	   } else {
+	       num_addr = 16;
+	       skip = 0;
+	       start_pos = 6;
+	       col_addr = 17;
+	   }
 		break;
 	case 0x8201: /* h.264 vld in arm */
 		num_addr = 16;
@@ -154,6 +177,11 @@ static int verify_vdec_pkt_cmd(struct msm_adsp_module *module,
 		skip = 0;
 		start_pos = 10;
 		break;
+	case 0xFD01: /* VP8 */
+		num_addr = 3;
+		skip = 0;
+		start_pos = 24;
+		break;
 	default:
 		return 0;
 	}
@@ -190,11 +218,35 @@ static int verify_vdec_pkt_cmd(struct msm_adsp_module *module,
 					NULL, NULL, NULL, NULL))
 			return -EINVAL;
 	}
+	if (col_addr) {
+		frame_buffer_high += 2;
+		frame_buffer_low += 2;
+		/* Patch the Co-located buffers.*/
+		frame_buffer_size =  (72 * frame_header_pkt[xdim_pos] *
+					frame_header_pkt[ydim_pos]) >> 16;
+		ptr_to_high_low_short((void *)frame_buffer_size,
+					&frame_buffer_size_high,
+					&frame_buffer_size_low);
+		for (i = 0; i < col_addr; i++) {
+			if (frame_buffer_high && frame_buffer_low) {
+				if (pmem_fixup_high_low(frame_buffer_high,
+						frame_buffer_low,
+						frame_buffer_size_high,
+						frame_buffer_size_low,
+						module,
+						NULL, NULL, NULL, NULL))
+					return -EINVAL;
+			}
+			frame_buffer_high += 2;
+			frame_buffer_low += 2;
+		}
+	}
+	/*Flush the cached pmem subframe packet before sending to DSP*/
 	if (filp) {
 		pmem_addr.vaddr = subframe_pkt_addr;
-		pmem_addr.length = ((subframe_pkt_size + 31) & (~31)) + 32;
+		pmem_addr.length = MAX_FLUSH_SIZE;
 		pmem_addr.offset = offset;
-		if (pmem_cache_maint (filp, PMEM_CLEAN_CACHES, &pmem_addr)) {
+		if (pmem_cache_maint(filp, PMEM_CLEAN_CACHES, &pmem_addr)) {
 			MM_ERR("Cache operation failed for phys addr high %x"
 				" addr low %x\n", pkt->subframe_packet_high,
 				pkt->subframe_packet_low);

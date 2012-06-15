@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,17 +9,13 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/regulator/machine.h>
 #include <linux/regulator/consumer.h>
+#include <linux/ion.h>
 #include <mach/irqs.h>
 #include <mach/dma.h>
 #include <asm/mach/mmc.h>
@@ -29,7 +25,6 @@
 #include <mach/msm_hsusb.h>
 #include "footswitch.h"
 #include "clock.h"
-#include "clock-8x60.h"
 #include "clock-rpm.h"
 #include "clock-voter.h"
 #include "devices.h"
@@ -40,8 +35,6 @@
 #include <asm/hardware/gic.h>
 #include <asm/mach-types.h>
 #include <asm/clkdev.h>
-#include <mach/usbdiag.h>
-#include <mach/usb_gadget_fserial.h>
 #include <mach/msm_serial_hs_lite.h>
 #include <mach/msm_bus.h>
 #include <mach/msm_bus_board.h>
@@ -52,12 +45,16 @@
 #ifdef CONFIG_MSM_DSPS
 #include <mach/msm_dsps.h>
 #endif
+#include <linux/android_pmem.h>
 #include <linux/gpio.h>
 #include <linux/delay.h>
 #include <mach/mdm.h>
 #include <mach/rpm.h>
+#include <mach/board.h>
+#include <sound/apr_audio.h>
 #include "rpm_stats.h"
 #include "mpm.h"
+#include "msm_watchdog.h"
 
 /* Address of GSBI blocks */
 #define MSM_GSBI1_PHYS	0x16000000
@@ -104,10 +101,7 @@
 static void charm_ap2mdm_kpdpwr_on(void)
 {
 	gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
-#if defined(CONFIG_KOR_MODEL_SHV_E120L)            
-           gpio_direction_output(AP2MDM_STATUS, 1);
-#endif
-	gpio_direction_output(AP2MDM_KPDPWR_N, 1);       
+	gpio_direction_output(AP2MDM_KPDPWR_N, 1);
 }
 
 static void charm_ap2mdm_kpdpwr_off(void)
@@ -123,21 +117,33 @@ static void charm_ap2mdm_kpdpwr_off(void)
 	}
 	gpio_direction_output(AP2MDM_ERRFATAL, 0);
 
-
-	/* Hard reset using RESIN_N  */        
-	if (i == 0)
+#if defined(CONFIG_TARGET_LOCALE_USA)
+	/* When PM8058 has already shut down, PM8028 is still pulsing.
+	 * After shut down the MDM9K by AP2MDM_STATUS , 
+	 * then always turn off the PM8028 by AP2MDM_PMIC_RESET 
+	 */
+	if (true) {
+		if (i == 0)
+			pr_err("%s: MDM2AP_STATUS never went low. Doing a hard reset of the charm modem.\n", 
+				__func__);		
+		else		
+			pr_err("%s: MDM2AP_STATUS went low. but we still need doing a hard reset again.\n", 
+				__func__);	
+#else
+	if (i == 0) {
 		pr_err("%s: MDM2AP_STATUS never went low. Doing a hard reset \
 			of the charm modem.\n", __func__);
-			
-	gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
-	/*
-	* Currently, there is a debounce timer on the charm PMIC. It is
-	* necessary to hold the AP2MDM_PMIC_RESET low for ~3.5 seconds
-	* for the reset to fully take place. Sleep here to ensure the
-	* reset has occured before the function exits.
-	*/
-	msleep(4000);
-	gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
+#endif
+		gpio_direction_output(AP2MDM_PMIC_RESET_N, 1);
+		/*
+		* Currently, there is a debounce timer on the charm PMIC. It is
+		* necessary to hold the AP2MDM_PMIC_RESET low for ~3.5 seconds
+		* for the reset to fully take place. Sleep here to ensure the
+		* reset has occured before the function exits.
+		*/
+		msleep(4000);
+		gpio_direction_output(AP2MDM_PMIC_RESET_N, 0);
+	}
 }
 
 static struct resource charm_resources[] = {
@@ -176,34 +182,53 @@ struct platform_device msm_charm_modem = {
 #define GSBI12_DEV (&msm_gsbi12_qup_i2c_device.dev)
 #endif
 
-void __iomem *gic_cpu_base_addr;
-
 void __init msm8x60_init_irq(void)
 {
-	unsigned int i;
-
-	gic_dist_init(0, MSM_QGIC_DIST_BASE, GIC_PPI_START);
-	gic_cpu_base_addr = (void *)MSM_QGIC_CPU_BASE;
-	gic_cpu_init(0, MSM_QGIC_CPU_BASE);
+	msm_mpm_irq_extn_init();
+	gic_init(0, GIC_PPI_START, MSM_QGIC_DIST_BASE, (void *)MSM_QGIC_CPU_BASE);
 
 	/* Edge trigger PPIs except AVS_SVICINT and AVS_SVICINTSWDONE */
 	writel(0xFFFFD7FF, MSM_QGIC_DIST_BASE + GIC_DIST_CONFIG + 4);
-
-	/* QGIC does not adhere to GIC spec by enabling STIs by default.
-	 * Enable/clear is supposed to be RO for STIs, but is RW on QGIC.
-	 */
-	if (!machine_is_msm8x60_sim())
-		writel(0x0000FFFF, MSM_QGIC_DIST_BASE + GIC_DIST_ENABLE_SET);
-
-	/* FIXME: Not installing AVS_SVICINT and AVS_SVICINTSWDONE yet
-	 * as they are configured as level, which does not play nice with
-	 * handle_percpu_irq.
-	 */
-	for (i = GIC_PPI_START; i < GIC_SPI_START; i++) {
-		if (i != AVS_SVICINT && i != AVS_SVICINTSWDONE)
-			set_irq_handler(i, handle_percpu_irq);
-	}
 }
+
+#define MSM_LPASS_QDSP6SS_PHYS 0x28800000
+
+static struct resource msm_8660_q6_resources[] = {
+	{
+		.start  = MSM_LPASS_QDSP6SS_PHYS,
+		.end    = MSM_LPASS_QDSP6SS_PHYS + SZ_256 - 1,
+		.flags  = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device msm_pil_q6v3 = {
+	.name = "pil_qdsp6v3",
+	.id = -1,
+	.num_resources  = ARRAY_SIZE(msm_8660_q6_resources),
+	.resource       = msm_8660_q6_resources,
+};
+
+#define MSM_MSS_REGS_PHYS 0x10200000
+
+static struct resource msm_8660_modem_resources[] = {
+	{
+		.start  = MSM_MSS_REGS_PHYS,
+		.end    = MSM_MSS_REGS_PHYS + SZ_256 - 1,
+		.flags  = IORESOURCE_MEM,
+	},
+};
+
+struct platform_device msm_pil_modem = {
+	.name = "pil_modem",
+	.id = -1,
+	.num_resources  = ARRAY_SIZE(msm_8660_modem_resources),
+	.resource       = msm_8660_modem_resources,
+};
+
+struct platform_device msm_pil_tzapps = {
+	.name = "pil_tzapps",
+	.id = -1,
+};
 
 static struct resource msm_uart1_dm_resources[] = {
 	{
@@ -332,42 +357,19 @@ static struct resource msm_uart_gsbi9_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 };
-
 struct platform_device *msm_device_uart_gsbi9;
 struct platform_device *msm_add_gsbi9_uart(void)
 {
-	int ret = -ENOMEM;
-	struct platform_device *pdev;
-
-	pdev = platform_device_alloc("msm_serial_hsl", 1);
-	if (!pdev)
-		goto fail;
-
-	ret = platform_device_add_resources(pdev,
-				msm_uart_gsbi9_resources,
-				ARRAY_SIZE(msm_uart_gsbi9_resources));
-	if (ret)
-		goto fail;
-
-	ret = platform_device_add_data(pdev, &uart_gsbi9_pdata,
-						sizeof(uart_gsbi9_pdata));
-	if (ret)
-		goto fail;
-
-	ret = platform_device_add(pdev);
-	if (ret)
-		goto fail;
-
-	return pdev;
-fail:
-	pr_err("%s(): Error creating device\n", __func__);
-	platform_device_put(pdev);
-	return ERR_PTR(ret);
+	return platform_device_register_resndata(NULL, "msm_serial_hsl",
+					1, msm_uart_gsbi9_resources,
+					ARRAY_SIZE(msm_uart_gsbi9_resources),
+					&uart_gsbi9_pdata,
+					sizeof(uart_gsbi9_pdata));
 }
 #endif
 
-#if defined(CONFIG_USA_MODEL_SGH_I727) || defined(CONFIG_USA_MODEL_SGH_T989) \
-  || defined(CONFIG_USA_MODEL_SGH_I717)
+#if !defined (CONFIG_SAMSUNG_8X60_TABLET)
+#if defined (CONFIG_TARGET_LOCALE_USA)
 static struct resource gsbi1_qup_i2c_resources[] = {
 	{
 		.name	= "qup_phys_addr",
@@ -389,6 +391,7 @@ static struct resource gsbi1_qup_i2c_resources[] = {
 	},
 };
 #endif
+#endif
 
 static struct resource gsbi3_qup_i2c_resources[] = {
 	{
@@ -408,6 +411,18 @@ static struct resource gsbi3_qup_i2c_resources[] = {
 		.start	= GSBI3_QUP_IRQ,
 		.end	= GSBI3_QUP_IRQ,
 		.flags	= IORESOURCE_IRQ,
+	},
+	{
+		.name	= "i2c_clk",
+		.start	= 44,
+		.end	= 44,
+		.flags	= IORESOURCE_IO,
+	},
+	{
+		.name	= "i2c_sda",
+		.start	= 43,
+		.end	= 43,
+		.flags	= IORESOURCE_IO,
 	},
 };
 
@@ -450,6 +465,18 @@ static struct resource gsbi7_qup_i2c_resources[] = {
 		.start	= GSBI7_QUP_IRQ,
 		.end	= GSBI7_QUP_IRQ,
 		.flags	= IORESOURCE_IRQ,
+	},
+	{
+		.name	= "i2c_clk",
+		.start	= 60,
+		.end	= 60,
+		.flags	= IORESOURCE_IO,
+	},
+	{
+		.name	= "i2c_sda",
+		.start	= 59,
+		.end	= 59,
+		.flags	= IORESOURCE_IO,
 	},
 };
 
@@ -494,6 +521,7 @@ static struct resource gsbi9_qup_i2c_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 };
+
 #if defined (CONFIG_EPEN_WACOM_G5SP)
 static struct resource gsbi11_qup_i2c_resources[] = {
 	{
@@ -538,7 +566,7 @@ static struct resource gsbi12_qup_i2c_resources[] = {
 	},
 };
 
-#if defined(CONFIG_PN544)
+#if defined(CONFIG_PN544_NFC)
 static struct resource gsbi10_qup_i2c_resources[] = {
 	{
 		.name	= "qup_phys_addr",
@@ -561,47 +589,6 @@ static struct resource gsbi10_qup_i2c_resources[] = {
 };
 #endif
 
-#if 0
-static struct resource kgsl_resources[] = {
-	{
-		.name = "kgsl_reg_memory",
-		.start = 0x04300000, /* GFX3D address */
-		.end = 0x0431ffff,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.name = "kgsl_yamato_irq",
-		.start = GFX3D_IRQ,
-		.end = GFX3D_IRQ,
-		.flags = IORESOURCE_IRQ,
-	},
-	{
-		.name = "kgsl_2d0_reg_memory",
-		.start = 0x04100000, /* Z180 base address */
-		.end = 0x04100FFF,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.name  = "kgsl_2d0_irq",
-		.start = GFX2D0_IRQ,
-		.end = GFX2D0_IRQ,
-		.flags = IORESOURCE_IRQ,
-	},
-	{
-		.name = "kgsl_2d1_reg_memory",
-		.start = 0x04200000, /* Z180 device 1 base address */
-		.end =   0x04200FFF,
-		.flags = IORESOURCE_MEM,
-	},
-	{
-		.name  = "kgsl_2d1_irq",
-		.start = GFX2D1_IRQ,
-		.end = GFX2D1_IRQ,
-		.flags = IORESOURCE_IRQ,
-	},
-
-};
-#endif
 
 #ifdef CONFIG_MSM_BUS_SCALING
 static struct msm_bus_vectors grp3d_init_vectors[] = {
@@ -613,12 +600,21 @@ static struct msm_bus_vectors grp3d_init_vectors[] = {
 	},
 };
 
+static struct msm_bus_vectors grp3d_low_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_3D,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(990),
+	},
+};
+
 static struct msm_bus_vectors grp3d_nominal_low_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = 1300000000U,
+		.ib = KGSL_CONVERT_TO_MBPS(1300),
 	},
 };
 
@@ -627,7 +623,7 @@ static struct msm_bus_vectors grp3d_nominal_high_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = 2008000000U,
+		.ib = KGSL_CONVERT_TO_MBPS(2008),
 	},
 };
 
@@ -636,7 +632,7 @@ static struct msm_bus_vectors grp3d_max_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = 2484000000U,
+		.ib = KGSL_CONVERT_TO_MBPS(2484),
 	},
 };
 
@@ -644,6 +640,10 @@ static struct msm_bus_paths grp3d_bus_scale_usecases[] = {
 	{
 		ARRAY_SIZE(grp3d_init_vectors),
 		grp3d_init_vectors,
+	},
+	{
+		ARRAY_SIZE(grp3d_low_vectors),
+		grp3d_low_vectors,
 	},
 	{
 		ARRAY_SIZE(grp3d_nominal_low_vectors),
@@ -665,7 +665,6 @@ static struct msm_bus_scale_pdata grp3d_bus_scale_pdata = {
 	.name = "grp3d",
 };
 
-#ifdef CONFIG_MSM_KGSL_2D
 static struct msm_bus_vectors grp2d0_init_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE0,
@@ -680,7 +679,7 @@ static struct msm_bus_vectors grp2d0_max_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = 1300000000U,
+		.ib = KGSL_CONVERT_TO_MBPS(990),
 	},
 };
 
@@ -715,7 +714,7 @@ static struct msm_bus_vectors grp2d1_max_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE1,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = 1300000000U,
+		.ib = KGSL_CONVERT_TO_MBPS(990),
 	},
 };
 
@@ -735,7 +734,6 @@ static struct msm_bus_scale_pdata grp2d1_bus_scale_pdata = {
 	ARRAY_SIZE(grp2d1_bus_scale_usecases),
 	.name = "grp2d1",
 };
-#endif
 #endif
 
 #ifdef CONFIG_HW_RANDOM_MSM
@@ -769,48 +767,41 @@ static struct resource kgsl_3d0_resources[] = {
 };
 
 static struct kgsl_device_platform_data kgsl_3d0_pdata = {
-	.pwr_data = {
-		.pwrlevel = {
-			{
-				.gpu_freq = 266667000,
-				.bus_freq = 3,
-			},
-			{
-				.gpu_freq = 228571000,
-				.bus_freq = 2,
-			},
-			{
-				.gpu_freq = 200000000,
-				.bus_freq = 1,
-			},
-			{
-				.gpu_freq = 27000000,
-				.bus_freq = 0,
-			},
+	.pwrlevel = {
+		{
+			.gpu_freq = 266667000,
+			.bus_freq = 4,
+			.io_fraction = 0,
 		},
-		.init_level = 0,
-		.num_levels = 4,
-		.set_grp_async = NULL,
-		.idle_timeout = HZ/5,
-#ifdef CONFIG_MSM_BUS_SCALING
-		.nap_allowed = true,
-		.idle_pass = true,
-#endif
-		.pwrrail_first = true,
-	},
-	.clk = {
-		.name = {
-			.clk = "gfx3d_clk",
-			.pclk = "gfx3d_pclk",
+		{
+			.gpu_freq = 228571000,
+			.bus_freq = 3,
+			.io_fraction = 33,
 		},
+		{
+			.gpu_freq = 200000000,
+			.bus_freq = 2,
+			.io_fraction = 100,
+		},
+		{
+			.gpu_freq = 177778000,
+			.bus_freq = 1,
+			.io_fraction = 100,
+		},
+		{
+			.gpu_freq = 27000000,
+			.bus_freq = 0,
+		},
+	},
+	.init_level = 0,
+	.num_levels = 5,
+	.set_grp_async = NULL,
+	.idle_timeout = HZ/12,
+	.nap_allowed = true,
+	.clk_map = KGSL_CLK_CORE | KGSL_CLK_IFACE | KGSL_CLK_MEM_IFACE,
 #ifdef CONFIG_MSM_BUS_SCALING
-		.bus_scale_table = &grp3d_bus_scale_pdata,
+	.bus_scale_table = &grp3d_bus_scale_pdata,
 #endif
-	},
-	.imem_clk_name = {
-		.clk = NULL,
-		.pclk = "imem_pclk",
-	},
 };
 
 struct platform_device msm_kgsl_3d0 = {
@@ -823,7 +814,6 @@ struct platform_device msm_kgsl_3d0 = {
 	},
 };
 
-#ifdef CONFIG_MSM_KGSL_2D
 static struct resource kgsl_2d0_resources[] = {
 	{
 		.name = KGSL_2D0_REG_MEMORY,
@@ -840,36 +830,25 @@ static struct resource kgsl_2d0_resources[] = {
 };
 
 static struct kgsl_device_platform_data kgsl_2d0_pdata = {
-	.pwr_data = {
-		.pwrlevel = {
-			{
-				.gpu_freq = 200000000,
-				.bus_freq = 1,
-			},
-			{
-				.gpu_freq = 200000000,
-				.bus_freq = 0,
-			},
+	.pwrlevel = {
+		{
+			.gpu_freq = 200000000,
+			.bus_freq = 1,
 		},
-		.init_level = 0,
-		.num_levels = 2,
-		.set_grp_async = NULL,
-		.idle_timeout = HZ/10,
-#ifdef CONFIG_MSM_BUS_SCALING
-		.nap_allowed = true,
-#endif
-		.pwrrail_first = true,
-	},
-	.clk = {
-		.name = {
-			/* note: 2d clocks disabled on v1 */
-			.clk = "gfx2d0_clk",
-			.pclk = "gfx2d0_pclk",
+		{
+			.gpu_freq = 200000000,
+			.bus_freq = 0,
 		},
-#ifdef CONFIG_MSM_BUS_SCALING
-		.bus_scale_table = &grp2d0_bus_scale_pdata,
-#endif
 	},
+	.init_level = 0,
+	.num_levels = 2,
+	.set_grp_async = NULL,
+	.idle_timeout = HZ/10,
+	.nap_allowed = true,
+	.clk_map = KGSL_CLK_CORE | KGSL_CLK_IFACE,
+#ifdef CONFIG_MSM_BUS_SCALING
+	.bus_scale_table = &grp2d0_bus_scale_pdata,
+#endif
 };
 
 struct platform_device msm_kgsl_2d0 = {
@@ -898,35 +877,33 @@ static struct resource kgsl_2d1_resources[] = {
 };
 
 static struct kgsl_device_platform_data kgsl_2d1_pdata = {
-	.pwr_data = {
-		.pwrlevel = {
-			{
-				.gpu_freq = 200000000,
-				.bus_freq = 1,
-			},
-			{
-				.gpu_freq = 200000000,
-				.bus_freq = 0,
-			},
+	.pwrlevel = {
+		{
+			.gpu_freq = 200000000,
+			.bus_freq = 1,
 		},
-		.init_level = 0,
-		.num_levels = 2,
-		.set_grp_async = NULL,
-		.idle_timeout = HZ/10,
-#ifdef CONFIG_MSM_BUS_SCALING
-		.nap_allowed = true,
-#endif
-		.pwrrail_first = true,
+		{
+			.gpu_freq = 200000000,
+			.bus_freq = 0,
+		},
 	},
+	.init_level = 0,
+	.num_levels = 2,
+	.set_grp_async = NULL,
+	.idle_timeout = HZ/10,
+	.nap_allowed = true,
+	.clk_map = KGSL_CLK_CORE | KGSL_CLK_IFACE,
+#if 0	// ICS ES2
 	.clk = {
 		.name = {
-			.clk = "gfx2d1_clk",
-			.pclk = "gfx2d1_pclk",
+			/* note: 2d clocks disabled on v1 */
+			.clk = "core_clk",
+			.pclk = "iface_clk",
 		},
-#ifdef CONFIG_MSM_BUS_SCALING
-		.bus_scale_table = &grp2d1_bus_scale_pdata,
 #endif
-	},
+#ifdef CONFIG_MSM_BUS_SCALING
+	.bus_scale_table = &grp2d1_bus_scale_pdata,
+#endif
 };
 
 struct platform_device msm_kgsl_2d1 = {
@@ -950,14 +927,12 @@ void __init msm8x60_check_2d_hardware(void)
 	if ((SOCINFO_VERSION_MAJOR(socinfo_get_version()) == 1) &&
 	    (SOCINFO_VERSION_MINOR(socinfo_get_version()) == 0)) {
 		printk(KERN_WARNING "kgsl: 2D cores disabled on 8660v1\n");
-		kgsl_2d0_pdata.clk.name.clk = NULL;
-		kgsl_2d1_pdata.clk.name.clk = NULL;
+		kgsl_2d0_pdata.clk_map = 0;
 	}
 }
-#endif
 
-#if defined(CONFIG_USA_MODEL_SGH_I727) || defined(CONFIG_USA_MODEL_SGH_T989) \
-  || defined(CONFIG_USA_MODEL_SGH_I717)
+#if !defined (CONFIG_SAMSUNG_8X60_TABLET)
+#if defined (CONFIG_TARGET_LOCALE_USA)
 #define MSM_A2220_I2C_BUS_ID		16	
 
 /* Use GSBI1 QUP for /dev/i2c-0 */
@@ -967,6 +942,7 @@ struct platform_device msm_gsbi1_qup_i2c_device = {
 	.num_resources	= ARRAY_SIZE(gsbi1_qup_i2c_resources),
 	.resource	= gsbi1_qup_i2c_resources,
 };
+#endif
 #endif
 
 /* Use GSBI3 QUP for /dev/i2c-0 */
@@ -1027,7 +1003,7 @@ struct platform_device msm_gsbi12_qup_i2c_device = {
 	.resource	= gsbi12_qup_i2c_resources,
 };
 
-#if defined(CONFIG_PN544)
+#if defined(CONFIG_PN544_NFC)
 /* Use GSBI10 QUP for /dev/i2c-5 (Sensors) */
 struct platform_device msm_gsbi10_qup_i2c_device = {
 	.name		= "qup_i2c",
@@ -1037,43 +1013,41 @@ struct platform_device msm_gsbi10_qup_i2c_device = {
 };
 #endif
 
-#ifdef CONFIG_I2C_SSBI
-/* 8058 PMIC SSBI on /dev/i2c-6 */
-#define MSM_SSBI1_PMIC1C_PHYS	0x00500000
-static struct resource msm_ssbi1_resources[] = {
+#ifdef CONFIG_MSM_SSBI
+#define MSM_SSBI_PMIC1_PHYS	0x00500000
+static struct resource resources_ssbi_pmic1_resource[] = {
 	{
-		.name   = "ssbi_base",
-		.start	= MSM_SSBI1_PMIC1C_PHYS,
-		.end	= MSM_SSBI1_PMIC1C_PHYS + SZ_4K - 1,
-		.flags	= IORESOURCE_MEM,
+		.start  = MSM_SSBI_PMIC1_PHYS,
+		.end    = MSM_SSBI_PMIC1_PHYS + SZ_4K - 1,
+		.flags  = IORESOURCE_MEM,
 	},
 };
 
-struct platform_device msm_device_ssbi1 = {
-	.name		= "i2c_ssbi",
-	.id		= MSM_SSBI1_I2C_BUS_ID,
-	.num_resources	= ARRAY_SIZE(msm_ssbi1_resources),
-	.resource	= msm_ssbi1_resources,
+struct platform_device msm_device_ssbi_pmic1 = {
+	.name           = "msm_ssbi",
+	.id             = 0,
+	.resource       = resources_ssbi_pmic1_resource,
+	.num_resources  = ARRAY_SIZE(resources_ssbi_pmic1_resource),
 };
 
-/* 8901 PMIC SSBI on /dev/i2c-7 */
 #define MSM_SSBI2_PMIC2B_PHYS	0x00C00000
-static struct resource msm_ssbi2_resources[] = {
+static struct resource resources_ssbi_pmic2_resource[] = {
 	{
-		.name   = "ssbi_base",
 		.start	= MSM_SSBI2_PMIC2B_PHYS,
 		.end	= MSM_SSBI2_PMIC2B_PHYS + SZ_4K - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 };
 
-struct platform_device msm_device_ssbi2 = {
-	.name		= "i2c_ssbi",
-	.id		= MSM_SSBI2_I2C_BUS_ID,
-	.num_resources	= ARRAY_SIZE(msm_ssbi2_resources),
-	.resource	= msm_ssbi2_resources,
+struct platform_device msm_device_ssbi_pmic2 = {
+	.name		= "msm_ssbi",
+	.id		= 1,
+	.resource	= resources_ssbi_pmic2_resource,
+	.num_resources	= ARRAY_SIZE(resources_ssbi_pmic2_resource),
 };
+#endif
 
+#ifdef CONFIG_I2C_SSBI
 /* CODEC SSBI on /dev/i2c-8 */
 #define MSM_SSBI3_PHYS  0x18700000
 static struct resource msm_ssbi3_resources[] = {
@@ -1124,6 +1098,30 @@ static struct resource gsbi1_qup_spi_resources[] = {
 		.end    = 7,
 		.flags  = IORESOURCE_DMA,
 	},
+	{
+		.name   = "spi_clk",
+		.start  = 36,
+		.end    = 36,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "spi_miso",
+		.start  = 34,
+		.end    = 34,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "spi_mosi",
+		.start  = 33,
+		.end    = 33,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "spi_cs",
+		.start  = 35,
+		.end    = 35,
+		.flags  = IORESOURCE_IO,
+	},
 };
 
 /* Use GSBI1 QUP for SPI-0 */
@@ -1154,6 +1152,24 @@ static struct resource gsbi10_qup_spi_resources[] = {
 		.end	= GSBI10_QUP_IRQ,
 		.flags	= IORESOURCE_IRQ,
 	},
+	{
+		.name   = "spi_clk",
+		.start  = 73,
+		.end    = 73,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "spi_cs",
+		.start  = 72,
+		.end    = 72,
+		.flags  = IORESOURCE_IO,
+	},
+	{
+		.name   = "spi_mosi",
+		.start  = 70,
+		.end    = 70,
+		.flags  = IORESOURCE_IO,
+	},
 };
 
 /* Use GSBI10 QUP for SPI-1 */
@@ -1164,15 +1180,25 @@ struct platform_device msm_gsbi10_qup_spi_device = {
 	.resource	= gsbi10_qup_spi_resources,
 };
 #define MSM_SDC1_BASE         0x12400000
+#define MSM_SDC1_DML_BASE     (MSM_SDC1_BASE + 0x800)
+#define MSM_SDC1_BAM_BASE     (MSM_SDC1_BASE + 0x2000)
 #define MSM_SDC2_BASE         0x12140000
+#define MSM_SDC2_DML_BASE     (MSM_SDC2_BASE + 0x800)
+#define MSM_SDC2_BAM_BASE     (MSM_SDC2_BASE + 0x2000)
 #define MSM_SDC3_BASE         0x12180000
+#define MSM_SDC3_DML_BASE     (MSM_SDC3_BASE + 0x800)
+#define MSM_SDC3_BAM_BASE     (MSM_SDC3_BASE + 0x2000)
 #define MSM_SDC4_BASE         0x121C0000
+#define MSM_SDC4_DML_BASE     (MSM_SDC4_BASE + 0x800)
+#define MSM_SDC4_BAM_BASE     (MSM_SDC4_BASE + 0x2000)
 #define MSM_SDC5_BASE         0x12200000
+#define MSM_SDC5_DML_BASE     (MSM_SDC5_BASE + 0x800)
+#define MSM_SDC5_BAM_BASE     (MSM_SDC5_BASE + 0x2000)
 
 static struct resource resources_sdc1[] = {
 	{
 		.start	= MSM_SDC1_BASE,
-		.end	= MSM_SDC1_BASE + SZ_4K - 1,
+		.end	= MSM_SDC1_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
@@ -1180,17 +1206,45 @@ static struct resource resources_sdc1[] = {
 		.end	= SDC1_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
+#ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
+		.name   = "sdcc_dml_addr",
+		.start	= MSM_SDC1_DML_BASE,
+		.end	= MSM_SDC1_BAM_BASE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_addr",
+		.start	= MSM_SDC1_BAM_BASE,
+		.end	= MSM_SDC1_BAM_BASE + (2 * SZ_4K) - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_irq",
+		.start	= SDC1_BAM_IRQ,
+		.end	= SDC1_BAM_IRQ,
+		.flags	= IORESOURCE_IRQ,
+	},
+#else
+	{
+		.name	= "sdcc_dma_chnl",
 		.start	= DMOV_SDC1_CHAN,
 		.end	= DMOV_SDC1_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
+	{
+		.name	= "sdcc_dma_crci",
+		.start	= DMOV_SDC1_CRCI,
+		.end	= DMOV_SDC1_CRCI,
+		.flags	= IORESOURCE_DMA,
+	}
+#endif /* CONFIG_MMC_MSM_SPS_SUPPORT */
 };
 
 static struct resource resources_sdc2[] = {
 	{
 		.start	= MSM_SDC2_BASE,
-		.end	= MSM_SDC2_BASE + SZ_4K - 1,
+		.end	= MSM_SDC2_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
@@ -1198,17 +1252,45 @@ static struct resource resources_sdc2[] = {
 		.end	= SDC2_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
+#ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
+		.name   = "sdcc_dml_addr",
+		.start	= MSM_SDC2_DML_BASE,
+		.end	= MSM_SDC2_BAM_BASE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_addr",
+		.start	= MSM_SDC2_BAM_BASE,
+		.end	= MSM_SDC2_BAM_BASE + (2 * SZ_4K) - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_irq",
+		.start	= SDC2_BAM_IRQ,
+		.end	= SDC2_BAM_IRQ,
+		.flags	= IORESOURCE_IRQ,
+	},
+#else
+	{
+		.name	= "sdcc_dma_chnl",
 		.start	= DMOV_SDC2_CHAN,
 		.end	= DMOV_SDC2_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
+	{
+		.name	= "sdcc_dma_crci",
+		.start	= DMOV_SDC2_CRCI,
+		.end	= DMOV_SDC2_CRCI,
+		.flags	= IORESOURCE_DMA,
+	}
+#endif /* CONFIG_MMC_MSM_SPS_SUPPORT */
 };
 
 static struct resource resources_sdc3[] = {
 	{
 		.start	= MSM_SDC3_BASE,
-		.end	= MSM_SDC3_BASE + SZ_4K - 1,
+		.end	= MSM_SDC3_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
@@ -1216,17 +1298,45 @@ static struct resource resources_sdc3[] = {
 		.end	= SDC3_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
+#ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
+		.name   = "sdcc_dml_addr",
+		.start	= MSM_SDC3_DML_BASE,
+		.end	= MSM_SDC3_BAM_BASE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_addr",
+		.start	= MSM_SDC3_BAM_BASE,
+		.end	= MSM_SDC3_BAM_BASE + (2 * SZ_4K) - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_irq",
+		.start	= SDC3_BAM_IRQ,
+		.end	= SDC3_BAM_IRQ,
+		.flags	= IORESOURCE_IRQ,
+	},
+#else
+	{
+		.name	= "sdcc_dma_chnl",
 		.start	= DMOV_SDC3_CHAN,
 		.end	= DMOV_SDC3_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
+	{
+		.name	= "sdcc_dma_crci",
+		.start	= DMOV_SDC3_CRCI,
+		.end	= DMOV_SDC3_CRCI,
+		.flags	= IORESOURCE_DMA,
+	},
+#endif /* CONFIG_MMC_MSM_SPS_SUPPORT */
 };
 
 static struct resource resources_sdc4[] = {
 	{
 		.start	= MSM_SDC4_BASE,
-		.end	= MSM_SDC4_BASE + SZ_4K - 1,
+		.end	= MSM_SDC4_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
@@ -1234,17 +1344,45 @@ static struct resource resources_sdc4[] = {
 		.end	= SDC4_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
+#ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
+		.name   = "sdcc_dml_addr",
+		.start	= MSM_SDC4_DML_BASE,
+		.end	= MSM_SDC4_BAM_BASE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_addr",
+		.start	= MSM_SDC4_BAM_BASE,
+		.end	= MSM_SDC4_BAM_BASE + (2 * SZ_4K) - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_irq",
+		.start	= SDC4_BAM_IRQ,
+		.end	= SDC4_BAM_IRQ,
+		.flags	= IORESOURCE_IRQ,
+	},
+#else
+	{
+		.name	= "sdcc_dma_chnl",
 		.start	= DMOV_SDC4_CHAN,
 		.end	= DMOV_SDC4_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
+	{
+		.name	= "sdcc_dma_crci",
+		.start	= DMOV_SDC4_CRCI,
+		.end	= DMOV_SDC4_CRCI,
+		.flags	= IORESOURCE_DMA,
+	},
+#endif /* CONFIG_MMC_MSM_SPS_SUPPORT */
 };
 
 static struct resource resources_sdc5[] = {
 	{
 		.start	= MSM_SDC5_BASE,
-		.end	= MSM_SDC5_BASE + SZ_4K - 1,
+		.end	= MSM_SDC5_DML_BASE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
@@ -1252,11 +1390,39 @@ static struct resource resources_sdc5[] = {
 		.end	= SDC5_IRQ_0,
 		.flags	= IORESOURCE_IRQ,
 	},
+#ifdef CONFIG_MMC_MSM_SPS_SUPPORT
 	{
+		.name   = "sdcc_dml_addr",
+		.start	= MSM_SDC5_DML_BASE,
+		.end	= MSM_SDC5_BAM_BASE - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_addr",
+		.start	= MSM_SDC5_BAM_BASE,
+		.end	= MSM_SDC5_BAM_BASE + (2 * SZ_4K) - 1,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.name   = "sdcc_bam_irq",
+		.start	= SDC5_BAM_IRQ,
+		.end	= SDC5_BAM_IRQ,
+		.flags	= IORESOURCE_IRQ,
+	},
+#else
+	{
+		.name	= "sdcc_dma_chnl",
 		.start	= DMOV_SDC5_CHAN,
 		.end	= DMOV_SDC5_CHAN,
 		.flags	= IORESOURCE_DMA,
 	},
+	{
+		.name	= "sdcc_dma_crci",
+		.start	= DMOV_SDC5_CRCI,
+		.end	= DMOV_SDC5_CRCI,
+		.flags	= IORESOURCE_DMA,
+	},
+#endif /* CONFIG_MMC_MSM_SPS_SUPPORT */
 };
 
 struct platform_device msm_device_sdc1 = {
@@ -1340,12 +1506,17 @@ static struct resource msm_mipi_dsi_resources[] = {
 		.start  = MIPI_DSI_HW_BASE,
 		.end    = MIPI_DSI_HW_BASE + 0x000F0000 - 1,
 		.flags  = IORESOURCE_MEM,
-	}
+	},
+	{
+		.start  = DSI_IRQ,
+		.end    = DSI_IRQ,
+		.flags  = IORESOURCE_IRQ,
+	},
 };
 
 static struct platform_device msm_mipi_dsi_device = {
 	.name   = "mipi_dsi",
-	.id     = 0,
+	.id     = 1,
 	.num_resources  = ARRAY_SIZE(msm_mipi_dsi_resources),
 	.resource       = msm_mipi_dsi_resources,
 };
@@ -1356,7 +1527,12 @@ static struct resource msm_mdp_resources[] = {
 		.start  = MDP_HW_BASE,
 		.end    = MDP_HW_BASE + 0x000F0000 - 1,
 		.flags  = IORESOURCE_MEM,
-	}
+	},
+	{
+		.start  = INT_MDP,
+		.end    = INT_MDP,
+		.flags  = IORESOURCE_IRQ,
+	},
 };
 
 static struct platform_device msm_mdp_device = {
@@ -1381,12 +1557,12 @@ static struct resource resources_msm_rotator[] = {
 
 static struct msm_rot_clocks rotator_clocks[] = {
 	{
-		.clk_name = "rot_clk",
-		.clk_type = ROTATOR_AXI_CLK,
+		.clk_name = "core_clk",
+		.clk_type = ROTATOR_CORE_CLK,
 		.clk_rate = 160 * 1000 * 1000,
 	},
 	{
-		.clk_name = "rotator_pclk",
+		.clk_name = "iface_clk",
 		.clk_type = ROTATOR_PCLK,
 		.clk_rate = 0,
 	},
@@ -1397,6 +1573,10 @@ static struct msm_rotator_platform_data rotator_pdata = {
 	.hardware_version_number = 0x01010307,
 	.rotator_clks = rotator_clocks,
 	.regulator_name = "fs_rot",
+#ifdef CONFIG_MSM_BUS_SCALING
+	.bus_scale_table = &rotator_bus_scale_pdata,
+#endif
+
 };
 
 struct platform_device msm_rotator_device = {
@@ -1418,13 +1598,29 @@ struct platform_device msm_rotator_device = {
 
 #define MHZ (1000*1000)
 
+#define TCSR_GSBI_IRQ_MUX_SEL	0x0044
+
+#define GSBI_IRQ_MUX_SEL_MASK	0xF
+#define GSBI_IRQ_MUX_SEL_DSPS	0xB
+
+static void dsps_init1(struct msm_dsps_platform_data *data)
+{
+	int val;
+
+	/* route GSBI12 interrutps to DSPS */
+	val = secure_readl(MSM_TCSR_BASE +  TCSR_GSBI_IRQ_MUX_SEL);
+	val &= ~GSBI_IRQ_MUX_SEL_MASK;
+	val |= GSBI_IRQ_MUX_SEL_DSPS;
+	secure_writel(val, MSM_TCSR_BASE + TCSR_GSBI_IRQ_MUX_SEL);
+}
+
 static struct dsps_clk_info dsps_clks[] = {
 	{
 		.name = "ppss_pclk",
 		.rate =	0, /* no rate just on/off */
 	},
 	{
-		.name = "pmem_clk",
+		.name = "mem_clk",
 		.rate =	0, /* no rate just on/off */
 	},
 	{
@@ -1460,6 +1656,7 @@ struct msm_dsps_platform_data msm_dsps_pdata = {
 	.gpios_num = 0,
 	.regs = dsps_regs,
 	.regs_num = ARRAY_SIZE(dsps_regs),
+	.init = dsps_init1,
 	.signature = DSPS_SIGNATURE,
 };
 
@@ -1634,86 +1831,6 @@ int msm_add_host(unsigned int host, struct msm_usb_host_platform_data *plat)
 }
 #endif
 
-#ifdef CONFIG_USB_ANDROID_DIAG
-#define PID_MAGIC_ID		0x71432909
-#define SERIAL_NUM_MAGIC_ID	0x61945374
-#define SERIAL_NUMBER_LENGTH	127
-#define DLOAD_USB_BASE_ADD	0x2A05F0C8
-
-struct magic_num_struct {
-	uint32_t pid;
-	uint32_t serial_num;
-};
-
-struct dload_struct {
-	uint32_t	reserved1;
-	uint32_t	reserved2;
-	uint32_t	reserved3;
-	uint16_t	reserved4;
-	uint16_t	pid;
-	char		serial_number[SERIAL_NUMBER_LENGTH];
-	uint16_t	reserved5;
-	struct magic_num_struct
-			magic_struct;
-};
-
-static int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum)
-{
-	struct dload_struct __iomem *dload = 0;
-
-	dload = ioremap(DLOAD_USB_BASE_ADD, sizeof(*dload));
-	if (!dload) {
-		pr_err("%s: cannot remap I/O memory region: %08x\n",
-					__func__, DLOAD_USB_BASE_ADD);
-		return -ENXIO;
-	}
-
-	pr_debug("%s: dload:%p pid:%x serial_num:%s\n",
-				__func__, dload, pid, snum);
-	/* update pid */
-	dload->magic_struct.pid = PID_MAGIC_ID;
-	dload->pid = pid;
-
-	/* update serial number */
-	dload->magic_struct.serial_num = 0;
-	if (!snum)
-		return 0;
-
-	dload->magic_struct.serial_num = SERIAL_NUM_MAGIC_ID;
-	strncpy(dload->serial_number, snum, SERIAL_NUMBER_LENGTH);
-	dload->serial_number[SERIAL_NUMBER_LENGTH - 1] = '\0';
-
-	iounmap(dload);
-
-	return 0;
-}
-
-struct usb_diag_platform_data usb_diag_pdata = {
-	.ch_name = DIAG_LEGACY,
-	.update_pid_and_serial_num = usb_diag_update_pid_and_serial_num,
-};
-
-struct platform_device usb_diag_device = {
-	.name	= "usb_diag",
-	.id	= 0,
-	.dev	= {
-		.platform_data = &usb_diag_pdata,
-	},
-};
-
-struct usb_diag_platform_data usb_diag_mdm_pdata = {
-	.ch_name = DIAG_MDM,
-};
-
-struct platform_device usb_diag_mdm_device = {
-	.name	= "usb_diag",
-	.id	= 1,
-	.dev	= {
-		.platform_data = &usb_diag_mdm_pdata,
-	},
-};
-#endif
-
 #define MSM_TSIF0_PHYS       (0x18200000)
 #define MSM_TSIF1_PHYS       (0x18201000)
 #define MSM_TSIF_SIZE        (0x200)
@@ -1767,8 +1884,8 @@ static void tsif_init1(struct msm_tsif_platform_data *data)
 struct msm_tsif_platform_data tsif1_platform_data = {
 	.num_gpios = ARRAY_SIZE(tsif1_gpios),
 	.gpios = tsif1_gpios,
-	.tsif_pclk = "tsif_pclk",
-	.tsif_ref_clk = "tsif_ref_clk",
+	.tsif_pclk = "iface_clk",
+	.tsif_ref_clk = "ref_clk",
 	.init = tsif_init1
 };
 
@@ -1803,8 +1920,8 @@ static void tsif_init0(struct msm_tsif_platform_data *data)
 struct msm_tsif_platform_data tsif0_platform_data = {
 	.num_gpios = ARRAY_SIZE(tsif0_gpios),
 	.gpios = tsif0_gpios,
-	.tsif_pclk = "tsif_pclk",
-	.tsif_ref_clk = "tsif_ref_clk",
+	.tsif_pclk = "iface_clk",
+	.tsif_ref_clk = "ref_clk",
 	.init = tsif_init0
 };
 struct resource tsif0_resources[] = {
@@ -1848,53 +1965,57 @@ struct platform_device msm_device_tsif[2] = {
 	}
 };
 
-#ifdef CONFIG_USB_F_SERIAL
-static struct usb_gadget_fserial_platform_data fserial_pdata = {
-	.no_ports	= 2,
-};
-
-struct platform_device usb_gadget_fserial_device = {
-	.name	= "usb_fserial",
-	.id	= -1,
-	.dev	= {
-		.platform_data = &fserial_pdata,
-	},
-};
-#endif
-
-#ifdef CONFIG_USB_ANDROID_ACM
-static struct usb_gadget_facm_pdata facm_pdata = {
-	.no_ports	= 2,
-};
-
-struct platform_device usb_gadget_facm_device = {
-	.name	= "usb_facm",
-	.id	= -1,
-	.dev	= {
-		.platform_data = &facm_pdata,
-	},
-};
-#endif
-
 struct platform_device msm_device_smd = {
 	.name           = "msm_smd",
 	.id             = -1,
 };
 
-struct resource msm_dmov_resource_adm0[] = {
-	{
-		.start = INT_ADM0_AARM,
-		.end = (resource_size_t)MSM_DMOV_ADM0_BASE,
-		.flags = IORESOURCE_IRQ,
+static struct msm_watchdog_pdata msm_watchdog_pdata = {
+	.pet_time = 3000,
+	.bark_time = 15000,
+	.has_secure = true,
+};
+
+struct platform_device msm8660_device_watchdog = {
+	.name = "msm_watchdog",
+	.id = -1,
+	.dev = {
+		.platform_data = &msm_watchdog_pdata,
 	},
 };
 
-struct resource msm_dmov_resource_adm1[] = {
+static struct resource msm_dmov_resource_adm0[] = {
 	{
-		.start = INT_ADM1_AARM,
-		.end = (resource_size_t)MSM_DMOV_ADM1_BASE,
+		.start = INT_ADM0_AARM,
 		.flags = IORESOURCE_IRQ,
 	},
+	{
+		.start = 0x18320000,
+		.end = 0x18320000 + SZ_1M - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+static struct resource msm_dmov_resource_adm1[] = {
+	{
+		.start = INT_ADM1_AARM,
+		.flags = IORESOURCE_IRQ,
+	},
+	{
+		.start = 0x18420000,
+		.end = 0x18420000 + SZ_1M - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+static struct msm_dmov_pdata msm_dmov_pdata_adm0 = {
+	.sd = 1,
+	.sd_size = 0x800,
+};
+
+static struct msm_dmov_pdata msm_dmov_pdata_adm1 = {
+	.sd = 1,
+	.sd_size = 0x800,
 };
 
 struct platform_device msm_device_dmov_adm0 = {
@@ -1902,6 +2023,9 @@ struct platform_device msm_device_dmov_adm0 = {
 	.id	= 0,
 	.resource = msm_dmov_resource_adm0,
 	.num_resources = ARRAY_SIZE(msm_dmov_resource_adm0),
+	.dev = {
+		.platform_data = &msm_dmov_pdata_adm0,
+	},
 };
 
 struct platform_device msm_device_dmov_adm1 = {
@@ -1909,9 +2033,234 @@ struct platform_device msm_device_dmov_adm1 = {
 	.id	= 1,
 	.resource = msm_dmov_resource_adm1,
 	.num_resources = ARRAY_SIZE(msm_dmov_resource_adm1),
+	.dev = {
+		.platform_data = &msm_dmov_pdata_adm1,
+	},
 };
 
 /* MSM Video core device */
+#ifdef CONFIG_MSM_BUS_SCALING
+static struct msm_bus_vectors vidc_init_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 0,
+		.ib  = 0,
+	},
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT1,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 0,
+		.ib  = 0,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = 0,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab = 0,
+		.ib = 0,
+	},
+};
+static struct msm_bus_vectors vidc_venc_vga_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 54525952,
+		.ib  = 436207616,
+	},
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT1,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 72351744,
+		.ib  = 289406976,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab  = 500000,
+		.ib  = 1000000,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 500000,
+		.ib  = 1000000,
+	},
+};
+static struct msm_bus_vectors vidc_vdec_vga_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 40894464,
+		.ib  = 327155712,
+	},
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT1,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 48234496,
+		.ib  = 192937984,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab  = 500000,
+		.ib  = 2000000,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 500000,
+		.ib  = 2000000,
+	},
+};
+static struct msm_bus_vectors vidc_venc_720p_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 163577856,
+		.ib  = 1308622848,
+	},
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT1,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 219152384,
+		.ib  = 876609536,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab  = 1750000,
+		.ib  = 3500000,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 1750000,
+		.ib  = 3500000,
+	},
+};
+static struct msm_bus_vectors vidc_vdec_720p_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 121634816,
+		.ib  = 973078528,
+	},
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT1,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 155189248,
+		.ib  = 620756992,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab  = 1750000,
+		.ib  = 7000000,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 1750000,
+		.ib  = 7000000,
+	},
+};
+static struct msm_bus_vectors vidc_venc_1080p_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 372244480,
+		.ib  = 1861222400,
+	},
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT1,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 501219328,
+		.ib  = 2004877312,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab  = 2500000,
+		.ib  = 5000000,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 2500000,
+		.ib  = 5000000,
+	},
+};
+static struct msm_bus_vectors vidc_vdec_1080p_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 222298112,
+		.ib  = 1778384896,
+	},
+	{
+		.src = MSM_BUS_MASTER_HD_CODEC_PORT1,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 330301440,
+		.ib  = 1321205760,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab  = 2500000,
+		.ib  = 700000000,
+	},
+	{
+		.src = MSM_BUS_MASTER_AMPSS_M0,
+		.dst = MSM_BUS_SLAVE_SMI,
+		.ab  = 2500000,
+		.ib  = 10000000,
+	},
+};
+
+static struct msm_bus_paths vidc_bus_client_config[] = {
+	{
+		ARRAY_SIZE(vidc_init_vectors),
+		vidc_init_vectors,
+	},
+	{
+		ARRAY_SIZE(vidc_venc_vga_vectors),
+		vidc_venc_vga_vectors,
+	},
+	{
+		ARRAY_SIZE(vidc_vdec_vga_vectors),
+		vidc_vdec_vga_vectors,
+	},
+	{
+		ARRAY_SIZE(vidc_venc_720p_vectors),
+		vidc_venc_720p_vectors,
+	},
+	{
+		ARRAY_SIZE(vidc_vdec_720p_vectors),
+		vidc_vdec_720p_vectors,
+	},
+	{
+		ARRAY_SIZE(vidc_venc_1080p_vectors),
+		vidc_venc_1080p_vectors,
+	},
+	{
+		ARRAY_SIZE(vidc_vdec_1080p_vectors),
+		vidc_vdec_1080p_vectors,
+	},
+};
+
+static struct msm_bus_scale_pdata vidc_bus_client_data = {
+	vidc_bus_client_config,
+	ARRAY_SIZE(vidc_bus_client_config),
+	.name = "vidc",
+};
+
+#endif
 
 #define MSM_VIDC_BASE_PHYS 0x04400000
 #define MSM_VIDC_BASE_SIZE 0x00100000
@@ -1929,11 +2278,29 @@ static struct resource msm_device_vidc_resources[] = {
 	},
 };
 
+struct msm_vidc_platform_data vidc_platform_data = {
+#ifdef CONFIG_MSM_BUS_SCALING
+	.vidc_bus_client_pdata = &vidc_bus_client_data,
+#endif
+#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
+	.memtype = ION_CP_MM_HEAP_ID,
+	.enable_ion = 1,
+#else
+	.memtype = MEMTYPE_SMI_KERNEL,
+	.enable_ion = 0,
+#endif
+	.disable_dmx = 0,
+	.disable_fullhd = 0
+};
+
 struct platform_device msm_device_vidc = {
 	.name = "msm_vidc",
 	.id = 0,
 	.num_resources = ARRAY_SIZE(msm_device_vidc_resources),
 	.resource = msm_device_vidc_resources,
+	.dev = {
+		.platform_data	= &vidc_platform_data,
+	},
 };
 
 #if defined(CONFIG_MSM_RPM_STATS_LOG)
@@ -2072,284 +2439,127 @@ struct platform_device msm_bus_cpss_fpb = {
 };
 #endif
 
-#define FS(_id, _name) (&(struct platform_device){ \
-	.name	= "footswitch-msm8x60", \
-	.id	= (_id), \
-	.dev	= { \
-		.platform_data = &(struct regulator_init_data){ \
-			.constraints = { \
-				.valid_modes_mask = REGULATOR_MODE_NORMAL, \
-				.valid_ops_mask   = REGULATOR_CHANGE_STATUS, \
-			}, \
-			.num_consumer_supplies = 1, \
-			.consumer_supplies = \
-				&(struct regulator_consumer_supply) \
-				REGULATOR_SUPPLY((_name), NULL), \
-		} \
-	}, \
-})
+#ifdef CONFIG_SND_SOC_MSM8660_APQ
+struct platform_device msm_pcm = {
+	.name   = "msm-pcm-dsp",
+	.id     = -1,
+};
+
+struct platform_device msm_pcm_routing = {
+	.name   = "msm-pcm-routing",
+	.id     = -1,
+};
+
+struct platform_device msm_cpudai0 = {
+	.name   = "msm-dai-q6",
+	.id     = PRIMARY_I2S_RX,
+};
+
+struct platform_device msm_cpudai1 = {
+	.name   = "msm-dai-q6",
+	.id     = PRIMARY_I2S_TX,
+};
+
+struct platform_device msm_cpudai_hdmi_rx = {
+	.name   = "msm-dai-q6",
+	.id     = HDMI_RX,
+};
+
+struct platform_device msm_cpudai_bt_rx = {
+	.name   = "msm-dai-q6",
+	.id     = INT_BT_SCO_RX,
+};
+
+struct platform_device msm_cpudai_bt_tx = {
+	.name   = "msm-dai-q6",
+	.id     = INT_BT_SCO_TX,
+};
+
+struct platform_device msm_cpudai_fm_rx = {
+	.name   = "msm-dai-q6",
+	.id     = INT_FM_RX,
+};
+
+struct platform_device msm_cpudai_fm_tx = {
+	.name   = "msm-dai-q6",
+	.id     = INT_FM_TX,
+};
+
+struct platform_device msm_cpu_fe = {
+	.name   = "msm-dai-fe",
+	.id     = -1,
+};
+
+struct platform_device msm_stub_codec = {
+	.name   = "msm-stub-codec",
+	.id     = 1,
+};
+
+struct platform_device msm_voice = {
+	.name   = "msm-pcm-voice",
+	.id     = -1,
+};
+
+struct platform_device msm_voip = {
+	.name   = "msm-voip-dsp",
+	.id     = -1,
+};
+
+struct platform_device msm_lpa_pcm = {
+	.name   = "msm-pcm-lpa",
+	.id     = -1,
+};
+
+struct platform_device msm_pcm_hostless = {
+	.name   = "msm-pcm-hostless",
+	.id     = -1,
+};
+#endif
+
+struct platform_device asoc_msm_pcm = {
+	.name   = "msm-dsp-audio",
+	.id     = 0,
+};
+
+struct platform_device asoc_msm_dai0 = {
+	.name   = "msm-codec-dai",
+	.id     = 0,
+};
+
+struct platform_device asoc_msm_dai1 = {
+	.name   = "msm-cpu-dai",
+	.id     = 0,
+};
+
+#if defined (CONFIG_MSM_8x60_VOIP)
+struct platform_device asoc_msm_mvs = {
+	.name   = "msm-mvs-audio",
+	.id     = 0,
+};
+
+struct platform_device asoc_mvs_dai0 = {
+	.name   = "mvs-codec-dai",
+	.id     = 0,
+};
+
+struct platform_device asoc_mvs_dai1 = {
+	.name   = "mvs-cpu-dai",
+	.id     = 0,
+};
+#endif
+
 struct platform_device *msm_footswitch_devices[] = {
-	FS(FS_IJPEG,	"fs_ijpeg"),
-	FS(FS_MDP,	"fs_mdp"),
-	FS(FS_ROT,	"fs_rot"),
-	FS(FS_VED,	"fs_ved"),
-	FS(FS_VFE,	"fs_vfe"),
-	FS(FS_VPE,	"fs_vpe"),
-	FS(FS_GFX3D,	"fs_gfx3d"),
-	FS(FS_GFX2D0,	"fs_gfx2d0"),
-	FS(FS_GFX2D1,	"fs_gfx2d1"),
+	FS_8X60(FS_IJPEG,  "fs_ijpeg"),
+	FS_8X60(FS_MDP,    "fs_mdp"),
+	FS_8X60(FS_ROT,    "fs_rot"),
+	FS_8X60(FS_VED,    "fs_ved"),
+	FS_8X60(FS_VFE,    "fs_vfe"),
+	FS_8X60(FS_VPE,    "fs_vpe"),
+	FS_8X60(FS_GFX3D,  "fs_gfx3d"),
+	FS_8X60(FS_GFX2D0, "fs_gfx2d0"),
+	FS_8X60(FS_GFX2D1, "fs_gfx2d1"),
 };
 unsigned msm_num_footswitch_devices = ARRAY_SIZE(msm_footswitch_devices);
-
-struct clk_lookup msm_clocks_8x60[] = {
-	CLK_RPM("afab_clk",		AFAB_CLK,		NULL, CLK_MIN),
-	CLK_RPM("afab_a_clk",		AFAB_A_CLK,		NULL, CLK_MIN),
-	CLK_RPM("cfpb_clk",		CFPB_CLK,		NULL, CLK_MIN),
-	CLK_RPM("cfpb_a_clk",		CFPB_A_CLK,		NULL, CLK_MIN),
-	CLK_RPM("dfab_clk",		DFAB_CLK,		NULL, CLK_MIN),
-	CLK_RPM("dfab_a_clk",		DFAB_A_CLK,		NULL, CLK_MIN),
-	CLK_RPM("ebi1_clk",		EBI1_CLK,		NULL, CLK_MIN),
-	CLK_RPM("ebi1_a_clk",		EBI1_A_CLK,		NULL, CLK_MIN),
-	CLK_RPM("mmfab_clk",		MMFAB_CLK,		NULL, CLK_MIN),
-	CLK_RPM("mmfab_a_clk",		MMFAB_A_CLK,		NULL, CLK_MIN),
-	CLK_RPM("mmfpb_clk",		MMFPB_CLK,		NULL, CLK_MIN),
-	CLK_RPM("mmfpb_a_clk",		MMFPB_A_CLK,		NULL, CLK_MIN),
-	CLK_RPM("sfab_clk",		SFAB_CLK,		NULL, CLK_MIN),
-	CLK_RPM("sfab_a_clk",		SFAB_A_CLK,		NULL, CLK_MIN),
-	CLK_RPM("sfpb_clk",		SFPB_CLK,		NULL, CLK_MIN),
-	CLK_RPM("sfpb_a_clk",		SFPB_A_CLK,		NULL, CLK_MIN),
-	CLK_RPM("smi_clk",		SMI_CLK,		NULL, CLK_MIN),
-	CLK_RPM("smi_a_clk",		SMI_A_CLK,		NULL, CLK_MIN),
-
-	CLK_8X60("gsbi_uart_clk",	GSBI1_UART_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI2_UART_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI3_UART_CLK, "msm_serial_hsl.2",
-			OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI4_UART_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI5_UART_CLK,		NULL, OFF),
-	CLK_8X60("uartdm_clk",	GSBI6_UART_CLK, "msm_serial_hs.0", OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI7_UART_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI8_UART_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_uart_clk", GSBI9_UART_CLK, "msm_serial_hsl.1", OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI10_UART_CLK,	NULL, OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI11_UART_CLK,	NULL, OFF),
-	CLK_8X60("gsbi_uart_clk",	GSBI12_UART_CLK, "msm_serial_hsl.0",
-			OFF),
-#if !defined(CONFIG_USA_MODEL_SGH_I727) && !defined(CONFIG_USA_MODEL_SGH_T989) && !defined(CONFIG_USA_MODEL_SGH_I717)//qup_a2220
-	CLK_8X60("spi_clk",		GSBI1_QUP_CLK, "spi_qsd.0", OFF),
-#else
-	CLK_8X60("gsbi_qup_clk",	GSBI1_QUP_CLK, "qup_i2c.16", OFF), 
-#endif
-	CLK_8X60("gsbi_qup_clk",	GSBI2_QUP_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_qup_clk",	GSBI3_QUP_CLK, "qup_i2c.0", OFF),
-	CLK_8X60("gsbi_qup_clk",	GSBI4_QUP_CLK, "qup_i2c.1", OFF),
-	CLK_8X60("gsbi_qup_clk",	GSBI5_QUP_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_qup_clk",	GSBI6_QUP_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_qup_clk",	GSBI7_QUP_CLK, "qup_i2c.4", OFF),
-	CLK_8X60("gsbi_qup_clk",	GSBI8_QUP_CLK, "qup_i2c.3", OFF),
-	CLK_8X60("gsbi_qup_clk",	GSBI9_QUP_CLK, "qup_i2c.2", OFF),
-#if defined(CONFIG_PN544)	
-	CLK_8X60("gsbi_qup_clk",		GSBI10_QUP_CLK, 	"qup_i2c.14", OFF),
-#else
-	CLK_8X60("spi_clk",		GSBI10_QUP_CLK,	"spi_qsd.1", OFF),
-#endif
-#if defined (CONFIG_EPEN_WACOM_G5SP)
-	CLK_8X60("gsbi_qup_clk",	GSBI11_QUP_CLK, "qup_i2c.18", OFF),
-#else
-	CLK_8X60("gsbi_qup_clk",	GSBI11_QUP_CLK,		NULL, OFF),
-#endif	
-	CLK_8X60("gsbi_qup_clk",	GSBI12_QUP_CLK,	"msm_dsps.0", OFF),
-	CLK_8X60("gsbi_qup_clk",	GSBI12_QUP_CLK, "qup_i2c.5", OFF),
-	CLK_8X60("pdm_clk",		PDM_CLK,		NULL, OFF),
-	CLK_8X60("pmem_clk",		PMEM_CLK,		NULL, OFF),
-	CLK_8X60("prng_clk",		PRNG_CLK,		NULL, OFF),
-	CLK_8X60("sdc_clk",		SDC1_CLK, "msm_sdcc.1", OFF),
-	CLK_8X60("sdc_clk",		SDC2_CLK, "msm_sdcc.2", OFF),
-	CLK_8X60("sdc_clk",		SDC3_CLK, "msm_sdcc.3", OFF),
-	CLK_8X60("sdc_clk",		SDC4_CLK, "msm_sdcc.4", OFF),
-	CLK_8X60("sdc_clk",		SDC5_CLK, "msm_sdcc.5", OFF),
-	CLK_8X60("tsif_ref_clk",	TSIF_REF_CLK,		NULL, OFF),
-	CLK_8X60("tssc_clk",		TSSC_CLK,		NULL, OFF),
-	CLK_8X60("usb_hs_clk",		USB_HS1_XCVR_CLK,	NULL, OFF),
-	CLK_8X60("usb_phy_clk",		USB_PHY0_CLK,		NULL, OFF),
-	CLK_8X60("usb_fs_clk",		USB_FS1_XCVR_CLK,	NULL, OFF),
-	CLK_8X60("usb_fs_sys_clk",	USB_FS1_SYS_CLK,	NULL, OFF),
-	CLK_8X60("usb_fs_src_clk",	USB_FS1_SRC_CLK,	NULL, OFF),
-	CLK_8X60("usb_fs_clk",		USB_FS2_XCVR_CLK,	NULL, OFF),
-	CLK_8X60("usb_fs_sys_clk",	USB_FS2_SYS_CLK,	NULL, OFF),
-	CLK_8X60("usb_fs_src_clk",	USB_FS2_SRC_CLK,	NULL, OFF),
-	CLK_8X60("ce_clk",		CE2_P_CLK,		NULL, OFF),
-	CLK_8X60("spi_pclk",		GSBI1_P_CLK, "spi_qsd.0", OFF),
-	CLK_8X60("gsbi_pclk",		GSBI2_P_CLK,		NULL, OFF),
-	CLK_8X60("gsbi_pclk",		GSBI3_P_CLK, "msm_serial_hsl.2", 0),
-#if defined(CONFIG_USA_MODEL_SGH_I727) || defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_USA_MODEL_SGH_I717) //qup_a2220	
-	CLK_8X60("gsbi_pclk",		GSBI1_P_CLK, "qup_i2c.16", OFF),
-#endif	
-	CLK_8X60("gsbi_pclk",		GSBI3_P_CLK, "qup_i2c.0", OFF),
-	CLK_8X60("gsbi_pclk",		GSBI4_P_CLK, "qup_i2c.1", OFF),
-	CLK_8X60("gsbi_pclk",		GSBI5_P_CLK,		NULL, OFF),
-	CLK_8X60("uartdm_pclk",		GSBI6_P_CLK, "msm_serial_hs.0", OFF),
-	CLK_8X60("gsbi_pclk",		GSBI7_P_CLK, "qup_i2c.4", OFF),
-	CLK_8X60("gsbi_pclk",		GSBI8_P_CLK, "qup_i2c.3", OFF),
-	CLK_8X60("gsbi_pclk",		GSBI9_P_CLK, "msm_serial_hsl.1", OFF),
-	CLK_8X60("gsbi_pclk",		GSBI9_P_CLK, "qup_i2c.2", OFF),
-#if defined(CONFIG_PN544)		
-	CLK_8X60("gsbi_pclk",		GSBI10_P_CLK, "qup_i2c.14", OFF),
-#else	
-	CLK_8X60("spi_pclk",		GSBI10_P_CLK, "spi_qsd.1", OFF),
-#endif	
-#if defined (CONFIG_EPEN_WACOM_G5SP)
-	CLK_8X60("gsbi_pclk",		GSBI11_P_CLK,	 "qup_i2c.18", OFF),
-#else
-	CLK_8X60("gsbi_pclk",		GSBI11_P_CLK,		NULL, OFF),
-#endif	
-	CLK_8X60("gsbi_pclk",		GSBI12_P_CLK, "msm_dsps.0", 0),
-	CLK_8X60("gsbi_pclk",		GSBI12_P_CLK, "msm_serial_hsl.0", 0),
-	CLK_8X60("gsbi_pclk",		GSBI12_P_CLK, "qup_i2c.5", 0),
-	CLK_8X60("ppss_pclk",		PPSS_P_CLK,		NULL, OFF),
-	CLK_8X60("tsif_pclk",		TSIF_P_CLK,		NULL, OFF),
-	CLK_8X60("usb_fs_pclk",		USB_FS1_P_CLK,		NULL, OFF),
-	CLK_8X60("usb_fs_pclk",		USB_FS2_P_CLK,		NULL, OFF),
-	CLK_8X60("usb_hs_pclk",		USB_HS1_P_CLK,		NULL, OFF),
-	CLK_8X60("sdc_pclk",		SDC1_P_CLK, "msm_sdcc.1", OFF),
-	CLK_8X60("sdc_pclk",		SDC2_P_CLK, "msm_sdcc.2", OFF),
-	CLK_8X60("sdc_pclk",		SDC3_P_CLK, "msm_sdcc.3", OFF),
-	CLK_8X60("sdc_pclk",		SDC4_P_CLK, "msm_sdcc.4", OFF),
-	CLK_8X60("sdc_pclk",		SDC5_P_CLK, "msm_sdcc.5", OFF),
-	CLK_8X60("adm_clk",		ADM0_CLK, "msm_dmov.0", OFF),
-	CLK_8X60("adm_pclk",		ADM0_P_CLK, "msm_dmov.0", OFF),
-	CLK_8X60("adm_clk",		ADM1_CLK, "msm_dmov.1", OFF),
-	CLK_8X60("adm_pclk",		ADM1_P_CLK, "msm_dmov.1", OFF),
-	CLK_8X60("modem_ahb1_pclk",	MODEM_AHB1_P_CLK,	NULL, OFF),
-	CLK_8X60("modem_ahb2_pclk",	MODEM_AHB2_P_CLK,	NULL, OFF),
-	CLK_8X60("pmic_arb_pclk",	PMIC_ARB0_P_CLK,	NULL, OFF),
-	CLK_8X60("pmic_arb_pclk",	PMIC_ARB1_P_CLK,	NULL, OFF),
-	CLK_8X60("pmic_ssbi2",		PMIC_SSBI2_CLK,		NULL, OFF),
-	CLK_8X60("rpm_msg_ram_pclk",	RPM_MSG_RAM_P_CLK,	NULL, OFF),
-	CLK_8X60("amp_clk",		AMP_CLK,		NULL, OFF),
-	CLK_8X60("cam_clk",		CAM_CLK,		NULL, OFF),
-	CLK_8X60("csi_clk",		CSI0_CLK,		NULL, OFF),
-	CLK_8X60("csi_clk",		CSI1_CLK,	  "msm_camera_s5k5bafx.0",
-			OFF),
-	CLK_8X60("csi_clk",		CSI1_CLK,	  "msm_camera_ov9726.0",
-			OFF),
-	CLK_8X60("csi_src_clk",		CSI_SRC_CLK,		NULL, OFF),
-	CLK_8X60("dsi_byte_div_clk",	DSI_BYTE_CLK,		NULL, OFF),
-	CLK_8X60("dsi_esc_clk",		DSI_ESC_CLK,		NULL, OFF),
-	CLK_8X60("gfx2d0_clk",		GFX2D0_CLK,		NULL, OFF),
-	CLK_8X60("gfx2d1_clk",		GFX2D1_CLK,		NULL, OFF),
-	CLK_8X60("gfx3d_clk",		GFX3D_CLK,		NULL, OFF),
-	CLK_8X60("ijpeg_clk",		IJPEG_CLK,		NULL, OFF),
-	CLK_8X60("jpegd_clk",		JPEGD_CLK,		NULL, OFF),
-	CLK_8X60("mdp_clk",		MDP_CLK,		NULL, OFF),
-	CLK_8X60("mdp_vsync_clk",	MDP_VSYNC_CLK,		NULL, OFF),
-	CLK_8X60("pixel_lcdc_clk",	PIXEL_LCDC_CLK,		NULL, OFF),
-	CLK_8X60("pixel_mdp_clk",	PIXEL_MDP_CLK,		NULL, OFF),
-	CLK_8X60("rot_clk",		ROT_CLK,		NULL, OFF),
-	CLK_8X60("tv_enc_clk",		TV_ENC_CLK,		NULL, OFF),
-	CLK_8X60("tv_dac_clk",		TV_DAC_CLK,		NULL, OFF),
-	CLK_8X60("vcodec_clk",		VCODEC_CLK,		NULL, OFF),
-	CLK_8X60("mdp_tv_clk",		MDP_TV_CLK,		NULL, OFF),
-	CLK_8X60("hdmi_clk",		HDMI_TV_CLK,		NULL, OFF),
-	CLK_8X60("tv_src_clk",		TV_SRC_CLK,		NULL, OFF),
-	CLK_8X60("hdmi_app_clk",	HDMI_APP_CLK,		NULL, OFF),
-	CLK_8X60("vpe_clk",		VPE_CLK,		NULL, OFF),
-	CLK_8X60("csi_vfe_clk",		CSI0_VFE_CLK,		NULL, OFF),
-	CLK_8X60("csi_vfe_clk",		CSI1_VFE_CLK,	  "msm_camera_s5k5bafx.0",
-			OFF),
-	CLK_8X60("csi_vfe_clk",		CSI1_VFE_CLK,	  "msm_camera_ov9726.0",
-			OFF),
-	CLK_8X60("vfe_clk",		VFE_CLK,		NULL, OFF),
-	CLK_8X60("smmu_jpegd_clk",	JPEGD_AXI_CLK,		NULL, OFF),
-	CLK_8X60("smmu_vfe_clk",	VFE_AXI_CLK,		NULL, OFF),
-	CLK_8X60("vfe_axi_clk",		VFE_AXI_CLK,		NULL, OFF),
-	CLK_8X60("ijpeg_axi_clk",	IJPEG_AXI_CLK,		NULL, OFF),
-	CLK_8X60("imem_axi_clk",	IMEM_AXI_CLK,		NULL, OFF),
-	CLK_8X60("mdp_axi_clk",		MDP_AXI_CLK,		NULL, OFF),
-	CLK_8X60("rot_axi_clk",		ROT_AXI_CLK,		NULL, OFF),
-	CLK_8X60("vcodec_axi_clk",	VCODEC_AXI_CLK,		NULL, OFF),
-	CLK_8X60("vpe_axi_clk",		VPE_AXI_CLK,		NULL, OFF),
-	CLK_8X60("amp_pclk",		AMP_P_CLK,		NULL, OFF),
-	CLK_8X60("csi_pclk",		CSI0_P_CLK,		NULL, OFF),
-	CLK_8X60("csi_pclk",		CSI1_P_CLK,	  "msm_camera_s5k5bafx.0",
-			OFF),
-	CLK_8X60("csi_pclk",		CSI1_P_CLK,	  "msm_camera_ov9726.0",
-			OFF),
-	CLK_8X60("dsi_m_pclk",		DSI_M_P_CLK,		NULL, OFF),
-	CLK_8X60("dsi_s_pclk",		DSI_S_P_CLK,		NULL, OFF),
-	CLK_8X60("gfx2d0_pclk",		GFX2D0_P_CLK,		NULL, OFF),
-	CLK_8X60("gfx2d1_pclk",		GFX2D1_P_CLK,		NULL, OFF),
-	CLK_8X60("gfx3d_pclk",		GFX3D_P_CLK,		NULL, OFF),
-	CLK_8X60("hdmi_m_pclk",		HDMI_M_P_CLK,		NULL, OFF),
-	CLK_8X60("hdmi_s_pclk",		HDMI_S_P_CLK,		NULL, OFF),
-	CLK_8X60("ijpeg_pclk",		IJPEG_P_CLK,		NULL, OFF),
-	CLK_8X60("jpegd_pclk",		JPEGD_P_CLK,		NULL, OFF),
-	CLK_8X60("imem_pclk",		IMEM_P_CLK,		NULL, OFF),
-	CLK_8X60("mdp_pclk",		MDP_P_CLK,		NULL, OFF),
-	CLK_8X60("smmu_pclk",		SMMU_P_CLK,		NULL, OFF),
-	CLK_8X60("rotator_pclk",	ROT_P_CLK,		NULL, OFF),
-	CLK_8X60("tv_enc_pclk",		TV_ENC_P_CLK,		NULL, OFF),
-	CLK_8X60("vcodec_pclk",		VCODEC_P_CLK,		NULL, OFF),
-	CLK_8X60("vfe_pclk",		VFE_P_CLK,		NULL, OFF),
-	CLK_8X60("vpe_pclk",		VPE_P_CLK,		NULL, OFF),
-	CLK_8X60("mi2s_osr_clk",	MI2S_OSR_CLK,		NULL, OFF),
-	CLK_8X60("mi2s_bit_clk",	MI2S_BIT_CLK,		NULL, OFF),
-	CLK_8X60("i2s_mic_osr_clk",	CODEC_I2S_MIC_OSR_CLK,	NULL, OFF),
-	CLK_8X60("i2s_mic_bit_clk",	CODEC_I2S_MIC_BIT_CLK,	NULL, OFF),
-	CLK_8X60("i2s_mic_osr_clk",	SPARE_I2S_MIC_OSR_CLK,	NULL, OFF),
-	CLK_8X60("i2s_mic_bit_clk",	SPARE_I2S_MIC_BIT_CLK,	NULL, OFF),
-	CLK_8X60("i2s_spkr_osr_clk",	CODEC_I2S_SPKR_OSR_CLK,	NULL, OFF),
-	CLK_8X60("i2s_spkr_bit_clk",	CODEC_I2S_SPKR_BIT_CLK,	NULL, OFF),
-	CLK_8X60("i2s_spkr_osr_clk",	SPARE_I2S_SPKR_OSR_CLK,	NULL, OFF),
-	CLK_8X60("i2s_spkr_bit_clk",	SPARE_I2S_SPKR_BIT_CLK,	NULL, OFF),
-	CLK_8X60("pcm_clk",		PCM_CLK,		NULL, OFF),
-	CLK_8X60("iommu_clk",           JPEGD_AXI_CLK, "msm_iommu.0", 0),
-	CLK_8X60("iommu_clk",           IJPEG_AXI_CLK, "msm_iommu.5", 0),
-	CLK_8X60("iommu_clk",           VFE_AXI_CLK, "msm_iommu.6", 0),
-	CLK_8X60("iommu_clk",           VCODEC_AXI_CLK, "msm_iommu.7", 0),
-	CLK_8X60("iommu_clk",           VCODEC_AXI_CLK, "msm_iommu.8", 0),
-	CLK_8X60("iommu_clk",           GFX3D_CLK, "msm_iommu.9", 0),
-	CLK_8X60("iommu_clk",           GFX2D0_CLK, "msm_iommu.10", 0),
-	CLK_8X60("iommu_clk",           GFX2D1_CLK, "msm_iommu.11", 0),
-
-	CLK_VOTER("dfab_dsps_clk",     DFAB_DSPS_CLK,
-					"dfab_clk",    NULL, 0),
-	CLK_VOTER("dfab_usb_hs_clk",   DFAB_USB_HS_CLK,
-					"dfab_clk",    NULL, 0),
-	CLK_VOTER("dfab_sdc_clk",      DFAB_SDC1_CLK,
-					"dfab_clk",    "msm_sdcc.1", 0),
-	CLK_VOTER("dfab_sdc_clk",      DFAB_SDC2_CLK,
-					"dfab_clk",    "msm_sdcc.2", 0),
-	CLK_VOTER("dfab_sdc_clk",      DFAB_SDC3_CLK,
-					"dfab_clk",    "msm_sdcc.3", 0),
-	CLK_VOTER("dfab_sdc_clk",      DFAB_SDC4_CLK,
-					"dfab_clk",    "msm_sdcc.4", 0),
-	CLK_VOTER("dfab_sdc_clk",      DFAB_SDC5_CLK,
-					"dfab_clk",    "msm_sdcc.5", 0),
-	CLK_VOTER("ebi1_msmbus_clk",   EBI_MSMBUS_CLK,
-					"ebi1_clk",    NULL, 0),
-	CLK_VOTER("ebi1_adm_clk",     EBI_ADM0_CLK,
-					"ebi1_clk",    "msm_dmov.0", 0),
-	CLK_VOTER("ebi1_adm_clk",     EBI_ADM1_CLK,
-					"ebi1_clk",    "msm_dmov.1", 0),
-
-	CLK_8X60("sc0_div2_mclk",  SC0_DIV2_M_CLK,  NULL, 0),
-	CLK_8X60("sc1_div2_mclk",  SC1_DIV2_M_CLK,  NULL, 0),
-	CLK_8X60("l2_div2_mclk",   L2_DIV2_M_CLK,   NULL, 0),
-	CLK_8X60("afab_mclk",      AFAB_M_CLK,      NULL, 0),
-	CLK_8X60("sfab_mclk",      SFAB_M_CLK,      NULL, 0),
-	CLK_8X60("ebi1_2x_mclk",   EBI1_2X_M_CLK,   NULL, 0),
-	CLK_8X60("cfpb0_mclk",     CFPB0_M_CLK,     NULL, 0),
-	CLK_8X60("cfpb1_mclk",     CFPB1_M_CLK,     NULL, 0),
-	CLK_8X60("cfpb2_mclk",     CFPB2_M_CLK,     NULL, 0),
-	CLK_8X60("dfab_mclk",      DFAB_M_CLK,      NULL, 0),
-	CLK_8X60("sfpb_mclk",      SFPB_M_CLK,      NULL, 0),
-	CLK_8X60("mmfab_mclk",     MMFAB_M_CLK,     NULL, 0),
-	CLK_8X60("smi_ddr2x_mclk", SMI_DDR2X_M_CLK, NULL, 0),
-	CLK_8X60("mmfpb_mclk",     MMFPB_M_CLK,     NULL, 0),
-};
-
-unsigned msm_num_clocks_8x60 = ARRAY_SIZE(msm_clocks_8x60);
 
 #ifdef CONFIG_MSM_RPM
 struct msm_rpm_map_data rpm_map_data[] __initdata = {
@@ -2445,5 +2655,10 @@ struct msm_rpm_map_data rpm_map_data[] __initdata = {
 	MSM_RPM_MAP(CXO_BUFFERS, CXO_BUFFERS, 1),
 };
 unsigned int rpm_map_data_size = ARRAY_SIZE(rpm_map_data);
+
+struct platform_device msm_rpm_device = {
+	.name = "msm_rpm",
+	.id = -1,
+};
 
 #endif

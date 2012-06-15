@@ -132,7 +132,7 @@ struct SII9234_state {
 
 #ifdef MHL_SWITCH_TEST
 void sii9234_cfg_power(bool on);
-static void sii9234_cfg_gpio(void);
+//static void sii9234_cfg_gpio(void);
 extern bool SiI9234_startTPI(void);
 static int __init sii9234_init(void);
 extern void SiI9234_HW_Reset(void);
@@ -379,12 +379,12 @@ irqreturn_t mhl_wake_up_irq_handler(int irq, void *dev_id)
 
 static int SII9234_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
-	SII_DEV_DBG("");
-
 	struct SII9234_state *state;
 
 	struct class *mhl_class;
 	struct device *mhl_dev;
+
+	SII_DEV_DBG("");
 
 	state = kzalloc(sizeof(struct SII9234_state), GFP_KERNEL);
 	if (state == NULL) {		
@@ -442,9 +442,9 @@ static int __devexit SII9234_remove(struct i2c_client *client)
 
 static int SII9234A_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
-	SII_DEV_DBG("");
-
 	struct SII9234_state *state;
+
+	SII_DEV_DBG("");
 
 	state = kzalloc(sizeof(struct SII9234_state), GFP_KERNEL);
 	if (state == NULL) {		
@@ -483,9 +483,9 @@ static int __devexit SII9234A_remove(struct i2c_client *client)
 
 static int SII9234B_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
-	SII_DEV_DBG("");
-
 	struct SII9234_state *state;
+
+	SII_DEV_DBG("");
 
 	state = kzalloc(sizeof(struct SII9234_state), GFP_KERNEL);
 	if (state == NULL) {		
@@ -521,7 +521,7 @@ static int __devexit SII9234B_remove(struct i2c_client *client)
 	return 0;
 }
 
-static void mhl_i2c_client_info()
+static void mhl_i2c_client_info( void )
 {
 	printk("SII9234_i2c_client name = %s, device_id = 0x%x\n", SII9234_i2c_client->name, SII9234_i2c_client->addr);
 	printk("SII9234A_i2c_client name = %s, device_id = 0x%x\n", SII9234A_i2c_client->name, SII9234A_i2c_client->addr);
@@ -532,11 +532,10 @@ static void mhl_i2c_client_info()
 static int SII9234C_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	int ret;
-	SII_DEV_DBG("");
-
 	struct SII9234_state *state;
 	struct sii9234_platform_data *sil9234C_pdata;
-	int mhl_int_irq;
+
+	SII_DEV_DBG("");
 
 	state = kzalloc(sizeof(struct SII9234_state), GFP_KERNEL);
 	if (state == NULL) {		
@@ -564,73 +563,76 @@ static int SII9234C_i2c_probe(struct i2c_client *client, const struct i2c_device
 #if defined (CONFIG_KOR_MODEL_SHV_E110S)
     if( get_hw_rev() < 7)
     	{
-			set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
+			irq_set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
 			ret = request_threaded_irq( IRQ_MHL_INT_9 , 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
     	}
 	else
 		{
-			set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
+			irq_set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
 			ret = request_threaded_irq( IRQ_MHL_INT_31 , 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 		}
 #elif defined (CONFIG_KOR_MODEL_SHV_E120S)
 	if( get_hw_rev() < 0x8)
 		{
-			set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
+			irq_set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
 			ret = request_threaded_irq( IRQ_MHL_INT_9 , 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 		}
 	else
 		{
-			set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
+			irq_set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
 			ret = request_threaded_irq( IRQ_MHL_INT_31 , 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 		}
 #elif defined (CONFIG_KOR_MODEL_SHV_E120K)
 		if( get_hw_rev() < 8)
 			{
-				set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
+				irq_set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
 				ret = request_threaded_irq( IRQ_MHL_INT_9 , 
 				NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 			}
 		else
 			{
-				set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
+				irq_set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
 				ret = request_threaded_irq( IRQ_MHL_INT_31 , 
 				NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 			}
 #elif defined (CONFIG_KOR_MODEL_SHV_E120L)
 	if( get_hw_rev() < 2)
 		{
-			set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
+			irq_set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
 			ret = request_threaded_irq( IRQ_MHL_INT_9 , 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 		}
 	else
 		{
-			set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
+			irq_set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
 			ret = request_threaded_irq( IRQ_MHL_INT_31 , 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 		}
 #elif defined (CONFIG_JPN_MODEL_SC_03D)
 	if( get_hw_rev() < 5)
 		{
-			set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
+			irq_set_irq_type(IRQ_MHL_INT_9, IRQ_TYPE_EDGE_RISING);
 			ret = request_threaded_irq( IRQ_MHL_INT_9 , 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 		}
 	else
 		{
-			set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
+			irq_set_irq_type(IRQ_MHL_INT_31, IRQ_TYPE_EDGE_RISING);
 			ret = request_threaded_irq( IRQ_MHL_INT_31 , 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
 		}
 #else
+{
+	int mhl_int_irq;
 	mhl_int_irq = sil9234C_pdata->get_irq();
-	set_irq_type(mhl_int_irq, IRQ_TYPE_EDGE_RISING);
+	irq_set_irq_type(mhl_int_irq, IRQ_TYPE_EDGE_RISING);
 	ret = request_threaded_irq(mhl_int_irq, 
 			NULL, mhl_int_irq_handler, IRQF_DISABLED	, "mhl_int", (void*)state);
+}
 #endif
 	if (ret < 0) 
 	{
@@ -790,7 +792,7 @@ void sii9234_cfg_power(bool on)
 	int rc;
 	if (mhl_power_state == on) //Rajucm: Avoid unbalanced voltage regulator onoff
 	{
-		printk("sii_power_state is already %s ", mhl_power_state?"on":"off");
+		printk("sii_power_state is already %s\n", mhl_power_state?"on":"off");
 		return;
 	}
 	mhl_power_state = on;
@@ -851,8 +853,8 @@ void sii9234_cfg_power(bool on)
 
 }
 
-
-static void sii9234_cfg_gpio()
+#if 0//not used
+static void sii9234_cfg_gpio( void )
 {
 	int ret;
 	printk( "sii9234_cfg_gpio: request reset gpio \n");
@@ -863,6 +865,7 @@ static void sii9234_cfg_gpio()
 	gpio_set_value_cansleep(GPIO_MHL_SEL, 0);
 
 }
+#endif
 
 static int mhl_open(struct inode *ip, struct file *fp)
 {
@@ -879,11 +882,12 @@ static int mhl_release(struct inode *ip, struct file *fp)
 }
 
 
+#if 0//not used
 static int mhl_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
 {
 	printk("[%s] \n",__func__);
 
-	byte data;
+//	byte data;
 
 	switch(cmd)
 	{
@@ -902,12 +906,13 @@ static int mhl_ioctl(struct inode *inode, struct file *file, unsigned int cmd, u
 		
 	return 0;
 }
+#endif
 
 static struct file_operations mhl_fops = {
 	.owner  = THIS_MODULE,
 	.open   = mhl_open,
     	.release = mhl_release,
-    	.ioctl = mhl_ioctl,
+//    	.ioctl = mhl_ioctl,
 };
                  
 static struct miscdevice mhl_device = {
@@ -923,6 +928,12 @@ extern unsigned int is_lpcharging_state(void);
 static int __init sii9234_init(void)
 {
 	int ret;
+
+	printk("\npraveen: In sii9234_init [MHL_V1] \n");
+
+#ifdef CONFIG_SAMSUNG_8X60_TABLET // TEMP for bring up
+	return 0;
+#endif
 
 #ifdef CONFIG_BATTERY_SEC
 	if (is_lpcharging_state()) {

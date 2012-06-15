@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/kernel.h>
@@ -27,6 +22,7 @@
 
 #include <mach/msm_xo.h>
 #include <mach/rpm.h>
+#include <mach/socinfo.h>
 
 #include "rpm_resources.h"
 
@@ -84,8 +80,10 @@ static int msm_xo_show_voters(struct seq_file *m, void *v)
 	msm_xo_dump_xo(m, &msm_xo_sources[MSM_XO_TCXO_D1], "TCXO D1");
 	msm_xo_dump_xo(m, &msm_xo_sources[MSM_XO_TCXO_A0], "TCXO A0");
 	msm_xo_dump_xo(m, &msm_xo_sources[MSM_XO_TCXO_A1], "TCXO A1");
+	msm_xo_dump_xo(m, &msm_xo_sources[MSM_XO_TCXO_A2], "TCXO A2");
 	msm_xo_dump_xo(m, &msm_xo_sources[MSM_XO_CORE], "TCXO Core");
 	msm_xo_dump_xo(m, &msm_xo_sources[MSM_XO_PXO], "PXO during sleep");
+	msm_xo_dump_xo(m, &msm_xo_sources[MSM_XO_CXO], "CXO");
 	spin_unlock_irqrestore(&msm_xo_lock, flags);
 
 	return 0;
@@ -140,13 +138,25 @@ static int msm_xo_update_vote(struct msm_xo *xo)
 		cmd.id = MSM_RPM_ID_PXO_CLK;
 		cmd.value = msm_xo_sources[MSM_XO_PXO].mode ? 1 : 0;
 		ret = msm_rpmrs_set_noirq(MSM_RPM_CTX_SET_SLEEP, &cmd, 1);
+	} else if (xo == &msm_xo_sources[MSM_XO_CXO]) {
+		cmd.id = MSM_RPM_ID_CXO_CLK;
+		cmd.value = msm_xo_sources[MSM_XO_CXO].mode ? 1 : 0;
+		ret = msm_rpmrs_set_noirq(MSM_RPM_CTX_SET_0, &cmd, 1);
 	} else {
 		cmd.id = MSM_RPM_ID_CXO_BUFFERS;
 		cmd.value = (msm_xo_sources[MSM_XO_TCXO_D0].mode << 0)  |
 			    (msm_xo_sources[MSM_XO_TCXO_D1].mode << 8)  |
 			    (msm_xo_sources[MSM_XO_TCXO_A0].mode << 16) |
 			    (msm_xo_sources[MSM_XO_TCXO_A1].mode << 24) |
-			    ((msm_xo_sources[MSM_XO_CORE].mode ? 1 : 0) << 2);
+			    (msm_xo_sources[MSM_XO_TCXO_A2].mode << 28) |
+			    /*
+			     * 8660 RPM has XO_CORE at bit 18 and 8960 RPM has
+			     * XO_CORE at bit 20. Since the opposite bit is
+			     * reserved in both cases, just set both and be
+			     * done with it.
+			     */
+			    ((msm_xo_sources[MSM_XO_CORE].mode ? 1 : 0) << 20) |
+			    ((msm_xo_sources[MSM_XO_CORE].mode ? 1 : 0) << 18);
 		ret = msm_rpm_set_noirq(MSM_RPM_CTX_SET_0, &cmd, 1);
 	}
 
@@ -193,7 +203,10 @@ int msm_xo_mode_vote(struct msm_xo_voter *xo_voter, enum msm_xo_modes mode)
 	int ret;
 	unsigned long flags;
 
-	if (mode >= NUM_MSM_XO_MODES)
+	if (!xo_voter)
+		return 0;
+
+	if (mode >= NUM_MSM_XO_MODES || IS_ERR(xo_voter))
 		return -EINVAL;
 
 	spin_lock_irqsave(&msm_xo_lock, flags);
@@ -219,6 +232,13 @@ struct msm_xo_voter *msm_xo_get(enum msm_xo_ids xo_id, const char *voter)
 	int ret;
 	unsigned long flags;
 	struct msm_xo_voter *xo_voter;
+
+	/*
+	 * TODO: Remove early return for 8064 once RPM XO voting support
+	 * is available.
+	 */
+	if (cpu_is_apq8064())
+		return NULL;
 
 	if (xo_id >= NUM_MSM_XO_IDS) {
 		ret = -EINVAL;
@@ -265,6 +285,9 @@ EXPORT_SYMBOL(msm_xo_get);
 void msm_xo_put(struct msm_xo_voter *xo_voter)
 {
 	unsigned long flags;
+
+	if (!xo_voter || IS_ERR(xo_voter))
+		return;
 
 	spin_lock_irqsave(&msm_xo_lock, flags);
 	__msm_xo_mode_vote(xo_voter, MSM_XO_MODE_OFF);

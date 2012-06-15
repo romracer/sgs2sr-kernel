@@ -35,7 +35,7 @@
  *
  * On 32-bit CPUs an optimized representation of the timespec structure
  * is used to avoid expensive conversions from and to timespecs. The
- * endian-aware order of the tv struct members is choosen to allow
+ * endian-aware order of the tv struct members is chosen to allow
  * mathematical operations on the tv64 member of the union too, which
  * for certain operations produces better code.
  *
@@ -45,7 +45,7 @@
  */
 union ktime {
 	s64	tv64;
-#if BITS_PER_LONG != 64 && !defined(CONFIG_KTIME_SCALAR)
+//#if BITS_PER_LONG != 64 && !defined(CONFIG_KTIME_SCALAR) //subbu@siso: temporarily disabled this check to resolve compilation error in vibrator module
 	struct {
 # ifdef __BIG_ENDIAN
 	s32	sec, nsec;
@@ -53,7 +53,7 @@ union ktime {
 	s32	nsec, sec;
 # endif
 	} tv;
-#endif
+//#endif
 };
 
 typedef union ktime ktime_t;		/* Kill this */
@@ -81,6 +81,7 @@ typedef union ktime ktime_t;		/* Kill this */
 static inline ktime_t ktime_set(const long secs, const unsigned long nsecs)
 {
 #if (BITS_PER_LONG == 64)
+
 	if (unlikely(secs >= KTIME_SEC_MAX))
 		return (ktime_t){ .tv64 = KTIME_MAX };
 #endif
@@ -158,7 +159,7 @@ static inline ktime_t ktime_set(const long secs, const unsigned long nsecs)
  * @lhs:	minuend
  * @rhs:	subtrahend
  *
- * Returns the remainder of the substraction
+ * Returns the remainder of the subtraction
  */
 static inline ktime_t ktime_sub(const ktime_t lhs, const ktime_t rhs)
 {

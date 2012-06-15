@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/delay.h>
@@ -56,8 +51,8 @@
 #define MT9E013_TOTAL_STEPS_NEAR_TO_FAR    32
 
 uint16_t mt9e013_step_position_table[MT9E013_TOTAL_STEPS_NEAR_TO_FAR+1];
-uint16_t mt9e013_nl_region_boundary1 = 3;
-uint16_t mt9e013_nl_region_code_per_step1 = 30;
+uint16_t mt9e013_nl_region_boundary1;
+uint16_t mt9e013_nl_region_code_per_step1;
 uint16_t mt9e013_l_region_code_per_step = 4;
 uint16_t mt9e013_damping_threshold = 10;
 uint16_t mt9e013_sw_damping_time_wait = 1;
@@ -538,7 +533,6 @@ static int32_t mt9e013_sensor_setting(int update_type, int rt)
 		cam_debug_init();
 		CSI_CONFIG = 0;
 	} else if (update_type == UPDATE_PERIODIC) {
-			msleep(100);
 		if (rt == QTR_SIZE) {
 			mt9e013_i2c_write_w_table(mt9e013_regs.reg_pll,
 				mt9e013_regs.reg_pll_size);
@@ -1018,7 +1012,7 @@ static int mt9e013_sensor_probe(const struct msm_camera_sensor_info *info,
 	s->s_init = mt9e013_sensor_open_init;
 	s->s_release = mt9e013_sensor_release;
 	s->s_config  = mt9e013_sensor_config;
-	s->s_mount_angle = 0;
+	s->s_mount_angle = info->sensor_platform_info->mount_angle;
 	gpio_set_value_cansleep(info->sensor_reset, 0);
 	mt9e013_probe_init_done(info);
 	return rc;

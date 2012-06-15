@@ -18,20 +18,19 @@ CAMERA DRIVER FOR 2M CAM (SYS.LSI)
 
 #include "sec_s5k5bafx.h"
 
-#ifdef CONFIG_USA_MODEL_SGH_T989
-#include "sec_s5k5bafx_reg_tmo.h"		
-#elif defined (CONFIG_KOR_MODEL_SHV_E160S)
-#include "sec_s5k5bafx_reg_q1.h"
+#if defined (CONFIG_USA_MODEL_SGH_T989)
+#include "sec_s5k5bafx_reg_tmo.h" //partron		
+#elif defined (CONFIG_TARGET_SERIES_Q1)
+#include "sec_s5k5bafx_reg_q1.h"   //cammsys
+#elif defined (CONFIG_TARGET_SERIES_DALI)
+#include "sec_s5k5bafx_reg_dali.h"//cammsys
 #else
-#include "sec_s5k5bafx_reg.h"	
+#include "sec_s5k5bafx_reg.h"	 //cammsys
 #endif
 
-#include "sec_cam_pmic.h"
 #include "sec_cam_dev.h"
 
 
-#include <linux/clk.h>
-#include <linux/io.h>
 #include <mach/board.h>
 #include <mach/msm_iomap.h>
 
@@ -60,12 +59,6 @@ static struct test *testBuf;
 static s32 large_file;
 
 
-#define TEST_INIT	\
-{			\
-	.data = 0;	\
-	.nextBuf = NULL;	\
-}
-
 #endif
 
 struct s5k5bafx_work_t {
@@ -75,13 +68,11 @@ struct s5k5bafx_work_t {
 static struct  s5k5bafx_work_t *s5k5bafx_sensorw;
 static struct  i2c_client *s5k5bafx_client;
 
-
 static unsigned int config_csi2;
 
 static struct s5k5bafx_ctrl_t *s5k5bafx_ctrl;
 
 static DECLARE_WAIT_QUEUE_HEAD(s5k5bafx_wait_queue);
-DECLARE_MUTEX(s5k5bafx_sem);
 
 #ifdef CONFIG_LOAD_FILE
 static int s5k5bafx_write_regs_from_sd(char *name);
@@ -120,7 +111,7 @@ error:
 static int32_t s5k5bafx_i2c_write_32bit(unsigned short saddr, unsigned long packet)
 		{
 	int32_t rc = -EFAULT;
-	int retry_count = 1;
+	int retry_count = 5;
 
 	unsigned char buf[4];
 
@@ -156,7 +147,6 @@ static int s5k5bafx_i2c_write_list(const u32 *list, int size, char *name)
 	int ret = 0;
 
 #ifdef CONFIG_LOAD_FILE
-
 	ret = s5k5bafx_write_regs_from_sd(name);
 #else
 	int i;
@@ -203,15 +193,15 @@ static int s5k5bafx_i2c_write_burst_list(const u32 *list, int size, char *name)
 	int len = 0;
 	u8 buf[BURST_MODE_BUFFER_MAX_SIZE] = {0,};
 	
-	CAM_DEBUG("%s, size=%d",name, size);
-
-
 	struct i2c_msg msg = {
 		.addr = s5k5bafx_client->addr,
 		.flags = 0,
 		.len = 4,
 		.buf = buf,
 	};
+
+	
+	CAM_DEBUG("%s, size=%d",name, size);
 
 	while (size--) {
 		temp = *list++;
@@ -695,7 +685,6 @@ static long s5k5bafx_set_sensor_mode(int mode)
 	case SENSOR_SNAPSHOT_MODE:
 		CAM_DEBUG("SENSOR_SNAPSHOT_MODE START");		
 		err= s5k5bafx_snapshot_config(SENSOR_SNAPSHOT_MODE);
-
 		break;
 
 	
@@ -705,10 +694,10 @@ static long s5k5bafx_set_sensor_mode(int mode)
 		break;
 		
 	default:
-		return -EFAULT;
+		return 0;
 	}
 
-	return 0;
+	return err;
 }
 
 
@@ -812,7 +801,7 @@ static int s5k5bafx_set_flip(uint32_t flip)
 	
 	CAM_DEBUG("%d",flip);
 	
-#if defined (CONFIG_TARGET_LOCALE_KOR) || defined (CONFIG_JPN_MODEL_SC_03D)
+#if defined (CONFIG_TARGET_LOCALE_KOR) || defined (CONFIG_JPN_MODEL_SC_03D) || defined(CONFIG_USA_MODEL_SGH_I717)
 	if(s5k5bafx_ctrl->check_dataline)
 		return 0;
 
@@ -822,6 +811,12 @@ static int s5k5bafx_set_flip(uint32_t flip)
 			err = s5k5bafx_i2c_write_list(s5k5bafx_vflip,
 				sizeof(s5k5bafx_vflip)/sizeof(s5k5bafx_vflip[0]),"s5k5bafx_vflip");
 			break;
+#if defined (CONFIG_TARGET_SERIES_Q1)
+		case 0:
+			err = s5k5bafx_i2c_write_list(s5k5bafx_vflip_off,
+				sizeof(s5k5bafx_vflip_off)/sizeof(s5k5bafx_vflip_off[0]),"s5k5bafx_vflip_off");
+			break;
+#endif
 		default:
 			cam_err("invalid");
 			break;
@@ -989,28 +984,29 @@ static int s5k5bafx_set_movie_mode(int mode)
 static int s5k5bafx_sensor_init_probe(const struct msm_camera_sensor_info *data)
 {
 	int rc = 0;
-
+#if 0 // -> msm_io_8x60.c, board-msm8x60_XXX.c
 	CAM_DEBUG("POWER ON START ");
 	
 	gpio_set_value_cansleep(CAM_VGA_EN, LOW);
 	gpio_set_value_cansleep(CAM_8M_RST, LOW);
 	gpio_set_value_cansleep(CAM_VGA_RST, LOW);
-	gpio_set_value_cansleep(CAM_IO_EN, LOW);  //HOST 1.8V
 
 	rc = sub_cam_ldo_power(ON);
 	
 	//msm_camio_clk_rate_set(info->mclk);
 	msm_camio_clk_rate_set(24000000);
-
+#endif
 #ifdef CONFIG_LOAD_FILE
 	s5k5bafx_regs_table_init();
 #endif
-	
+#if 0	
 	gpio_set_value_cansleep(CAM_VGA_RST, HIGH);
 	mdelay(2);//min 50us
 	
 	CAM_DEBUG("POWER ON END ");
-
+#endif
+        // kminkim_UD03, fail test
+	//rc = s5k5bafx_i2c_write_32bit(s5k5bafx_client->addr, 0xFCFCD000);
 	return rc;
 }
 
@@ -1095,7 +1091,7 @@ int s5k5bafx_sensor_ext_config(void __user *argp)
 	int rc = 0;
 
 	if (!s5k5bafx_ctrl)
-		return -ENOSYS;
+		return -EFAULT;
 
 	if(copy_from_user((void *)&cfg_data, (const void *)argp, sizeof(cfg_data)))
 	{
@@ -1179,7 +1175,7 @@ int s5k5bafx_sensor_config(void __user *argp)
 		return -EFAULT;
 
 	if (!s5k5bafx_ctrl)
-		return -ENOSYS;
+		return -EFAULT;
 
 	CAM_DEBUG("cfgtype = %d, mode = %d", cfg_data.cfgtype, cfg_data.mode);
 
@@ -1196,6 +1192,7 @@ int s5k5bafx_sensor_config(void __user *argp)
 
 int s5k5bafx_sensor_release(void)
 {
+#if 0
 	CAM_DEBUG("POWER OFF START");
 
 	gpio_set_value_cansleep(CAM_VGA_RST, LOW);
@@ -1203,10 +1200,12 @@ int s5k5bafx_sensor_release(void)
 
 	sub_cam_ldo_power(OFF);	// have to turn off MCLK before PMIC
 
+	CAM_DEBUG("POWER OFF END");
+#endif
+
 #ifdef CONFIG_LOAD_FILE
 	s5k5bafx_regs_table_exit();
 #endif
-	CAM_DEBUG("POWER OFF END");
 
 	if (s5k5bafx_ctrl != NULL){
 		kfree(s5k5bafx_ctrl);

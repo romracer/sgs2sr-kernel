@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,14 +9,9 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
-#include "vidc_type.h"
+#include <media/msm/vidc_type.h>
 
 #include "vcd_ddl_utils.h"
 #include "vcd_ddl_metadata.h"
@@ -776,6 +771,7 @@ u32 ddl_decode_set_buffers(struct ddl_client_context *ddl)
 	struct ddl_decoder_data *decoder = &(ddl->codec_data.decoder);
 	u32 comv_buf_size = DDL_COMV_BUFLINE_NO, comv_buf_no = 0;
 	u32 ref_buf_no = 0;
+	struct ddl_context  *ddl_ctxt = NULL;
 
 	if (!DDLCLIENT_STATE_IS(ddl, DDL_CLIENT_WAIT_FOR_DPB)) {
 		VIDC_LOG_STRING("STATE-CRITICAL");
@@ -811,8 +807,13 @@ u32 ddl_decode_set_buffers(struct ddl_client_context *ddl)
 		}
 	case VCD_CODEC_H264:
 		{
-			comv_buf_no =
-			    decoder->client_output_buf_req.actual_count;
+			if (decoder->idr_only_decoding)
+				comv_buf_no = decoder->min_dpb_num;
+			else
+				comv_buf_no =
+					decoder->
+					client_output_buf_req.
+					actual_count;
 			break;
 		}
 	}
@@ -862,6 +863,10 @@ u32 ddl_decode_set_buffers(struct ddl_client_context *ddl)
 	}
 	ddl_decode_set_metadata_output(decoder);
 	ddl_decoder_dpb_transact(decoder, NULL, DDL_DPB_OP_INIT);
+	ddl_ctxt = ddl_get_context();
+	vidc_720p_set_deblock_line_buffer(
+		ddl_ctxt->db_line_buffer.align_physical_addr,
+		ddl_ctxt->db_line_buffer.buffer_size);
 	ddl_move_client_state(ddl, DDL_CLIENT_WAIT_FOR_DPBDONE);
 	ddl_move_command_state(ddl->ddl_context, DDL_CMD_DECODE_SET_DPB);
 

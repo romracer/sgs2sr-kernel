@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/uaccess.h>
@@ -22,7 +17,6 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 #include "msm_vpe1.h"
-#include <mach/msm_reqs.h>
 #include <linux/pm_qos_params.h>
 #include <linux/clk.h>
 #include <mach/clk.h>
@@ -123,6 +117,8 @@ void vpe_reset_state_variables(void)
 
 static void vpe_config_axi_default(void)
 {
+	msm_io_w(0x25, vpe_device->vpebase + VPE_AXI_ARB_2_OFFSET);
+
 	CDBG("%s: yaddr %ld cbcraddr %ld", __func__,
 		 vpe_ctrl->out_y_addr, vpe_ctrl->out_cbcr_addr);
 
@@ -1282,8 +1278,6 @@ int msm_vpe_open(void)
 	}
 
 	spin_lock_init(&vpe_ctrl->ops_lock);
-//Temporary Fix to Enable Camera  Video Recording and Suspend/Resume problem
-	//vpe_enable(VPE_NORMAL_MODE_CLOCK_RATE);
 	CDBG("%s: Out\n", __func__);
 
 	return rc;

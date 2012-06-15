@@ -1,6 +1,6 @@
 /* 
    BlueZ - Bluetooth protocol stack for Linux
-   Copyright (c) 2000-2001, 2010-2011 Code Aurora Forum.  All rights reserved.
+   Copyright (c) 2000-2001, 2010-2012 Code Aurora Forum.  All rights reserved.
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
 
@@ -21,7 +21,9 @@
    COPYRIGHTS, TRADEMARKS OR OTHER RIGHTS, RELATING TO USE OF THIS 
    SOFTWARE IS DISCLAIMED.
 */
-
+#ifdef CONFIG_BT_MGMT
+#include "bluetooth_mgmt.h"
+#else
 #ifndef __BLUETOOTH_H
 #define __BLUETOOTH_H
 
@@ -38,7 +40,6 @@
 
 /* Reserv for core and drivers use */
 #define BT_SKB_RESERVE	8
-#define BT_SKB_RESERVE_80211	32
 
 #define BTPROTO_L2CAP	0
 #define BTPROTO_HCI	1
@@ -57,6 +58,7 @@
 #define BT_SECURITY	4
 struct bt_security {
 	__u8 level;
+	__u8 key_size;
 };
 #define BT_SECURITY_SDP		0
 #define BT_SECURITY_LOW		1
@@ -65,41 +67,24 @@ struct bt_security {
 
 #define BT_DEFER_SETUP	7
 
-#define BT_AMP_POLICY          9
+#define BT_FLUSHABLE	8
 
-/* Require BR/EDR (default policy)
- *   AMP controllers cannot be used
- *   Channel move requests from the remote device are denied
- *   If the L2CAP channel is currently using AMP, move the channel to BR/EDR
- */
-#define BT_AMP_POLICY_REQUIRE_BR_EDR   0
+#define BT_FLUSHABLE_OFF	0
+#define BT_FLUSHABLE_ON		1
 
-/* Prefer AMP
- *   Allow use of AMP controllers
- *   If the L2CAP channel is currently on BR/EDR and AMP controller
- *     resources are available, initiate a channel move to AMP
- *   Channel move requests from the remote device are allowed
- *   If the L2CAP socket has not been connected yet, try to create
- *     and configure the channel directly on an AMP controller rather
- *     than BR/EDR
- */
-#define BT_AMP_POLICY_PREFER_AMP       1
-
-/* Prefer BR/EDR
- *   Allow use of AMP controllers
- *   If the L2CAP channel is currently on AMP, move it to BR/EDR
- *   Channel move requests from the remote device are allowed
- */
-#define BT_AMP_POLICY_PREFER_BR_EDR    2
-
-#define BT_POWER	8
+#define BT_POWER	9
 struct bt_power {
 	__u8 force_active;
 };
+#define BT_POWER_FORCE_ACTIVE_OFF 0
+#define BT_POWER_FORCE_ACTIVE_ON  1
 
-#define BT_INFO(fmt, arg...) printk(KERN_INFO "Bluetooth: " fmt "\n" , ## arg)
-#define BT_ERR(fmt, arg...)  printk(KERN_ERR "%s: " fmt "\n" , __func__ , ## arg)
-#define BT_DBG(fmt, arg...)  pr_debug("%s: " fmt "\n" , __func__ , ## arg)
+__attribute__((format (printf, 2, 3)))
+int bt_printk(const char *level, const char *fmt, ...);
+
+#define BT_INFO(fmt, arg...)   bt_printk(KERN_INFO, pr_fmt(fmt), ##arg)
+#define BT_ERR(fmt, arg...)    bt_printk(KERN_ERR, pr_fmt(fmt), ##arg)
+#define BT_DBG(fmt, arg...)    pr_debug(fmt "\n", ##arg)
 
 /* Connection and socket states */
 enum {
@@ -158,7 +143,8 @@ int  bt_sock_register(int proto, const struct net_proto_family *ops);
 int  bt_sock_unregister(int proto);
 void bt_sock_link(struct bt_sock_list *l, struct sock *s);
 void bt_sock_unlink(struct bt_sock_list *l, struct sock *s);
-int  bt_sock_recvmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg, size_t len, int flags);
+int  bt_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
+				struct msghdr *msg, size_t len, int flags);
 int  bt_sock_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 			struct msghdr *msg, size_t len, int flags);
 uint bt_sock_poll(struct file * file, struct socket *sock, poll_table *wait);
@@ -170,23 +156,14 @@ void bt_accept_unlink(struct sock *sk);
 struct sock *bt_accept_dequeue(struct sock *parent, struct socket *newsock);
 
 /* Skb helpers */
-struct bt_l2cap_control {
-	__u8  frame_type;
-	__u8  final;
-	__u8  sar;
-	__u8  super;
-	__u16 reqseq;
-	__u16 txseq;
-	__u8  poll;
-	__u8  fcs;
-};
-
 struct bt_skb_cb {
 	__u8 pkt_type;
 	__u8 incoming;
 	__u16 expect;
+	__u8 tx_seq;
 	__u8 retries;
-	struct bt_l2cap_control control;
+	__u8 sar;
+	unsigned short channel;
 	__u8 force_active;
 };
 #define bt_cb(skb) ((struct bt_skb_cb *)((skb)->cb))
@@ -202,8 +179,8 @@ static inline struct sk_buff *bt_skb_alloc(unsigned int len, gfp_t how)
 	return skb;
 }
 
-static inline struct sk_buff *bt_skb_send_alloc(struct sock *sk, unsigned long len, 
-							int nb, int *err)
+static inline struct sk_buff *bt_skb_send_alloc(struct sock *sk,
+					unsigned long len, int nb, int *err)
 {
 	struct sk_buff *skb;
 
@@ -233,7 +210,7 @@ out:
 	return NULL;
 }
 
-int bt_err(__u16 code);
+int bt_to_errno(__u16 code);
 
 extern int hci_sock_init(void);
 extern void hci_sock_cleanup(void);
@@ -243,4 +220,34 @@ extern void bt_sysfs_cleanup(void);
 
 extern struct dentry *bt_debugfs;
 
+#ifdef CONFIG_BT_L2CAP
+int l2cap_init(void);
+void l2cap_exit(void);
+#else
+static inline int l2cap_init(void)
+{
+	return 0;
+}
+
+static inline void l2cap_exit(void)
+{
+}
+#endif
+
+#ifdef CONFIG_BT_SCO
+int sco_init(void);
+void sco_exit(void);
+#else
+static inline int sco_init(void)
+{
+	return 0;
+}
+
+static inline void sco_exit(void)
+{
+}
+#endif
+
 #endif /* __BLUETOOTH_H */
+
+#endif /*BT_MGMT*/

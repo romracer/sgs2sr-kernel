@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -26,11 +21,9 @@
 #include <asm/atomic.h>
 #include <mach/qdsp6v2/audio_dev_ctl.h>
 #include <mach/debug_mm.h>
-#include <mach/qdsp6v2/apr_audio.h>
-#include <mach/qdsp6v2/q6afe.h>
 #include <mach/qdsp6v2/q6voice.h>
-#include "q6adm.h"
-#include "rtac.h"
+#include <sound/apr_audio.h>
+#include <sound/q6adm.h>
 
 #ifndef MAX
 #define  MAX(x, y) (((x) > (y)) ? (x) : (y))
@@ -50,11 +43,6 @@ struct audio_dev_ctrl_state {
 
 static struct audio_dev_ctrl_state audio_dev_ctrl;
 struct event_listner event;
-
-#define PLAYBACK 0x1
-#define LIVE_RECORDING 0x2
-#define NON_LIVE_RECORDING 0x3
-#define MAX_COPP_DEVICES 4
 
 struct session_freq {
 	int freq;
@@ -142,6 +130,8 @@ int msm_set_copp_id(int session_id, int copp_id)
 		return -EINVAL;
 
 	index = afe_get_port_index(copp_id);
+	if (index < 0 || index > AFE_MAX_PORTS)
+		return -EINVAL;
 	pr_debug("%s: session[%d] copp_id[%d] index[%d]\n", __func__,
 			session_id, copp_id, index);
 	mutex_lock(&routing_info.copp_list_mutex);
@@ -246,31 +236,31 @@ int msm_get_voice_state(void)
 }
 EXPORT_SYMBOL(msm_get_voice_state);
 
-int msm_set_voice_mute(int dir, int mute)
+int msm_set_voice_mute(int dir, int mute, u32 session_id)
 {
 	pr_debug("dir %x mute %x\n", dir, mute);
 	if (dir == DIR_TX) {
 		routing_info.tx_mute = mute;
 		broadcast_event(AUDDEV_EVT_DEVICE_VOL_MUTE_CHG,
-			routing_info.voice_tx_dev_id, SESSION_IGNORE);
+			routing_info.voice_tx_dev_id, session_id);
 	} else
 		return -EPERM;
 	return 0;
 }
 EXPORT_SYMBOL(msm_set_voice_mute);
 
-int msm_set_voice_vol(int dir, s32 volume)
+int msm_set_voice_vol(int dir, s32 volume, u32 session_id)
 {
 	if (dir == DIR_TX) {
 		routing_info.voice_tx_vol = volume;
 		broadcast_event(AUDDEV_EVT_DEVICE_VOL_MUTE_CHG,
 					routing_info.voice_tx_dev_id,
-					SESSION_IGNORE);
+					session_id);
 	} else if (dir == DIR_RX) {
 		routing_info.voice_rx_vol = volume;
 		broadcast_event(AUDDEV_EVT_DEVICE_VOL_MUTE_CHG,
 					routing_info.voice_rx_dev_id,
-					SESSION_IGNORE);
+					session_id);
 	} else
 		return -EINVAL;
 	return 0;
@@ -282,7 +272,12 @@ void msm_snddev_register(struct msm_snddev_info *dev_info)
 	mutex_lock(&session_lock);
 	if (audio_dev_ctrl.num_dev < AUDIO_DEV_CTL_MAX_DEV) {
 		audio_dev_ctrl.devs[audio_dev_ctrl.num_dev] = dev_info;
-		dev_info->dev_volume = 50; /* 50% */
+		/* roughly 0 DB for digital gain
+		 * If default gain is not desirable, it is expected that
+		 * application sets desired gain before activating sound
+		 * device
+		 */
+		dev_info->dev_volume = 75;
 		dev_info->sessions = 0x0;
 		dev_info->usage_count = 0;
 		audio_dev_ctrl.num_dev++;
@@ -340,8 +335,7 @@ int msm_check_multicopp_per_stream(int session_id,
 		if (routing_info.copp_list[session_id][i] == COPP_IGNORE)
 			continue;
 		else {
-			pr_debug("Device enabled port_id = %d\n",
-				routing_info.copp_list[session_id][i]);
+			pr_debug("Device enabled\n");
 			payload->copp_ids[flag++] =
 				routing_info.copp_list[session_id][i];
 		}
@@ -369,7 +363,7 @@ int msm_snddev_set_dec(int popp_id, int copp_id, int set,
 
 	mutex_lock(&routing_info.adm_mutex);
 	if (set) {
-		rc = adm_open(copp_id, PLAYBACK, rate, mode,
+		rc = adm_open(copp_id, ADM_PATH_PLAYBACK, rate, mode,
 			DEFAULT_COPP_TOPOLOGY);
 		if (rc < 0) {
 			pr_err("%s: adm open fail rc[%d]\n", __func__, rc);
@@ -384,7 +378,7 @@ int msm_snddev_set_dec(int popp_id, int copp_id, int set,
 				(sizeof(unsigned int) * AFE_MAX_PORTS));
 		num_copps = msm_check_multicopp_per_stream(popp_id, &payload);
 		/* Multiple streams per copp is handled, one stream at a time */
-		rc = adm_matrix_map(popp_id, PLAYBACK, num_copps,
+		rc = adm_matrix_map(popp_id, ADM_PATH_PLAYBACK, num_copps,
 					payload.copp_ids, copp_id);
 		if (rc < 0) {
 			pr_err("%s: matrix map failed rc[%d]\n",
@@ -521,14 +515,14 @@ int msm_snddev_set_enc(int popp_id, int copp_id, int set,
 			rate = 16000;
 		}
 		mutex_unlock(&adm_tx_topology_tbl.lock);
-		rc = adm_open(copp_id, LIVE_RECORDING, rate, mode, topology);
+		rc = adm_open(copp_id, ADM_PATH_LIVE_REC, rate, mode, topology);
 		if (rc < 0) {
 			pr_err("%s: adm open fail rc[%d]\n", __func__, rc);
 			rc = -EINVAL;
 			goto fail_cmd;
 		}
 
-		rc = adm_matrix_map(popp_id, LIVE_RECORDING, 1,
+		rc = adm_matrix_map(popp_id, ADM_PATH_LIVE_REC, 1,
 					(unsigned int *)&copp_id, copp_id);
 		if (rc < 0) {
 			pr_err("%s: matrix map failed rc[%d]\n", __func__, rc);
@@ -1001,7 +995,7 @@ int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
 			goto fail_cmd;
 		}
 
-		rc = adm_open(port_id[0], LIVE_RECORDING, rate, channel_mode,
+		rc = adm_open(port_id[0], ADM_PATH_LIVE_REC, rate, channel_mode,
 				DEFAULT_COPP_TOPOLOGY);
 		if (rc < 0) {
 			pr_err("%s: Error %d in ADM open %d\n",
@@ -1010,7 +1004,7 @@ int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
 			goto fail_cmd;
 		}
 
-		rc = adm_matrix_map(popp_id, LIVE_RECORDING, 1,
+		rc = adm_matrix_map(popp_id, ADM_PATH_LIVE_REC, 1,
 				&port_id[0], port_id[0]);
 		if (rc < 0) {
 			pr_err("%s: Error %d in ADM matrix map %d\n",
@@ -1030,7 +1024,7 @@ int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
 			goto fail_cmd;
 		}
 
-		rc = adm_open(port_id[1], LIVE_RECORDING, rate, channel_mode,
+		rc = adm_open(port_id[1], ADM_PATH_LIVE_REC, rate, channel_mode,
 				DEFAULT_COPP_TOPOLOGY);
 		if (rc < 0) {
 			pr_err("%s: Error %d in ADM open %d\n",
@@ -1039,7 +1033,7 @@ int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
 			goto fail_cmd;
 		}
 
-		rc = adm_matrix_map(popp_id, LIVE_RECORDING, 1,
+		rc = adm_matrix_map(popp_id, ADM_PATH_LIVE_REC, 1,
 				&port_id[1], port_id[1]);
 		if (rc < 0) {
 			pr_err("%s: Error %d in ADM matrix map %d\n",
@@ -1059,7 +1053,7 @@ int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
 			goto fail_cmd;
 		}
 
-		rc = adm_open(port_id[0], LIVE_RECORDING, rate, channel_mode,
+		rc = adm_open(port_id[0], ADM_PATH_LIVE_REC, rate, channel_mode,
 				DEFAULT_COPP_TOPOLOGY);
 		if (rc < 0) {
 			pr_err("%s: Error %d in ADM open %d\n",
@@ -1078,7 +1072,7 @@ int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
 			goto fail_cmd;
 		}
 
-		rc = adm_open(port_id[1], LIVE_RECORDING, rate, channel_mode,
+		rc = adm_open(port_id[1], ADM_PATH_LIVE_REC, rate, channel_mode,
 				DEFAULT_COPP_TOPOLOGY);
 		if (rc < 0) {
 			pr_err("%s: Error %d in ADM open %d\n",
@@ -1087,7 +1081,7 @@ int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
 			goto fail_cmd;
 		}
 
-		rc = adm_matrix_map(popp_id, LIVE_RECORDING, 2,
+		rc = adm_matrix_map(popp_id, ADM_PATH_LIVE_REC, 2,
 				&port_id[0], port_id[1]);
 		if (rc < 0) {
 			pr_err("%s: Error %d in ADM matrix map\n",
@@ -1208,7 +1202,7 @@ fail_cmd:
 	return rc;
 }
 
-static int audio_dev_ctrl_ioctl(struct inode *inode, struct file *file,
+static long audio_dev_ctrl_ioctl(struct file *file,
 	unsigned int cmd, unsigned long arg)
 {
 	int rc = 0;
@@ -1327,7 +1321,7 @@ static const struct file_operations audio_dev_ctrl_fops = {
 	.owner = THIS_MODULE,
 	.open = audio_dev_ctrl_open,
 	.release = audio_dev_ctrl_release,
-	.ioctl = audio_dev_ctrl_ioctl,
+	.unlocked_ioctl = audio_dev_ctrl_ioctl,
 };
 
 
@@ -1357,12 +1351,14 @@ void broadcast_event(u32 evt_id, u32 dev_id, u64 session_id)
 	if ((evt_id != AUDDEV_EVT_START_VOICE)
 		&& (evt_id != AUDDEV_EVT_END_VOICE)
 		&& (evt_id != AUDDEV_EVT_STREAM_VOL_CHG)
-		&& (evt_id != AUDDEV_EVT_VOICE_STATE_CHG))
+		&& (evt_id != AUDDEV_EVT_VOICE_STATE_CHG)) {
 		dev_info = audio_dev_ctrl_find_dev(dev_id);
-
-#ifdef CONFIG_MSM8X60_RTAC
-	update_rtac(evt_id, dev_id, dev_info);
-#endif
+		if (IS_ERR(dev_info)) {
+			pr_err("%s: pass invalid dev_id(%d)\n",
+					 __func__, dev_id);
+			return;
+		}
+	}
 
 	if (event.cb != NULL)
 		callback = event.cb;
@@ -1376,6 +1372,11 @@ void broadcast_event(u32 evt_id, u32 dev_id, u64 session_id)
 	evt_payload = kzalloc(sizeof(union auddev_evt_data),
 			GFP_KERNEL);
 
+	if (evt_payload == NULL) {
+		pr_err("broadcast_event: cannot allocate memory\n");
+		mutex_unlock(&session_lock);
+		return;
+	}
 	for (; ;) {
 		if (!(evt_id & callback->evt_id)) {
 			if (callback->cb_next == NULL)
@@ -1389,7 +1390,8 @@ void broadcast_event(u32 evt_id, u32 dev_id, u64 session_id)
 		memset(evt_payload, 0, sizeof(union auddev_evt_data));
 
 		if ((evt_id == AUDDEV_EVT_START_VOICE)
-			|| (evt_id == AUDDEV_EVT_END_VOICE))
+			|| (evt_id == AUDDEV_EVT_END_VOICE)
+			|| evt_id == AUDDEV_EVT_DEVICE_VOL_MUTE_CHG)
 			goto skip_check;
 		if (callback->clnt_type == AUDDEV_CLNT_AUDIOCAL)
 			goto aud_cal;
@@ -1549,6 +1551,9 @@ voc_events:
 				pending_sent = 1;
 
 			if (evt_id == AUDDEV_EVT_DEVICE_VOL_MUTE_CHG) {
+				evt_payload->voc_vm_info.voice_session_id =
+								session_id;
+
 				if (dev_info->capability & SNDDEV_CAP_TX) {
 					evt_payload->voc_vm_info.dev_type =
 						SNDDEV_CAP_TX;
@@ -1567,10 +1572,12 @@ voc_events:
 						routing_info.voice_rx_vol;
 				}
 			} else if ((evt_id == AUDDEV_EVT_START_VOICE)
-					|| (evt_id == AUDDEV_EVT_END_VOICE))
+					|| (evt_id == AUDDEV_EVT_END_VOICE)) {
 				memset(evt_payload, 0,
 					sizeof(union auddev_evt_data));
-			else if (evt_id == AUDDEV_EVT_FREQ_CHG) {
+
+				evt_payload->voice_session_id = session_id;
+			} else if (evt_id == AUDDEV_EVT_FREQ_CHG) {
 				if (routing_info.voice_tx_sample_rate
 						!= dev_info->set_sample_rate) {
 					routing_info.voice_tx_sample_rate

@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/module.h>
@@ -112,7 +107,7 @@ void mddi_init(void)
 
 	mddi_host_initialized = TRUE;
 
-	init_MUTEX(&mddi_host_mutex);
+	sema_init(&mddi_host_mutex, 1);
 
 	if (!mddi_host_powered) {
 		down(&mddi_host_mutex);

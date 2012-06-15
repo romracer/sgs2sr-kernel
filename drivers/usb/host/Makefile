@@ -2,20 +2,17 @@
 # Makefile for USB Host Controller Drivers
 #
 
-ifeq ($(CONFIG_USB_DEBUG),y)
-	EXTRA_CFLAGS		+= -DDEBUG
-endif
+ccflags-$(CONFIG_USB_DEBUG) := -DDEBUG
 
-isp1760-objs := isp1760-hcd.o isp1760-if.o
-fhci-objs := fhci-hcd.o fhci-hub.o fhci-q.o fhci-mem.o \
-	     fhci-tds.o fhci-sched.o
-ifeq ($(CONFIG_FHCI_DEBUG),y)
-fhci-objs += fhci-dbg.o
-endif
-xhci-hcd-objs := xhci.o xhci-mem.o xhci-pci.o xhci-ring.o xhci-hub.o xhci-dbg.o
+isp1760-y := isp1760-hcd.o isp1760-if.o
 
-CFLAGS_REMOVE_ehci-hcd.o = -Werror
-CFLAGS_REMOVE_ehci-hub.o = -Werror
+fhci-y := fhci-hcd.o fhci-hub.o fhci-q.o
+fhci-y += fhci-mem.o fhci-tds.o fhci-sched.o
+
+fhci-$(CONFIG_FHCI_DEBUG) += fhci-dbg.o
+
+xhci-hcd-y := xhci.o xhci-mem.o xhci-pci.o
+xhci-hcd-y += xhci-ring.o xhci-hub.o xhci-dbg.o
 
 obj-$(CONFIG_USB_WHCI_HCD)	+= whci/
 obj-$(CONFIG_USB_PEHCI_HCD)	+= pehci/
@@ -37,4 +34,5 @@ obj-$(CONFIG_USB_R8A66597_HCD)	+= r8a66597-hcd.o
 obj-$(CONFIG_USB_ISP1760_HCD)	+= isp1760.o
 obj-$(CONFIG_USB_HWA_HCD)	+= hwa-hc.o
 obj-$(CONFIG_USB_IMX21_HCD)	+= imx21-hcd.o
-
+obj-$(CONFIG_USB_FSL_MPH_DR_OF)	+= fsl-mph-dr-of.o
+obj-$(CONFIG_USB_OCTEON2_COMMON) += octeon2-common.o

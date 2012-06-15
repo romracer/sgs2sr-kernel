@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 /*
@@ -81,7 +76,7 @@ struct sdio_xprt {
 	struct list_head free_list;
 	spinlock_t free_list_lock;
 
-	struct wake_lock read_wakelock;//case 00550524, Qualcomm Patch. 2011.06.27. waro.park.
+	struct wake_lock read_wakelock;
 };
 
 struct rpcrouter_sdio_xprt {
@@ -152,7 +147,7 @@ static void free_sdio_xprt(struct sdio_xprt *chnl)
 	}
 	num_rx_bufs = 0;
 	spin_unlock_irqrestore(&chnl->read_list_lock, flags);
-	wake_unlock(&chnl->read_wakelock); //case 00550524, Qualcomm Patch. 2011.06.27. waro.park.
+	wake_unlock(&chnl->read_wakelock);
 }
 
 static struct sdio_buf_struct *alloc_from_free_list(struct sdio_xprt *chnl)
@@ -251,8 +246,8 @@ static int rpcrouter_sdio_remote_read(void *data, uint32_t len)
 		return_to_free_list(sdio_remote_xprt.channel, buf);
 	}
 
-	if (list_empty(&sdio_remote_xprt.channel->read_list))  //case 00550524, Qualcomm Patch. 2011.06.27. waro.park.
-		wake_unlock(&sdio_remote_xprt.channel->read_wakelock);  //case 00550524, Qualcomm Patch. 2011.06.27. waro.park.
+	if (list_empty(&sdio_remote_xprt.channel->read_list))
+		wake_unlock(&sdio_remote_xprt.channel->read_wakelock);
 	spin_unlock_irqrestore(&sdio_remote_xprt.channel->read_list_lock,
 				flags);
 	return len;
@@ -468,7 +463,7 @@ static void sdio_xprt_read_data(struct work_struct *work)
 		num_rx_bufs++;
 		spin_unlock_irqrestore(
 			&sdio_remote_xprt.channel->read_list_lock, flags);
-		wake_lock(&sdio_remote_xprt.channel->read_wakelock);  //case 00550524, Qualcomm Patch. 2011.06.27. waro.park.
+		wake_lock(&sdio_remote_xprt.channel->read_wakelock);
 	}
 
 	if (!modem_reset && !list_empty(&sdio_remote_xprt.channel->read_list))
@@ -516,7 +511,7 @@ static int allocate_sdio_xprt(struct sdio_xprt **sdio_xprt_chnl)
 		INIT_LIST_HEAD(&chnl->read_list);
 		INIT_LIST_HEAD(&chnl->free_list);
 		wake_lock_init(&chnl->read_wakelock,
-				WAKE_LOCK_SUSPEND, "rpc_sdio_xprt_read");	//case 00550524, Qualcomm Patch. 2011.06.27. waro.park.
+				WAKE_LOCK_SUSPEND, "rpc_sdio_xprt_read");
 	} else {
 		chnl = *sdio_xprt_chnl;
 	}
@@ -546,7 +541,7 @@ alloc_failure:
 		kfree(buf);
 	}
 	spin_unlock_irqrestore(&chnl->free_list_lock, flags);
-	wake_lock_destroy(&chnl->read_wakelock); //case 00550524, Qualcomm Patch. 2011.06.27. waro.park.
+	wake_lock_destroy(&chnl->read_wakelock);
 
 	kfree(chnl);
 	*sdio_xprt_chnl = NULL;

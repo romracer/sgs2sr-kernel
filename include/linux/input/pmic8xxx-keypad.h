@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,6 +38,8 @@ struct pm8xxx_keypad_platform_data {
 
 	unsigned int num_cols;
 	unsigned int num_rows;
+	unsigned int rows_gpio_start;
+	unsigned int cols_gpio_start;
 
 	unsigned int debounce_ms;
 	unsigned int scan_delay_ms;

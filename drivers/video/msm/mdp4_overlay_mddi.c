@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/module.h>
@@ -117,7 +112,7 @@ void mdp4_overlay_update_lcd(struct msm_fb_data_type *mfd)
 		ptype = mdp4_overlay_format2type(mfd->fb_imgType);
 		if (ptype < 0)
 			printk(KERN_INFO "%s: format2type failed\n", __func__);
-		pipe = mdp4_overlay_pipe_alloc(ptype, MDP4_MIXER0, 0);
+		pipe = mdp4_overlay_pipe_alloc(ptype, MDP4_MIXER0);
 		if (pipe == NULL)
 			printk(KERN_INFO "%s: pipe_alloc failed\n", __func__);
 		pipe->pipe_used++;
@@ -382,8 +377,6 @@ void mdp4_overlay0_done_mddi(struct mdp_dma_data *dma)
 	}
 
 
-	if (busy_wait_cnt)
-		busy_wait_cnt--;
 
 }
 
@@ -482,6 +475,7 @@ void mdp4_mddi_overlay_kickoff(struct msm_fb_data_type *mfd,
 	mfd->dma->busy = TRUE;
 	/* start OVERLAY pipe */
 	mdp_pipe_kickoff(MDP_OVERLAY0_TERM, mfd);
+	mdp4_stat.kickoff_ov0++;
 }
 
 void mdp4_dma_s_update_lcd(struct msm_fb_data_type *mfd,
@@ -564,6 +558,7 @@ void mdp4_mddi_dma_s_kickoff(struct msm_fb_data_type *mfd,
 	mfd->ibuf_flushed = TRUE;
 	/* start dma_s pipe */
 	mdp_pipe_kickoff(MDP_DMA_S_TERM, mfd);
+	mdp4_stat.kickoff_dmas++;
 
 	/* wait until DMA finishes the current job */
 	wait_for_completion(&mfd->dma->comp);
@@ -583,6 +578,11 @@ void mdp4_mddi_overlay_dmas_restore(void)
 
 void mdp4_mddi_overlay(struct msm_fb_data_type *mfd)
 {
+	if (!mfd)
+		return -ENODEV;
+	if (mfd->key != MFD_KEY)
+		return -EINVAL;
+
 	mutex_lock(&mfd->dma->ov_mutex);
 
 	if (mfd && mfd->panel_power_on) {
@@ -600,8 +600,6 @@ void mdp4_mddi_overlay(struct msm_fb_data_type *mfd)
 		} else	/* no dams dmap switch  */
 			mdp4_mddi_kickoff_ui(mfd, mddi_pipe);
 
-		mdp4_stat.kickoff_mddi++;
-
 	/* signal if pan function is waiting for the update completion */
 		if (mfd->pan_waiting) {
 			mfd->pan_waiting = FALSE;
@@ -614,6 +612,11 @@ void mdp4_mddi_overlay(struct msm_fb_data_type *mfd)
 int mdp4_mddi_overlay_cursor(struct fb_info *info, struct fb_cursor *cursor)
 {
 	struct msm_fb_data_type *mfd = info->par;
+	
+	if (!mfd)
+		return -ENODEV;	
+	if (mfd->key != MFD_KEY)
+		return -EINVAL;
 	mutex_lock(&mfd->dma->ov_mutex);
 	if (mfd && mfd->panel_power_on) {
 		mdp4_mddi_dma_busy_wait(mfd);

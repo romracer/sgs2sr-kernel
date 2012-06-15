@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #define DEBUG
@@ -220,7 +215,6 @@ static int sdio_cmux_write_cmd(const int id, enum cmd_type type)
 		return -ENODEV;
 	//ADD qualcomm case
 
-
 	if (id < 0 || id >= SDIO_CMUX_NUM_CHANNELS) {
 		pr_err("%s: Invalid lc_id - %d\n", __func__, id);
 		return -EINVAL;
@@ -352,7 +346,7 @@ int sdio_cmux_close(int id)
 	ch->write_done = NULL;
 	mutex_unlock(&ch->tx_lock);
 	ch->is_local_open = 0;
-        ch->priv = NULL;
+	ch->priv = NULL;
 	mutex_unlock(&ch->lc_lock);
 	sdio_cmux_write_cmd(ch->lc_id, CLOSE);
 	return 0;
@@ -532,25 +526,19 @@ static int copy_packet(void *pkt, int size)
 static int process_cmux_pkt(void *pkt, int size)
 {
 	struct sdio_cmux_hdr *mux_hdr;
-	uint32_t id, data_size, i;	
+	uint32_t id, data_size;
 	void *data;
 	char *dump_buf = (char *)pkt;
 
 	D_DUMP_BUFFER("process_cmux_pkt:", size, dump_buf);
 	mux_hdr = (struct sdio_cmux_hdr *)pkt;
-	if (mux_hdr->lc_id >= SDIO_CMUX_NUM_CHANNELS) {
-		pr_err("%s: Invalid CMUX lc_id: %d\n",
-			__func__, mux_hdr->lc_id);
-		return -EINVAL;
-	}	
 	switch (mux_hdr->cmd) {
 	case OPEN:
 		id = (uint32_t)(mux_hdr->lc_id);
-		D("%s: Received OPEN command for ch%d\n", __func__, id);		
+		D("%s: Received OPEN command for ch%d\n", __func__, id);
 		mutex_lock(&logical_ch[id].lc_lock);
 		logical_ch[id].is_remote_open = 1;
-		if (logical_ch[id].is_channel_reset) 
-		{
+		if (logical_ch[id].is_channel_reset) {
 			sdio_cmux_write_cmd(id, OPEN);
 			logical_ch[id].is_channel_reset = 0;
 		}
@@ -566,10 +554,6 @@ static int process_cmux_pkt(void *pkt, int size)
 
 	case DATA:
 		id = (uint32_t)(mux_hdr->lc_id);
-		if (id < 0 || id >= SDIO_CMUX_NUM_CHANNELS) {
-			pr_err("%s: Invalid channel id %d\n", __func__, id);
-			return -ENODEV;
-		}
 		D("%s: Received DATA for ch%d\n", __func__, id);
 		/*Channel is not locally open & if single packet received
 		  then drop it*/
@@ -593,11 +577,6 @@ static int process_cmux_pkt(void *pkt, int size)
 
 	case STATUS:
 		id = (uint32_t)(mux_hdr->lc_id);
-		if (id < 0 || id >= SDIO_CMUX_NUM_CHANNELS) {
-			pr_err("%s: Invalid channel id %d\n", __func__, id);
-			return -ENODEV;
-		}
-
 		D("%s: Received STATUS command for ch%d\n", __func__, id);
 		if (logical_ch[id].remote_status != mux_hdr->status) {
 			mutex_lock(&logical_ch[id].lc_lock);
@@ -710,6 +689,7 @@ static void sdio_cmux_fn(struct work_struct *work)
 			while (!(abort_tx) &&
 				((r = sdio_write(sdio_qmi_chl,
 						write_data, write_size)) < 0)
+				&& (r != -ENODEV)
 				&& (write_retry++ < MAX_WRITE_RETRY)) {
 				mutex_unlock(&modem_reset_lock);
 				pr_err("%s: sdio_write failed with rc %d."
@@ -721,6 +701,11 @@ static void sdio_cmux_fn(struct work_struct *work)
 				D("%s: sdio_write_completed %dbytes\n",
 				  __func__, write_size);
 				bytes_written += write_size;
+			} else if (r == -ENODEV) {
+				pr_err("%s: aborting_tx because sdio_write"
+				       " returned %d\n", __func__, r);
+				r = 0;
+				abort_tx = 1;
 			}
 			mutex_unlock(&modem_reset_lock);
 			kfree(list_elem->cmux_pkt.hdr);

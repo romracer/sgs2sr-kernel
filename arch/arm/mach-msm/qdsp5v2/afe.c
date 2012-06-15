@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 #include <linux/module.h>
 #include <linux/wait.h>
@@ -123,6 +118,28 @@ void afe_loopback(int enable)
 	afe_send_queue(afe, &cmd, sizeof(cmd));
 }
 EXPORT_SYMBOL(afe_loopback);
+
+void afe_ext_loopback(int enable, int rx_copp_id, int tx_copp_id)
+{
+	struct afe_cmd_ext_loopback cmd;
+	struct msm_afe_state *afe;
+
+	afe = &the_afe_state;
+	MM_DBG("enable %d\n", enable);
+	if ((rx_copp_id == 0) && (tx_copp_id == 0)) {
+		afe_loopback(enable);
+	} else {
+		memset(&cmd, 0, sizeof(cmd));
+		cmd.cmd_id = AFE_CMD_EXT_LOOPBACK;
+		cmd.source_id = tx_copp_id;
+		cmd.dst_id = rx_copp_id;
+		if (enable)
+			cmd.enable_flag = AFE_LOOPBACK_ENABLE_COMMAND;
+
+		afe_send_queue(afe, &cmd, sizeof(cmd));
+	}
+}
+EXPORT_SYMBOL(afe_ext_loopback);
 
 void afe_device_volume_ctrl(u16 device_id, u16 device_volume)
 {
@@ -491,7 +508,7 @@ static int __init afe_init(void)
 
 #ifdef CONFIG_DEBUG_FS
 	debugfs_afelb = debugfs_create_file("afe_loopback",
-	S_IFREG | S_IWUSR |S_IWGRP, NULL, (void *) "afe_loopback",
+	S_IFREG | S_IWUGO, NULL, (void *) "afe_loopback",
 	&afe_debug_fops);
 #endif
 

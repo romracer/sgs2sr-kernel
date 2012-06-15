@@ -629,6 +629,9 @@ int msm_rpcrouter_destroy_local_endpoint(struct msm_rpc_endpoint *ept)
 	/* Endpoint with dst_pid = 0xffffffff corresponds to that of
 	** router port. So don't send a REMOVE CLIENT message while
 	** destroying it.*/
+	spin_lock_irqsave(&local_endpoints_lock, flags);
+	list_del(&ept->list);
+	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 	if (ept->dst_pid != 0xffffffff) {
 		msg.cmd = RPCROUTER_CTRL_CMD_REMOVE_CLIENT;
 		msg.cli.pid = ept->pid;
@@ -660,9 +663,6 @@ int msm_rpcrouter_destroy_local_endpoint(struct msm_rpc_endpoint *ept)
 
 	wake_lock_destroy(&ept->read_q_wake_lock);
 	wake_lock_destroy(&ept->reply_q_wake_lock);
-	spin_lock_irqsave(&local_endpoints_lock, flags);
-	list_del(&ept->list);
-	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 	kfree(ept);
 	return 0;
 }
@@ -692,16 +692,11 @@ static int rpcrouter_create_remote_endpoint(uint32_t pid, uint32_t cid)
 static struct msm_rpc_endpoint *rpcrouter_lookup_local_endpoint(uint32_t cid)
 {
 	struct msm_rpc_endpoint *ept;
-	unsigned long flags;
 
-	spin_lock_irqsave(&local_endpoints_lock, flags);
 	list_for_each_entry(ept, &local_endpoints, list) {
-		if (ept->cid == cid) {
-			spin_unlock_irqrestore(&local_endpoints_lock, flags);
+		if (ept->cid == cid)
 			return ept;
-		}
 	}
-	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 	return NULL;
 }
 
@@ -833,11 +828,6 @@ static int process_control_msg(struct rpcrouter_xprt_info *xprt_info,
 			"rpcrouter: Server create rejected, version = 0, "
 			"program = %08x\n", msg->srv.prog);
 			break;
-		}
-
-		if(msg->srv.prog == 0x300000A7 && msg->srv.vers == 0x00010001)
-		{
-			printk(KERN_ERR"rpcrouter:Client 0x300000A7\n");
 		}
 
 		RR("o NEW_SERVER id=%d:%08x prog=%08x:%08x\n",
@@ -1127,8 +1117,10 @@ static void do_read_data(struct work_struct *work)
 	}
 #endif
 
+	spin_lock_irqsave(&local_endpoints_lock, flags);
 	ept = rpcrouter_lookup_local_endpoint(hdr.dst_cid);
 	if (!ept) {
+		spin_unlock_irqrestore(&local_endpoints_lock, flags);
 		DIAG("no local ept for cid %08x\n", hdr.dst_cid);
 		kfree(frag);
 		goto done;
@@ -1138,7 +1130,7 @@ static void do_read_data(struct work_struct *work)
 	 * and if so, append this fragment to that packet.
 	 */
 	mid = PACMARK_MID(pm);
-	spin_lock_irqsave(&ept->incomplete_lock, flags);
+	spin_lock(&ept->incomplete_lock);
 	list_for_each_entry(pkt, &ept->incomplete, list) {
 		if (pkt->mid == mid) {
 			pkt->last->next = frag;
@@ -1146,15 +1138,16 @@ static void do_read_data(struct work_struct *work)
 			pkt->length += frag->length;
 			if (PACMARK_LAST(pm)) {
 				list_del(&pkt->list);
-				spin_unlock_irqrestore(&ept->incomplete_lock,
-						       flags);
+				spin_unlock(&ept->incomplete_lock);
 				goto packet_complete;
 			}
-			spin_unlock_irqrestore(&ept->incomplete_lock, flags);
+			spin_unlock(&ept->incomplete_lock);
+			spin_unlock_irqrestore(&local_endpoints_lock, flags);
 			goto done;
 		}
 	}
-	spin_unlock_irqrestore(&ept->incomplete_lock, flags);
+	spin_unlock(&ept->incomplete_lock);
+	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 	/* This mid is new -- create a packet for it, and put it on
 	 * the incomplete list if this fragment is not a last fragment,
 	 * otherwise put it on the read queue.
@@ -1165,18 +1158,32 @@ static void do_read_data(struct work_struct *work)
 	memcpy(&pkt->hdr, &hdr, sizeof(hdr));
 	pkt->mid = mid;
 	pkt->length = frag->length;
+
+	spin_lock_irqsave(&local_endpoints_lock, flags);
+	ept = rpcrouter_lookup_local_endpoint(hdr.dst_cid);
+	if (!ept) {
+		spin_unlock_irqrestore(&local_endpoints_lock, flags);
+		DIAG("no local ept for cid %08x\n", hdr.dst_cid);
+		kfree(frag);
+		kfree(pkt);
+		goto done;
+	}
 	if (!PACMARK_LAST(pm)) {
+		spin_lock(&ept->incomplete_lock);
 		list_add_tail(&pkt->list, &ept->incomplete);
+		spin_unlock(&ept->incomplete_lock);
+		spin_unlock_irqrestore(&local_endpoints_lock, flags);
 		goto done;
 	}
 
 packet_complete:
-	spin_lock_irqsave(&ept->read_q_lock, flags);
+	spin_lock(&ept->read_q_lock);
 	D("%s: take read lock on ept %p\n", __func__, ept);
 	wake_lock(&ept->read_q_wake_lock);
 	list_add_tail(&pkt->list, &ept->read_q);
 	wake_up(&ept->wait_q);
-	spin_unlock_irqrestore(&ept->read_q_lock, flags);
+	spin_unlock(&ept->read_q_lock);
+	spin_unlock_irqrestore(&local_endpoints_lock, flags);
 done:
 
 	if (hdr.confirm_rx) {
@@ -2043,11 +2050,6 @@ int msm_rpc_register_server(struct msm_rpc_endpoint *ept,
 	struct rr_server *server;
 	struct rpcrouter_xprt_info *xprt_info;
 
-	if(prog == 0x300000A7 && vers == 0x00010001)
-	{
-		printk(KERN_ERR"msm_rpc_register_server1: 0x300000A7\n");
-	}
-
 	server = rpcrouter_create_server(ept->pid, ept->cid,
 					 prog, vers);
 	if (!server)
@@ -2067,20 +2069,10 @@ int msm_rpc_register_server(struct msm_rpc_endpoint *ept,
 		rc = rpcrouter_send_control_msg(xprt_info, &msg);
 		if (rc < 0) {
 			mutex_unlock(&xprt_info_list_lock);
-			if(prog == 0x300000A7 && vers == 0x00010001)
-			{
-				printk(KERN_ERR"msm_rpc_register_server2: 0x300000A7\n");
-			}
 			return rc;
 		}
 	}
 	mutex_unlock(&xprt_info_list_lock);
-	
-	if(prog == 0x300000A7 && vers == 0x00010001)
-	{
-		printk(KERN_ERR"msm_rpc_register_server3: 0x300000A7\n");
-	}
-	
 	return 0;
 }
 
@@ -2134,17 +2126,27 @@ int msm_rpc_get_curr_pkt_size(struct msm_rpc_endpoint *ept)
 
 int msm_rpcrouter_close(void)
 {
-	struct rpcrouter_xprt_info *xprt_info, *tmp_xprt_info;
+	struct rpcrouter_xprt_info *xprt_info;
 	union rr_control_msg ctl;
 
 	ctl.cmd = RPCROUTER_CTRL_CMD_BYE;
 	mutex_lock(&xprt_info_list_lock);
-	list_for_each_entry_safe(xprt_info, tmp_xprt_info,
-				 &xprt_info_list, list) {
+	while (!list_empty(&xprt_info_list)) {
+		xprt_info = list_first_entry(&xprt_info_list,
+					struct rpcrouter_xprt_info, list);
+		xprt_info->abort_data_read = 1;
+		wake_up(&xprt_info->read_wait);
 		rpcrouter_send_control_msg(xprt_info, &ctl);
 		xprt_info->xprt->close();
 		list_del(&xprt_info->list);
+		mutex_unlock(&xprt_info_list_lock);
+
+		flush_workqueue(xprt_info->workqueue);
+		destroy_workqueue(xprt_info->workqueue);
+		wake_lock_destroy(&xprt_info->wakelock);
 		kfree(xprt_info);
+
+		mutex_lock(&xprt_info_list_lock);
 	}
 	mutex_unlock(&xprt_info_list_lock);
 	return 0;

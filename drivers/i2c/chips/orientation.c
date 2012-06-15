@@ -23,6 +23,7 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
+#include <linux/input/mt.h>
 
 #define SENSOR_NAME "orientation_sensor"
 #define SENSOR_DEFAULT_DELAY            (200)
@@ -136,10 +137,16 @@ orientation_data_show(struct device *dev,
 	int x, y, z;
 
 	spin_lock_irqsave(&input_data->event_lock, flags);
-
+	
+#if (EV_VERSION > 0x010000)
+	x = input_data->mt->abs[REL_X];	
+	y = input_data->mt->abs[REL_Y];
+	z = input_data->mt->abs[REL_Z];
+#else
 	x = input_data->abs[REL_X];
 	y = input_data->abs[REL_Y];
 	z = input_data->abs[REL_Z];
+#endif	
 
 	spin_unlock_irqrestore(&input_data->event_lock, flags);
 
@@ -156,7 +163,11 @@ orientation_status_show(struct device *dev,
 
 	spin_lock_irqsave(&input_data->event_lock, flags);
 
+#if (EV_VERSION > 0x010000)
+	status = input_data->mt->abs[REL_STATUS];
+#else
 	status = input_data->abs[REL_STATUS];
+#endif
 
 	spin_unlock_irqrestore(&input_data->event_lock, flags);
 

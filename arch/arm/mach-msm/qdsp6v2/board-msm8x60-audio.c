@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,11 +22,8 @@
 #include <linux/delay.h>
 #include <linux/debugfs.h>
 #include <linux/mfd/pmic8058.h>
-#include <linux/pmic8058-othc.h>
 #include <linux/mfd/pmic8901.h>
 #include <linux/mfd/msm-adie-codec.h>
-#include <linux/regulator/pmic8058-regulator.h>
-#include <linux/regulator/pmic8901-regulator.h>
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/machine.h>
 #ifdef CONFIG_SENSORS_YDA165
@@ -34,11 +31,15 @@
 #endif
 
 #include <mach/qdsp6v2/audio_dev_ctl.h>
-#include <mach/qdsp6v2/apr_audio.h>
-#include <mach/mpp.h>
+#include <sound/apr_audio.h>
 #include <asm/mach-types.h>
 #include <asm/uaccess.h>
 
+#include <mach/board-msm8660.h>
+
+#if defined(CONFIG_JPN_MODEL_SC_03D) 
+#include <linux/kthread.h>
+#endif
 #include "snddev_icodec.h"
 #include "snddev_ecodec.h"
 
@@ -49,7 +50,9 @@
 #ifdef SEC_AUDIO_DEVICE // don't remove this feature
 #if defined(CONFIG_USA_MODEL_SGH_T989 )
 #include "timpani_profile_celox_tmo.h"
-#elif ( defined(CONFIG_USA_MODEL_SGH_I727) || (CONFIG_USA_MODEL_SGH_I717))
+#elif defined(CONFIG_EUR_MODEL_GT_I9210)
+#include "timpani_profile_celox_eur.h"
+#elif ( defined(CONFIG_USA_MODEL_SGH_I727) || defined(CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_I757)) 
 #include "timpani_profile_celox_att.h"
 #elif defined(CONFIG_JPN_MODEL_SC_03D)
 #include "timpani_profile_celox_jpn_ntt.h"
@@ -61,6 +64,18 @@
 #include "timpani_profile_dali_lgt.h"
 #elif defined(CONFIG_KOR_MODEL_SHV_E160S)  //QUINCY-SKT
 #include "timpani_profile_quincy_skt.h"
+#elif defined(CONFIG_KOR_MODEL_SHV_E160K)  //QUINCY-KT
+#include "timpani_profile_quincy_kt.h"
+#elif defined(CONFIG_KOR_MODEL_SHV_E160L)  //QUINCY-LGT
+#include "timpani_profile_quincy_lgt.h"
+#elif defined(CONFIG_USA_MODEL_SGH_I957)  //P5LTE-ATT
+#include "timpani_profile_p5lte_att.h"
+#elif defined(CONFIG_KOR_MODEL_SHV_E140S)  //P5LTE-SKT
+#include "timpani_profile_p5lte_skt.h"
+#elif defined(CONFIG_KOR_MODEL_SHV_E140K)  //P5LTE-KT
+#include "timpani_profile_p5lte_kt.h"
+#elif defined(CONFIG_KOR_MODEL_SHV_E140L)  //P5LTE-LGU
+#include "timpani_profile_p5lte_lgt.h"
 #else
 #include "timpani_profile_celox_kor.h"
 #endif
@@ -77,14 +92,20 @@
 #include <linux/a2220.h>
 #endif
 
+#ifdef CONFIG_VP_A2220
+#define AUDIO_FREQUENCY 16000
+#else
+#define AUDIO_FREQUENCY 48000
+#define GPIO_SELECT_I2S_AUDIENCE_QTR 124 
+#endif
+
 #ifdef CONFIG_DEBUG_FS
 static struct dentry *debugfs_hsed_config;
 static void snddev_hsed_config_modify_setting(int type);
 static void snddev_hsed_config_restore_setting(void);
 #endif
 
-#if defined (CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_JPN_MODEL_SC_03D) || defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
-
+#if 1// defined (CONFIG_TARGET_LOCALE_KOR)
 extern unsigned int get_hw_rev(void);
 #endif
 
@@ -96,8 +117,41 @@ extern unsigned int get_hw_rev(void);
 
 #define SNDDEV_GPIO_MIC2_ANCR_SEL 294
 #define SNDDEV_GPIO_MIC1_ANCL_SEL 295
-#if defined(CONFIG_USA_MODEL_SGH_T989)
+#if defined(CONFIG_USA_MODEL_SGH_T989) || defined (CONFIG_USA_MODEL_SGH_T769)
 #define SNDDEV_GPIO_VPS_AMP_EN 142
+#endif
+
+#define SNDDEV_GPIO_HS_MIC4_SEL 296
+
+#define DSP_RAM_BASE_8x60 0x46700000
+#define DSP_RAM_SIZE_8x60 0x2000000
+static int dspcrashd_pdata_8x60 = 0xDEADDEAD;
+
+static struct resource resources_dspcrashd_8x60[] = {
+	{
+		.name   = "msm_dspcrashd",
+		.start  = DSP_RAM_BASE_8x60,
+		.end    = DSP_RAM_BASE_8x60 + DSP_RAM_SIZE_8x60,
+		.flags  = IORESOURCE_DMA,
+	},
+};
+
+struct platform_device msm_device_dspcrashd_8x60 = {
+	.name           = "msm_dspcrashd",
+	.num_resources  = ARRAY_SIZE(resources_dspcrashd_8x60),
+	.resource       = resources_dspcrashd_8x60,
+	.dev = { .platform_data = &dspcrashd_pdata_8x60 },
+};
+
+#ifdef CONFIG_USA_MODEL_SGH_I717
+#define PMIC_GPIO_MAIN_MICBIAS_EN      PM8058_GPIO(25)
+#define PMIC_GPIO_SUB_MICBIAS_EN       PM8058_GPIO(26)
+#endif
+
+#if defined (CONFIG_Q1_KOR_AUDIO)
+#define pr_err printk
+#define pr_info printk
+#define pr_dbg printk
 #endif
 
 static struct resource msm_cdcclk_ctl_resources[] = {
@@ -220,26 +274,6 @@ static struct platform_device msm_icodec_gpio_device = {
 	.dev = { .platform_data = &msm_icodec_gpio_defaults },
 };
 
-static int msm_qt_icodec_gpio_defaults[] = {
-	0,
-};
-
-static struct resource msm_qt_icodec_gpio_resources[] = {
-	{
-		.name   = "msm_icodec_speaker_gpio",
-		.start  = SNDDEV_GPIO_CLASS_D0_EN,
-		.end    = SNDDEV_GPIO_CLASS_D0_EN,
-		.flags  = IORESOURCE_IO,
-	},
-};
-
-static struct platform_device msm_qt_icodec_gpio_device = {
-	.name   = "msm_icodec_gpio",
-	.num_resources  = ARRAY_SIZE(msm_qt_icodec_gpio_resources),
-	.resource       = msm_qt_icodec_gpio_resources,
-	.dev = { .platform_data = &msm_qt_icodec_gpio_defaults },
-};
-
 static struct regulator *s3;
 static struct regulator *mvs;
 
@@ -318,9 +352,15 @@ void msm_snddev_audience_call_route_speaker_config(void)
 		return 0;
 #endif 
 
+#ifdef CONFIG_EUR_MODEL_GT_I9210
+	a2220_ioctl2(A2220_SET_CONFIG , A2220_PATH_SUSPEND);	
+	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 1); //switch  to I2S QTR
+	pr_debug("[AUD] Audience bypass \n");
+#else
 	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 0); //switch  to I2S audience
 	a2220_ioctl2(A2220_SET_CONFIG , A2220_PATH_INCALL_SPEAKER);	
 	pr_debug("[AUD] AUD Path \n");
+#endif
 
 	return;
 }
@@ -410,78 +450,22 @@ static void msm_snddev_disable_dmic_power(void)
 	}
 }
 
-static struct regulator *l11;
-
-static int msm_snddev_enable_qt_dmic_power(void)
-{
-	int ret;
-
-	l11 = regulator_get(NULL, "8058_l11");
-	if (IS_ERR(l11))
-		return -EBUSY;
-
-	ret = regulator_set_voltage(l11, 1500000, 1500000);
-	if (ret) {
-		pr_err("%s: error setting regulator\n", __func__);
-		goto fail_l11;
-	}
-	ret = regulator_enable(l11);
-	if (ret) {
-		pr_err("%s: error enabling regulator\n", __func__);
-		goto fail_l11;
-	}
-	return 0;
-
-fail_l11:
-	regulator_put(l11);
-	l11 = NULL;
-	return ret;
-}
-
-
-static void msm_snddev_disable_qt_dmic_power(void)
-{
-	int ret;
-
-	if (l11) {
-		ret = regulator_disable(l11);
-		if (ret < 0)
-			pr_err("%s: error disabling regulator l11\n", __func__);
-		regulator_put(l11);
-		l11 = NULL;
-	}
-}
-
 #define PM8901_MPP_3 (2) /* PM8901 MPP starts from 0 */
 
 #ifndef CONFIG_SENSORS_YDA165
-static int config_class_d1_gpio(int enable)
-{
-	int rc;
-
-	if (enable) {
-		rc = gpio_request(SNDDEV_GPIO_CLASS_D1_EN, "CLASSD1_EN");
-		if (rc) {
-			pr_err("%s: spkr pamp gpio %d request"
-					"failed\n", __func__, SNDDEV_GPIO_CLASS_D1_EN);
-			return rc;
-		}
-		gpio_direction_output(SNDDEV_GPIO_CLASS_D1_EN, 1);
-	} else {
-		gpio_set_value_cansleep(SNDDEV_GPIO_CLASS_D1_EN, 0);
-		gpio_free(SNDDEV_GPIO_CLASS_D1_EN);
-	}
-	return 0;
-}
-
 static int config_class_d0_gpio(int enable)
 {
 	int rc;
 
-	if (enable) {
-		rc = pm8901_mpp_config_digital_out(PM8901_MPP_3,
-				PM8901_MPP_DIG_LEVEL_MSMIO, 1);
+	struct pm8xxx_mpp_config_data class_d0_mpp = {
+		.type		= PM8XXX_MPP_TYPE_D_OUTPUT,
+		.level		= PM8901_MPP_DIG_LEVEL_MSMIO,
+	};
 
+	if (enable) {
+		class_d0_mpp.control = PM8XXX_MPP_DOUT_CTRL_HIGH;
+		rc = pm8xxx_mpp_config(PM8901_MPP_PM_TO_SYS(PM8901_MPP_3),
+							&class_d0_mpp);
 		if (rc) {
 			pr_err("%s: CLASS_D0_EN failed\n", __func__);
 			return rc;
@@ -492,23 +476,48 @@ static int config_class_d0_gpio(int enable)
 		if (rc) {
 			pr_err("%s: spkr pamp gpio pm8901 mpp3 request"
 					"failed\n", __func__);
-			pm8901_mpp_config_digital_out(PM8901_MPP_3,
-					PM8901_MPP_DIG_LEVEL_MSMIO, 0);
+			class_d0_mpp.control = PM8XXX_MPP_DOUT_CTRL_LOW;
+			pm8xxx_mpp_config(PM8901_MPP_PM_TO_SYS(PM8901_MPP_3),
+						&class_d0_mpp);
 			return rc;
 		}
 
 		gpio_direction_output(SNDDEV_GPIO_CLASS_D0_EN, 1);
-		gpio_set_value(SNDDEV_GPIO_CLASS_D0_EN, 1);
+		gpio_set_value_cansleep(SNDDEV_GPIO_CLASS_D0_EN, 1);
 
 	} else {
-		pm8901_mpp_config_digital_out(PM8901_MPP_3,
-				PM8901_MPP_DIG_LEVEL_MSMIO, 0);
-		gpio_set_value(SNDDEV_GPIO_CLASS_D0_EN, 0);
+		class_d0_mpp.control = PM8XXX_MPP_DOUT_CTRL_LOW;
+		pm8xxx_mpp_config(PM8901_MPP_PM_TO_SYS(PM8901_MPP_3),
+						&class_d0_mpp);
+		gpio_set_value_cansleep(SNDDEV_GPIO_CLASS_D0_EN, 0);
 		gpio_free(SNDDEV_GPIO_CLASS_D0_EN);
 	}
 	return 0;
 }
 #endif
+
+static int config_class_d1_gpio(int enable)
+{
+	int rc;
+
+	if (enable) {
+		rc = gpio_request(SNDDEV_GPIO_CLASS_D1_EN, "CLASSD1_EN");
+
+		if (rc) {
+			pr_err("%s: Right Channel spkr gpio request"
+				" failed\n", __func__);
+			return rc;
+		}
+
+		gpio_direction_output(SNDDEV_GPIO_CLASS_D1_EN, 1);
+		gpio_set_value_cansleep(SNDDEV_GPIO_CLASS_D1_EN, 1);
+
+	} else {
+		gpio_set_value_cansleep(SNDDEV_GPIO_CLASS_D1_EN, 0);
+		gpio_free(SNDDEV_GPIO_CLASS_D1_EN);
+	}
+	return 0;
+}
 
 static atomic_t pamp_ref_cnt;
 
@@ -578,13 +587,15 @@ static int msm_snddev_audience_speaker_off(void)
 }
 #endif
 
-#if defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_USA_MODEL_SGH_I727) // temp block for build error || defined (CONFIG_USA_MODEL_SGH_I717)
 static int msm_snddev_poweramp_handset_on(void)
 {
 	pr_info("%s: enable handset amp\n", __func__);
-	a2220_ioctl2(A2220_SET_CONFIG , A2220_PATH_SUSPEND);	
+#ifdef CONFIG_VP_A2220
+	a2220_ioctl2(A2220_SET_CONFIG, A2220_PATH_SUSPEND);	
 	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 1); //switch  to I2S QTR
 	pr_debug("[AUD] QTR Path \n");
+#endif
 
 	return 0;
 }
@@ -607,7 +618,6 @@ static int msm_snddev_poweramp_on(void)
 		return 0;
 
 	pr_debug("%s: enable stereo spkr amp\n", __func__);
-
 #ifdef CONFIG_SENSORS_YDA165
 	yda165_speaker_onoff(1);
 	return 0;
@@ -646,7 +656,21 @@ static void msm_snddev_poweramp_off(void)
 	}
 }
 
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined(CONFIG_JPN_MODEL_SC_03D) 
+static struct task_struct *task;
+static int yda_on_thread(void *data)
+{
+	msleep(100);
+	// For SC_03D There is no separate yda gain table for SPK_CALL, 
+	// so use normal speaker on_off
+	yda165_speaker_onoff(1);
+	return 0;
+}
+#endif
+
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_I757)\
+	|| defined (CONFIG_KOR_MODEL_SHV_E120S)  || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_USA_MODEL_SGH_T769) \
+	|| defined (CONFIG_JPN_MODEL_SC_03D)
 static int msm_snddev_poweramp_on_call(void)
 {
 #ifndef CONFIG_SENSORS_YDA165
@@ -661,7 +685,15 @@ static int msm_snddev_poweramp_on_call(void)
 	pr_debug("%s: enable stereo spkr amp\n", __func__);
 
 #ifdef CONFIG_SENSORS_YDA165
+#if defined(CONFIG_JPN_MODEL_SC_03D)
+	pr_err("%s: separate thread for yda165_speaker_call_onoff\n", __func__);
+	task = kthread_run(yda_on_thread, NULL, "yda_on_delay_thread");
+	if (IS_ERR(task)) {
+		task = NULL;
+	}
+#else
 	yda165_speaker_call_onoff(1);
+#endif
 	return 0;
 #else
 	rc = config_class_d0_gpio(1);
@@ -688,7 +720,13 @@ static void msm_snddev_poweramp_off_call(void)
 	if (atomic_dec_return(&pamp_ref_cnt) == 0) {
 		pr_debug("%s: disable stereo spkr amp\n", __func__);
 #ifdef CONFIG_SENSORS_YDA165
+#if defined (CONFIG_JPN_MODEL_SC_03D)
+		// For SC_03D There is no separate yda gain table for SPK_CALL, 
+		// so use normal speaker on_off
+		yda165_speaker_onoff(0);
+#else
 		yda165_speaker_call_onoff(0);
+#endif
 #else
 		config_class_d0_gpio(0);
 		if (!machine_is_msm8x60_qt())
@@ -709,9 +747,15 @@ void msm_snddev_audience_call_route_headset_config(void)
 		return 0;
 #endif 
 
+#if defined(CONFIG_EUR_MODEL_GT_I9210)
+	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 1); //switch  to I2S audience
+	a2220_ioctl2(A2220_SET_CONFIG , A2220_PATH_SUSPEND);	
+	pr_debug("[AUD] QTR Path \n");
+#else
 	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 0); //switch  to I2S audience
 	a2220_ioctl2(A2220_SET_CONFIG , A2220_PATH_INCALL_HEADSET);	
 	pr_debug("[AUD] AUD Path \n");
+#endif
 
 	return;
 }
@@ -763,7 +807,7 @@ void  msm_snddev_audience_poweramp_off_headset(void)
 }
 #endif
 
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_I757) || defined (CONFIG_USA_MODEL_SGH_T769)
 int msm_snddev_poweramp_on_headset_call(void)
 {
 #ifdef CONFIG_SENSORS_YDA165
@@ -795,6 +839,23 @@ void msm_snddev_poweramp_off_headset(void)
 	pr_info("%s: power on headset\n", __func__);
 }
 
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L)
+int msm_snddev_poweramp_on_call_headset(void)
+{
+#ifdef CONFIG_SENSORS_YDA165
+	yda165_headset_call_onoff(1);
+#endif
+	return 0;
+}
+void msm_snddev_poweramp_off_call_headset(void)
+{
+#ifdef CONFIG_SENSORS_YDA165
+	yda165_headset_call_onoff(0);
+#endif
+	pr_info("%s: power on headset\n", __func__);
+}
+#endif
+
 #if defined(CONFIG_USA_MODEL_SGH_T989)
 int msm_snddev_vpsamp_on_headset(void)
 {
@@ -802,7 +863,7 @@ int msm_snddev_vpsamp_on_headset(void)
 
 	if(get_hw_rev() >= 0x0D)
 	{
-		// remove the pop noise when the path is changed the external speaker of dock
+		// remove the pop noise (device -> external speaker of dock)
 		msleep(50);	
 		gpio_tlmm_config(GPIO_CFG(SNDDEV_GPIO_VPS_AMP_EN,0,GPIO_CFG_OUTPUT,GPIO_CFG_NO_PULL,GPIO_CFG_8MA),GPIO_CFG_ENABLE); 
 		gpio_set_value(SNDDEV_GPIO_VPS_AMP_EN, 1);				
@@ -852,6 +913,30 @@ void msm_snddev_poweramp_off_together(void)
 	pr_info("%s: power off amplifier\n", __func__);
 }
 
+#ifdef CONFIG_EUR_MODEL_GT_I9210
+int msm_snddev_poweramp_on_lineout_I9210(void)
+{
+#if defined(CONFIG_VP_A2220)
+	a2220_ioctl2(A2220_SET_CONFIG , A2220_PATH_SUSPEND);	
+	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 1); //switch  to I2S QTR
+	pr_debug("[AUD] QTR Path \n");
+#endif
+
+#ifdef CONFIG_SENSORS_YDA165
+	yda165_lineout_onoff(1);
+#endif
+	return 0;
+}
+
+int msm_snddev_poweramp_off_lineout_I9210(void)
+{
+#ifdef CONFIG_SENSORS_YDA165
+	yda165_lineout_onoff(0);
+#endif
+	return 0;
+}
+#endif
+
 #if defined (CONFIG_TARGET_LOCALE_KOR)
 static struct regulator *snddev_reg_l1;
 
@@ -866,7 +951,7 @@ int msm_snddev_poweramp_on_lineout(void)
 	if(get_hw_rev()>=0x8)
 #elif defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
 	if(get_hw_rev()>= 0x6)
-#elif defined (CONFIG_KOR_MODEL_SHV_E120L)
+#elif defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_KOR_MODEL_SHV_E160L)
 	if(get_hw_rev()>=0x3) 
 #endif
     {
@@ -888,7 +973,11 @@ int msm_snddev_poweramp_on_lineout(void)
     }
 
 #ifdef CONFIG_SENSORS_YDA165
+#if defined (CONFIG_KOR_MODEL_SHV_E120S)  || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L)
+	yda165_lineout_onoff(1);
+#else
 	yda165_headset_onoff(1);
+#endif
 #endif
 	return 0;
 
@@ -901,7 +990,7 @@ void msm_snddev_poweramp_off_lineout(void)
 	if(get_hw_rev()>=0x8)
 #elif defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
 	if(get_hw_rev()>= 0x6)
-#elif defined (CONFIG_KOR_MODEL_SHV_E120L)
+#elif defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_KOR_MODEL_SHV_E160L)
 	if(get_hw_rev()>=0x3) 
 #endif
     {
@@ -916,7 +1005,11 @@ void msm_snddev_poweramp_off_lineout(void)
     }
 
 #ifdef CONFIG_SENSORS_YDA165
+#if defined (CONFIG_KOR_MODEL_SHV_E120S)  || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L)
+	yda165_lineout_onoff(0);
+#else
 	yda165_headset_onoff(0);
+#endif
 #endif
 
 	pr_info("%s: power on headset\n", __func__);
@@ -936,19 +1029,21 @@ static int msm_snddev_voltage_on(void)
 
 	if (atomic_inc_return(&preg_ref_cnt) > 1)
 		return 0;
+
 #if defined (CONFIG_USA_MODEL_SGH_T989)
 	if(get_hw_rev()>=0x9) //Rev0.3, Rev0.3A
 #elif defined (CONFIG_KOR_MODEL_SHV_E110S)
 	if(get_hw_rev()>=0x5) //celox_REV05
 #elif defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
 	if(get_hw_rev()>=0x6) //dali_skt_REV03
-#elif defined (CONFIG_KOR_MODEL_SHV_E120L)
+#elif defined (CONFIG_KOR_MODEL_SHV_E120L)||defined (CONFIG_KOR_MODEL_SHV_E160L)
 	if(get_hw_rev()>=0x2) //dali_lgt_rev02
 #elif defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
 	if(get_hw_rev()>=0x0) //Celox_ATT
 #elif defined (CONFIG_JPN_MODEL_SC_03D)
 	if(get_hw_rev()>= 0x3) // not yet
 #endif
+	// Always at ( CONFIG_KOR_MODEL_SHV_E160S, CONFIG_KOR_MODEL_SHV_E160K, CONFIG_USA_MODEL_SGH_I727, CONFIG_USA_MODEL_SGH_I717 )
 	{
 		/* PMIC8058 L10 Setting (L10 must be set the default voltage 2.6V because L10 is internally used for NCP level shifter supply) */
 		snddev_reg_l10 = regulator_get(NULL, "8058_l10");
@@ -1032,6 +1127,26 @@ static void msm_snddev_voltage_off(void)
 }
 
 #ifdef CONFIG_VP_A2220
+#if defined(CONFIG_EUR_MODEL_GT_I9210)
+static int msm_snddev_setting_audience_loopback_on(void)
+{
+	pr_info("%s()\n", __func__);
+	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 1);
+	a2220_ioctl2(A2220_SET_CONFIG, A2220_PATH_SUSPEND);
+
+	return;
+}
+
+static int msm_snddev_setting_audience_loopback_off(void)
+{
+	pr_info("%s()\n", __func__);
+	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 1);
+	a2220_ioctl2(A2220_SET_CONFIG, A2220_PATH_SUSPEND);
+
+	return;
+}
+#endif
+
 static int msm_snddev_setting_audience_call_connect(void)
 {
 #if defined(CONFIG_USA_MODEL_SGH_T989) && defined(AUDIENCE_SUSPEND)
@@ -1153,39 +1268,22 @@ static int msm_snddev_enable_amic_power(void)
 			return ret;
 		}
 		gpio_direction_output(SNDDEV_GPIO_MIC2_ANCR_SEL, 0);
-
+#if 0 //rohbt_ics
+		ret = gpio_request(SNDDEV_GPIO_MIC1_ANCL_SEL, "MIC1_ANCL_SEL");
+		if (ret) {
+			pr_err("%s: mic1 ancl gpio %d request failed\n",
+				__func__, SNDDEV_GPIO_MIC1_ANCL_SEL);
+			gpio_free(SNDDEV_GPIO_MIC2_ANCR_SEL);
+			return ret;
+		}
+		gpio_direction_output(SNDDEV_GPIO_MIC1_ANCL_SEL, 0);
+#endif
 	} else {
 		ret = pm8058_micbias_enable(OTHC_MICBIAS_0,
 				OTHC_SIGNAL_ALWAYS_ON);
 		if (ret)
 			pr_err("%s: Enabling amic power failed\n", __func__);
 	}
-
-#ifdef CONFIG_VP_A2220
-	if (machine_is_msm8x60_fluid()) {
-		printk("1.A2220::enable sub_mic on\n");
-		ret = pm8058_micbias_enable(OTHC_MICBIAS_2,
-				OTHC_SIGNAL_ALWAYS_ON);
-		if (ret)
-			pr_err("%s: Enabling sub_mic power failed\n", __func__);
-		/*
-		   ret = gpio_request(SNDDEV_GPIO_MIC2_ANCR_SEL, "MIC2_ANCR_SEL");
-		   if (ret) {
-		   pr_err("%s: spkr pamp gpio %d request failed\n",
-		   __func__, SNDDEV_GPIO_MIC2_ANCR_SEL);
-		   return ret;
-		   }
-		   gpio_direction_output(SNDDEV_GPIO_MIC2_ANCR_SEL, 0);
-		 */
-	} else {
-		printk("2.A2220::enable sub_mic on\n");		
-		ret = pm8058_micbias_enable(OTHC_MICBIAS_2,
-				OTHC_SIGNAL_ALWAYS_ON);
-		if (ret)
-			pr_err("%s: Enabling sub_mic power failed\n", __func__);
-	}
-
-#endif	
 #endif
 	return ret;
 }
@@ -1211,10 +1309,22 @@ static int msm_snddev_enable_voip_amic_power(void)
 		gpio_direction_output(SNDDEV_GPIO_MIC2_ANCR_SEL, 0);
 
 	} else {
+#if defined(CONFIG_USA_MODEL_SGH_I717)
+		if( get_hw_rev() >= 0x3 ){
+			gpio_direction_output(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_MAIN_MICBIAS_EN), 1);
+		}
+		else{
+			ret = pm8058_micbias_enable(OTHC_MICBIAS_0,
+					OTHC_SIGNAL_ALWAYS_ON);
+			if (ret)
+				pr_err("%s: Enabling amic power failed\n", __func__);
+		}
+#else
 		ret = pm8058_micbias_enable(OTHC_MICBIAS_0,
 				OTHC_SIGNAL_ALWAYS_ON);
 		if (ret)
 			pr_err("%s: Enabling amic power failed\n", __func__);
+#endif
 	}
 
 #endif
@@ -1231,9 +1341,46 @@ static void msm_snddev_disable_amic_power(void)
 		gpio_free(SNDDEV_GPIO_MIC1_ANCL_SEL);
 		gpio_free(SNDDEV_GPIO_MIC2_ANCR_SEL);
 	} else
-		ret = pm8058_micbias_enable(OTHC_MICBIAS_0, OTHC_SIGNAL_OFF);
-
+#if defined(CONFIG_USA_MODEL_SGH_I717)
+		if( get_hw_rev() >= 0x3 ){
+			gpio_direction_output(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_MAIN_MICBIAS_EN), 0);
+		}
+		else{
+			ret = pm8058_micbias_enable(OTHC_MICBIAS_0, OTHC_SIGNAL_OFF);
+			if (ret)
+				pr_err("%s: Disabling amic power failed\n", __func__);
+		}
+#else
+	ret = pm8058_micbias_enable(OTHC_MICBIAS_0, OTHC_SIGNAL_OFF);
 	if (ret)
+		pr_err("%s: Disabling amic power failed\n", __func__);
+#endif
+
+#endif
+
+#ifdef CONFIG_VP_A2220
+	if (machine_is_msm8x60_fluid()) {
+		printk("1.A2220::disable sub_mic off\n");	
+		ret = pm8058_micbias_enable(OTHC_MICBIAS_2,
+				OTHC_SIGNAL_OFF);
+		//gpio_free(SNDDEV_GPIO_MIC2_ANCR_SEL);
+	} else {
+#if defined(CONFIG_USA_MODEL_SGH_I717)
+		if( get_hw_rev() >= 0x03 ){
+			pr_debug("2.A2220::disable sub_mic off\n");		
+			gpio_direction_output(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_SUB_MICBIAS_EN), 0);
+		}
+		else{
+			pr_debug("2.A2220::disable sub_mic off\n");		
+			ret = pm8058_micbias_enable(OTHC_MICBIAS_2, OTHC_SIGNAL_OFF);
+		}
+#else
+		pr_debug("2.A2220::disable sub_mic off\n");		
+		ret = pm8058_micbias_enable(OTHC_MICBIAS_2, OTHC_SIGNAL_OFF);
+
+#endif
+        }
+        if (ret)
 		pr_err("%s: Disabling amic power failed\n", __func__);
 #endif
 
@@ -1311,6 +1458,51 @@ static void msm_snddev_disable_anc_power(void)
 }
 #endif
 
+static int msm_snddev_enable_amic_sec_power(void)
+{
+#ifdef CONFIG_PMIC8058_OTHC
+	int ret;
+
+	if (machine_is_msm8x60_fluid()) {
+
+		ret = pm8058_micbias_enable(OTHC_MICBIAS_2,
+				OTHC_SIGNAL_ALWAYS_ON);
+		if (ret)
+			pr_err("%s: Enabling amic2 power failed\n", __func__);
+
+		ret = gpio_request(SNDDEV_GPIO_HS_MIC4_SEL,
+						"HS_MIC4_SEL");
+		if (ret) {
+			pr_err("%s: spkr pamp gpio %d request failed\n",
+					__func__, SNDDEV_GPIO_HS_MIC4_SEL);
+			return ret;
+		}
+		gpio_direction_output(SNDDEV_GPIO_HS_MIC4_SEL, 1);
+	}
+#endif
+
+	msm_snddev_enable_amic_power();
+	return 0;
+}
+
+static void msm_snddev_disable_amic_sec_power(void)
+{
+#ifdef CONFIG_PMIC8058_OTHC
+	int ret;
+	if (machine_is_msm8x60_fluid()) {
+
+		ret = pm8058_micbias_enable(OTHC_MICBIAS_2,
+					OTHC_SIGNAL_OFF);
+		if (ret)
+			pr_err("%s: Disabling amic2 power failed\n", __func__);
+
+		gpio_free(SNDDEV_GPIO_HS_MIC4_SEL);
+	}
+#endif
+
+	msm_snddev_disable_amic_power();
+}
+
 static int msm_snddev_enable_dmic_sec_power(void)
 {
 	int ret;
@@ -1321,12 +1513,28 @@ static int msm_snddev_enable_dmic_sec_power(void)
 		return ret;
 	}
 #ifdef CONFIG_PMIC8058_OTHC
+#if defined(CONFIG_USA_MODEL_SGH_I717)
+		if( get_hw_rev() >= 0x03 ){
+			gpio_direction_output(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_SUB_MICBIAS_EN), 1);
+		}
+		else{
+			ret = pm8058_micbias_enable(OTHC_MICBIAS_2, OTHC_SIGNAL_ALWAYS_ON);
+			if (ret) {
+				pr_err("%s: Error: Enabling micbias failed\n", __func__);
+				msm_snddev_disable_dmic_power();
+				return ret;
+			}
+		}
+#else
 	ret = pm8058_micbias_enable(OTHC_MICBIAS_2, OTHC_SIGNAL_ALWAYS_ON);
 	if (ret) {
 		pr_err("%s: Error: Enabling micbias failed\n", __func__);
 		msm_snddev_disable_dmic_power();
 		return ret;
 	}
+
+#endif
+
 #endif
 	return 0;
 }
@@ -1336,7 +1544,17 @@ static void msm_snddev_disable_dmic_sec_power(void)
 	msm_snddev_disable_dmic_power();
 
 #ifdef CONFIG_PMIC8058_OTHC
-	pm8058_micbias_enable(OTHC_MICBIAS_2, OTHC_SIGNAL_OFF);
+#if defined(CONFIG_USA_MODEL_SGH_I717)
+		if( get_hw_rev() >= 0x03 ){
+			gpio_direction_output(PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_SUB_MICBIAS_EN), 0);
+		}
+		else{
+			pm8058_micbias_enable(OTHC_MICBIAS_2, OTHC_SIGNAL_OFF);
+		}
+#else
+		pm8058_micbias_enable(OTHC_MICBIAS_2, OTHC_SIGNAL_OFF);
+#endif
+
 #endif
 }
 
@@ -1414,7 +1632,7 @@ ADIE_HEADSET_TX_48000_256;
 #endif
 
 // ------- DEFINITION OF VOIP CALL PAIRED DEVICES ------ 
-#if defined(CONFIG_USA_MODEL_SGH_I727) || defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_JPN_MODEL_SC_03D) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if 1//defined(CONFIG_USA_MODEL_SGH_I727) || defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_USA_MODEL_SGH_T989) || defined (CONFIG_USA_MODEL_SGH_T769) || defined(CONFIG_JPN_MODEL_SC_03D) || defined (CONFIG_USA_MODEL_SGH_I717)
 static struct adie_codec_action_unit handset_voip_rx_48KHz_osr256_actions[] =
 ADIE_HANDSET_VOIP_RX_48000_256;
 static struct adie_codec_action_unit handset_voip_tx_48KHz_osr256_actions[] =
@@ -1443,7 +1661,7 @@ ADIE_HEADSET_TX_48000_256;
 #endif 
 
 // ------- DEFINITION OF VOIP CALL2 PAIRED DEVICES ------ 
-#if defined(CONFIG_USA_MODEL_SGH_I727) || defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_JPN_MODEL_SC_03D) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if 1//defined(CONFIG_USA_MODEL_SGH_I727) || defined(CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_USA_MODEL_SGH_T989) || defined (CONFIG_USA_MODEL_SGH_T769) || defined(CONFIG_JPN_MODEL_SC_03D) || defined (CONFIG_USA_MODEL_SGH_I717)
 static struct adie_codec_action_unit handset_voip2_rx_48KHz_osr256_actions[] =
 ADIE_HANDSET_VOIP2_RX_48000_256;
 static struct adie_codec_action_unit handset_voip2_tx_48KHz_osr256_actions[] =
@@ -1471,6 +1689,35 @@ static struct adie_codec_action_unit headset_voip2_tx_48KHz_osr256_actions[] =
 ADIE_HEADSET_TX_48000_256;
 #endif
 
+// ------- DEFINITION OF VOIP CALL3 PAIRED DEVICES ------ 
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_Q1_KOR_AUDIO)
+static struct adie_codec_action_unit handset_voip3_rx_48KHz_osr256_actions[] =
+ADIE_HANDSET_VOIP3_RX_48000_256;
+static struct adie_codec_action_unit handset_voip3_tx_48KHz_osr256_actions[] =
+ADIE_HANDSET_VOIP3_TX_48000_256;
+static struct adie_codec_action_unit speaker_voip3_rx_48KHz_osr256_actions[] =
+ADIE_SPEAKER_VOIP3_RX_48000_256;
+static struct adie_codec_action_unit speaker_voip3_tx_48KHz_osr256_actions[] =
+ADIE_SPEAKER_VOIP3_TX_48000_256;
+static struct adie_codec_action_unit headset_voip3_rx_48KHz_osr256_actions[] =
+ADIE_HEADSET_VOIP3_RX_48000_256;
+static struct adie_codec_action_unit headset_voip3_tx_48KHz_osr256_actions[] =
+ADIE_HEADSET_VOIP3_TX_48000_256;
+#else
+static struct adie_codec_action_unit handset_voip3_rx_48KHz_osr256_actions[] =
+ADIE_HANDSET_RX_48000_256;
+static struct adie_codec_action_unit handset_voip3_tx_48KHz_osr256_actions[] =
+ADIE_HANDSET_TX_48000_256;
+static struct adie_codec_action_unit speaker_voip3_rx_48KHz_osr256_actions[] =
+ADIE_SPEAKER_RX_48000_256;
+static struct adie_codec_action_unit speaker_voip3_tx_48KHz_osr256_actions[] =
+ADIE_SPEAKER_TX_48000_256;
+static struct adie_codec_action_unit headset_voip3_rx_48KHz_osr256_actions[] =
+ADIE_HEADSET_RX_48000_256;
+static struct adie_codec_action_unit headset_voip3_tx_48KHz_osr256_actions[] =
+ADIE_HEADSET_TX_48000_256;
+#endif
+
 // ------- DEFINITION OF CALL PAIRED DEVICES ------ 
 static struct adie_codec_action_unit handset_call_rx_48KHz_osr256_actions[] =
 ADIE_HANDSET_CALL_RX_48000_256;
@@ -1481,7 +1728,7 @@ ADIE_SPEAKER_CALL_RX_48000_256;
 static struct adie_codec_action_unit speaker_call_tx_48KHz_osr256_actions[] =
 ADIE_SPEAKER_CALL_TX_48000_256;
 
-#if defined (CONFIG_KOR_MODEL_SHV_E110S)
+#if defined (CONFIG_KOR_MODEL_SHV_E110S)|| defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_Q1_KOR_AUDIO)
 static struct adie_codec_action_unit speaker_loopback_tx_48KHz_osr256_actions[] =
 ADIE_SPEAKER_LOOPBACK_TX_48000_256;
 #endif 
@@ -1491,7 +1738,7 @@ ADIE_HEADSET_CALL_RX_48000_256;
 static struct adie_codec_action_unit headset_call_tx_48KHz_osr256_actions[] =
 ADIE_HEADSET_CALL_TX_48000_256;
 
-#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_USA_MODEL_SGH_I727)
+#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_Q1_KOR_AUDIO) || defined(CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I757)
 static struct adie_codec_action_unit headset_loopback_tx_48KHz_osr256_actions[] =
 ADIE_HEADSET_LOOPBACK_TX_48000_256;
 #endif 
@@ -1541,7 +1788,7 @@ static struct adie_codec_action_unit fm_radio_speaker_rx_48KHz_osr256_actions[] 
 ADIE_SPEAKER_RX_48000_256;
 
 // ------- DEFINITION OF EXTERNAL DEVICES ------ 
-#if defined (CONFIG_TARGET_LOCALE_KOR)
+#if defined (CONFIG_TARGET_LOCALE_KOR) || defined(CONFIG_EUR_MODEL_GT_I9210)
 static struct adie_codec_action_unit lineout_rx_48KHz_osr256_actions[] =
 ADIE_LINEOUT_RX_48000_256;
 #else
@@ -1567,7 +1814,7 @@ static struct adie_codec_action_unit hac_handset_call_rx_48KHz_osr256_actions[] 
 ADIE_HANDSET_CALL_RX_48000_256;
 #endif
 
-#if defined(CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_KOR_MODEL_SHV_E120K) || defined(CONFIG_KOR_MODEL_SHV_E120L)
+#if defined(CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_KOR_MODEL_SHV_E120K) || defined(CONFIG_KOR_MODEL_SHV_E120L) || defined(CONFIG_Q1_KOR_AUDIO)
 static struct adie_codec_action_unit camcoder_tx_48KHz_osr256_actions[] =
 ADIE_CAMCODER_TX_48000_256;
 #else
@@ -1581,11 +1828,7 @@ ADIE_DUALMIC_HANDSET_CALL_TX_48000_256;
 
 static struct adie_codec_hwsetting_entry dualmic_handset_call_tx_settings[] = {
 	{
-#ifdef CONFIG_VP_A2220
-		.freq_plan = 16000,
-#else
-		.freq_plan = 48000,
-#endif
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = dualmic_handset_call_tx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(dualmic_handset_call_tx_48KHz_osr256_actions),
@@ -1801,15 +2044,60 @@ static struct adie_codec_hwsetting_entry headset_voip2_tx_settings[] = {
 	}
 };
 
+// ------- DEFINITION OF VOIP CALL3 PAIRED DEVICES ------ 
+static struct adie_codec_hwsetting_entry handset_voip3_rx_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = handset_voip3_rx_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(handset_voip3_rx_48KHz_osr256_actions),
+	}
+};
+static struct adie_codec_hwsetting_entry handset_voip3_tx_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = handset_voip3_tx_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(handset_voip3_tx_48KHz_osr256_actions),
+	}
+};
+static struct adie_codec_hwsetting_entry speaker_voip3_rx_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = speaker_voip3_rx_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(speaker_voip3_rx_48KHz_osr256_actions),
+	}
+};
+static struct adie_codec_hwsetting_entry speaker_voip3_tx_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = speaker_voip3_tx_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(speaker_voip3_tx_48KHz_osr256_actions),
+	}
+};
+static struct adie_codec_hwsetting_entry headset_voip3_rx_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = headset_voip3_rx_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(headset_voip3_rx_48KHz_osr256_actions),
+	}
+};
+static struct adie_codec_hwsetting_entry headset_voip3_tx_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = headset_voip3_tx_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(headset_voip3_tx_48KHz_osr256_actions),
+	}
+};
 
 // ------- DEFINITION OF CALL PAIRED DEVICES ------ 
 static struct adie_codec_hwsetting_entry handset_call_rx_settings[] = {
 	{
-#ifdef CONFIG_VP_A2220
-		.freq_plan = 16000,
-#else
-		.freq_plan = 48000,
-#endif
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = handset_call_rx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(handset_call_rx_48KHz_osr256_actions),
@@ -1817,11 +2105,7 @@ static struct adie_codec_hwsetting_entry handset_call_rx_settings[] = {
 };
 static struct adie_codec_hwsetting_entry handset_call_tx_settings[] = {
 	{
-#ifdef CONFIG_VP_A2220
-		.freq_plan = 16000,
-#else
-		.freq_plan = 48000,
-#endif
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = handset_call_tx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(handset_call_tx_48KHz_osr256_actions),
@@ -1829,11 +2113,7 @@ static struct adie_codec_hwsetting_entry handset_call_tx_settings[] = {
 };
 static struct adie_codec_hwsetting_entry speaker_call_rx_settings[] = {
 	{
-#ifdef CONFIG_VP_A2220
-		.freq_plan = 16000,
-#else
-		.freq_plan = 48000,
-#endif
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = speaker_call_rx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(speaker_call_rx_48KHz_osr256_actions),
@@ -1841,21 +2121,17 @@ static struct adie_codec_hwsetting_entry speaker_call_rx_settings[] = {
 };
 static struct adie_codec_hwsetting_entry speaker_call_tx_settings[] = {
 	{
-#ifdef CONFIG_VP_A2220
-		.freq_plan = 16000,
-#else
-		.freq_plan = 48000,
-#endif
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = speaker_call_tx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(speaker_call_tx_48KHz_osr256_actions),
 	}
 };
 
-#if defined (CONFIG_KOR_MODEL_SHV_E110S)
+#if defined (CONFIG_KOR_MODEL_SHV_E110S)||defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_Q1_KOR_AUDIO)
 static struct adie_codec_hwsetting_entry speaker_loopback_tx_settings[] = {
 	{
-		.freq_plan = 48000,
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = speaker_loopback_tx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(speaker_loopback_tx_48KHz_osr256_actions),
@@ -1866,11 +2142,7 @@ static struct adie_codec_hwsetting_entry speaker_loopback_tx_settings[] = {
 
 static struct adie_codec_hwsetting_entry headset_call_rx_settings[] = {
 	{
-#ifdef CONFIG_VP_A2220
-		.freq_plan = 16000,
-#else
-		.freq_plan = 48000,
-#endif
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = headset_call_rx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(headset_call_rx_48KHz_osr256_actions),
@@ -1878,21 +2150,17 @@ static struct adie_codec_hwsetting_entry headset_call_rx_settings[] = {
 };
 static struct adie_codec_hwsetting_entry headset_call_tx_settings[] = {
 	{
-#ifdef CONFIG_VP_A2220
-		.freq_plan = 16000,
-#else
-		.freq_plan = 48000,
-#endif
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = headset_call_tx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(headset_call_tx_48KHz_osr256_actions),
 	}
 };
 
-#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_USA_MODEL_SGH_I727) 
+#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)|| defined (CONFIG_Q1_KOR_AUDIO) || defined(CONFIG_USA_MODEL_SGH_I727) 
 static struct adie_codec_hwsetting_entry headset_loopback_tx_settings[] = {
 	{
-		.freq_plan = 48000,
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = headset_loopback_tx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(headset_loopback_tx_48KHz_osr256_actions),
@@ -1996,11 +2264,7 @@ static struct adie_codec_hwsetting_entry speaker_lineout_rx_settings[] = {
 #if defined(CONFIG_USA_MODEL_SGH_T989)
 static struct adie_codec_hwsetting_entry hac_handset_call_rx_settings[] = {
 	{
-#ifdef CONFIG_VP_A2220
-		.freq_plan = 16000,
-#else
-		.freq_plan = 48000,
-#endif
+		.freq_plan = AUDIO_FREQUENCY,
 		.osr = 256,
 		.actions = hac_handset_call_rx_48KHz_osr256_actions,
 		.action_sz = ARRAY_SIZE(hac_handset_call_rx_48KHz_osr256_actions),
@@ -2150,6 +2414,38 @@ static struct adie_codec_dev_profile headset_voip2_tx_profile = {
 	.setting_sz = ARRAY_SIZE(headset_voip2_tx_settings),
 };
 
+// ------- DEFINITION OF VOIP CALL3 PAIRED DEVICES ------ 
+static struct adie_codec_dev_profile handset_voip3_rx_profile = {
+	.path_type = ADIE_CODEC_RX,
+	.settings = handset_voip3_rx_settings,
+	.setting_sz = ARRAY_SIZE(handset_voip3_rx_settings),
+};
+static struct adie_codec_dev_profile handset_voip3_tx_profile = {
+	.path_type = ADIE_CODEC_TX,
+	.settings = handset_voip3_tx_settings,
+	.setting_sz = ARRAY_SIZE(handset_voip3_tx_settings),
+};
+static struct adie_codec_dev_profile speaker_voip3_rx_profile = {
+	.path_type = ADIE_CODEC_RX,
+	.settings = speaker_voip3_rx_settings,
+	.setting_sz = ARRAY_SIZE(speaker_voip3_rx_settings),
+};
+static struct adie_codec_dev_profile speaker_voip3_tx_profile = {
+	.path_type = ADIE_CODEC_TX,
+	.settings = speaker_voip3_tx_settings,
+	.setting_sz = ARRAY_SIZE(speaker_voip3_tx_settings),
+};
+static struct adie_codec_dev_profile headset_voip3_rx_profile = {
+	.path_type = ADIE_CODEC_RX,
+	.settings = headset_voip3_rx_settings,
+	.setting_sz = ARRAY_SIZE(headset_voip3_rx_settings),
+};
+static struct adie_codec_dev_profile headset_voip3_tx_profile = {
+	.path_type = ADIE_CODEC_TX,
+	.settings = headset_voip3_tx_settings,
+	.setting_sz = ARRAY_SIZE(headset_voip3_tx_settings),
+};
+
 // ------- DEFINITION OF CALL PAIRED DEVICES ------ 
 static struct adie_codec_dev_profile handset_call_rx_profile = {
 	.path_type = ADIE_CODEC_RX,
@@ -2172,7 +2468,7 @@ static struct adie_codec_dev_profile speaker_call_tx_profile = {
 	.setting_sz = ARRAY_SIZE(speaker_call_tx_settings),
 };
 
-#if defined (CONFIG_KOR_MODEL_SHV_E110S)
+#if defined (CONFIG_KOR_MODEL_SHV_E110S)|| defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_Q1_KOR_AUDIO)
 static struct adie_codec_dev_profile speaker_loopback_tx_profile = {
 	.path_type = ADIE_CODEC_TX,
 	.settings = speaker_loopback_tx_settings,
@@ -2191,7 +2487,7 @@ static struct adie_codec_dev_profile headset_call_tx_profile = {
 	.setting_sz = ARRAY_SIZE(headset_call_tx_settings),
 };
 
-#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_USA_MODEL_SGH_I727)
+#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_Q1_KOR_AUDIO) || defined(CONFIG_USA_MODEL_SGH_I727)
 static struct adie_codec_dev_profile headset_loopback_tx_profile = {
 	.path_type = ADIE_CODEC_TX,
 	.settings = headset_loopback_tx_settings,
@@ -2286,7 +2582,7 @@ static struct snddev_icodec_data handset_rx_data = {
 	.profile = &handset_rx_profile,
 	.channel_mode = 1,
 	.default_sample_rate = 48000,
-#if defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_USA_MODEL_SGH_I727) // temp block for build error || defined (CONFIG_USA_MODEL_SGH_I717)
 	.pamp_on = msm_snddev_poweramp_handset_on,
 	.pamp_off = msm_snddev_poweramp_handset_off,
 #endif
@@ -2442,7 +2738,8 @@ static struct snddev_icodec_data speaker_vt_rx_data = {
 	//	.profile = &ispkr_stereo_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)\
+    || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_USA_MODEL_SGH_I757) || defined (CONFIG_USA_MODEL_SGH_T769)
 	.pamp_on = msm_snddev_poweramp_on_call,
 	.pamp_off = msm_snddev_poweramp_off_call,
 #else	
@@ -2471,12 +2768,17 @@ static struct snddev_icodec_data headset_vt_rx_data = {
 	//	.profile = &headset_ab_cpls_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_T769)
 	.pamp_on = msm_snddev_poweramp_on_headset_call,
 	.pamp_off = msm_snddev_poweramp_off_headset_call,
 #else	
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
+	.pamp_on = msm_snddev_poweramp_on_call_headset,
+	.pamp_off = msm_snddev_poweramp_off_call_headset,
+#else
 	.pamp_on = msm_snddev_poweramp_on_headset,
 	.pamp_off = msm_snddev_poweramp_off_headset,
+#endif	
 #endif	
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
@@ -2605,7 +2907,8 @@ static struct snddev_icodec_data speaker_voip_rx_data = {
 	//	.profile = &ispkr_stereo_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)\
+    || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_USA_MODEL_SGH_I757) || defined (CONFIG_USA_MODEL_SGH_T769)
 	.pamp_on = msm_snddev_poweramp_on_call,
 	.pamp_off = msm_snddev_poweramp_off_call,
 #else		
@@ -2633,12 +2936,17 @@ static struct snddev_icodec_data headset_voip_rx_data = {
 	.profile = &headset_voip_rx_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_T769)
 	.pamp_on = msm_snddev_poweramp_on_headset_call,
 	.pamp_off = msm_snddev_poweramp_off_headset_call,
 #else	
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
+	.pamp_on = msm_snddev_poweramp_on_call_headset,
+	.pamp_off = msm_snddev_poweramp_off_call_headset,
+#else
 	.pamp_on = msm_snddev_poweramp_on_headset,
 	.pamp_off = msm_snddev_poweramp_off_headset,
+#endif	
 #endif	
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
@@ -2744,12 +3052,10 @@ static struct snddev_icodec_data handset_call_rx_data = {
 	.copp_id = 0,
 	.profile = &handset_call_rx_profile,
 	.channel_mode = 1,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_setting_audience_call_connect,
 	.pamp_off = msm_snddev_setting_audience_call_disconnect,
-#else	
-	.default_sample_rate = 48000,
 #endif
 };
 
@@ -2781,14 +3087,18 @@ static struct snddev_icodec_data speaker_call_rx_data = {
 	.copp_id = 0,
 	.profile = &speaker_call_rx_profile,
 	.channel_mode = 2,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_audience_speaker_on,
 	.pamp_off = msm_snddev_audience_speaker_off,	
 #else		
-	.default_sample_rate = 48000,
+    #if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_JPN_MODEL_SC_03D)
+	.pamp_on = msm_snddev_poweramp_on_call,
+	.pamp_off = msm_snddev_poweramp_off_call,	
+    #else
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+#endif
 #endif
 };
 
@@ -2798,13 +3108,14 @@ static struct snddev_icodec_data speaker_call_tx_data = {
 	.copp_id = PRIMARY_I2S_TX,
 	.profile = &speaker_call_tx_profile,
 	.channel_mode = 1,
-#ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
+	.default_sample_rate = AUDIO_FREQUENCY,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
 #else		
-	.default_sample_rate = 48000,
-#endif
 	.pamp_on = msm_snddev_enable_submic_power,  //msm_snddev_enable_dmic_power,
 	.pamp_off =  msm_snddev_disable_submic_power,  //msm_snddev_disable_dmic_power,
+#endif
 };
 
 
@@ -2814,12 +3125,11 @@ static struct snddev_icodec_data deskdock_call_rx_data = {
 	.copp_id = 0,
 	.profile = &speaker_call_rx_profile,
 	.channel_mode = 2,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_audience_speaker_on,
 	.pamp_off = msm_snddev_audience_speaker_off,	
 #else		
-	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
 #endif
@@ -2831,13 +3141,14 @@ static struct snddev_icodec_data deskdock_call_tx_data = {
 	.copp_id = PRIMARY_I2S_TX,
 	.profile = &speaker_call_tx_profile,
 	.channel_mode = 1,
-#ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
+	.default_sample_rate = AUDIO_FREQUENCY,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
 #else		
-	.default_sample_rate = 48000,
-#endif
 	.pamp_on = msm_snddev_enable_submic_power,  //msm_snddev_enable_dmic_power,
 	.pamp_off =  msm_snddev_disable_submic_power,  //msm_snddev_disable_dmic_power,
+#endif
 };
 
 
@@ -2853,9 +3164,14 @@ static struct snddev_icodec_data headset_call_rx_data = {
 	.pamp_on = msm_snddev_audience_poweramp_on_headset,
 	.pamp_off = msm_snddev_audience_poweramp_off_headset,
 #else		
-	.default_sample_rate = 48000,
+	.default_sample_rate = 8000,//48000, // To modify noise
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L)
+	.pamp_on = msm_snddev_poweramp_on_call_headset,
+	.pamp_off = msm_snddev_poweramp_off_call_headset,
+#else
 	.pamp_on = msm_snddev_poweramp_on_headset,
 	.pamp_off = msm_snddev_poweramp_off_headset,
+#endif	
 #endif	
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
@@ -2870,7 +3186,7 @@ static struct snddev_icodec_data headset_call_tx_data = {
 #ifdef CONFIG_VP_A2220
 	.default_sample_rate = 16000,
 #else		
-	.default_sample_rate = 48000,
+	.default_sample_rate = 8000,//48000, // To modify noise
 #endif
 };
 
@@ -2880,14 +3196,18 @@ static struct snddev_icodec_data headset_loopback_rx_data = {
 	.copp_id = 0,
 	.profile = &headset_call_rx_profile,
 	.channel_mode = 2,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_audience_poweramp_on_headset,
 	.pamp_off = msm_snddev_audience_poweramp_off_headset,
 #else		
-	.default_sample_rate = 48000,
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L)
+	.pamp_on = msm_snddev_poweramp_on_call_headset,
+	.pamp_off = msm_snddev_poweramp_off_call_headset,
+#else
 	.pamp_on = msm_snddev_poweramp_on_headset,
 	.pamp_off = msm_snddev_poweramp_off_headset,
+#endif	
 #endif	
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
@@ -2897,20 +3217,15 @@ static struct snddev_icodec_data headset_loopback_tx_data = {
 	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
 	.name = "headset_loopback_tx",
 	.copp_id = PRIMARY_I2S_TX,
-	
-	#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_USA_MODEL_SGH_I727)
-    .profile = &headset_loopback_tx_profile,
-	#else
-    .profile = &headset_call_tx_profile,
 
+	#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || (defined (CONFIG_Q1_KOR_AUDIO) && !defined(CONFIG_KOR_MODEL_SHV_E160L)) || defined(CONFIG_USA_MODEL_SGH_I727)
+	.profile = &headset_loopback_tx_profile,
+	#else
+	.profile = &headset_call_tx_profile,
 	#endif 
 	
 	.channel_mode = 1,
-#ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
-#else		
-	.default_sample_rate = 48000,
-#endif
+	.default_sample_rate = AUDIO_FREQUENCY,
 };
 
 
@@ -2998,8 +3313,13 @@ static struct snddev_icodec_data dualmic_speaker_tx_data = {
 	.profile = &dualmic_speaker_tx_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+#else
 	.pamp_on = msm_snddev_enable_submic_power,
 	.pamp_off = msm_snddev_disable_submic_power,
+#endif
 };
 
 static struct snddev_icodec_data speaker_vr_tx_data = {
@@ -3091,6 +3411,9 @@ static struct snddev_icodec_data lineout_rx_data = {
 #elif defined(CONFIG_TARGET_LOCALE_KOR)
 	.pamp_on = msm_snddev_poweramp_on_lineout,
 	.pamp_off = msm_snddev_poweramp_off_lineout,	
+#elif defined(CONFIG_EUR_MODEL_GT_I9210)
+	.pamp_on = msm_snddev_poweramp_on_lineout_I9210,
+	.pamp_off = msm_snddev_poweramp_off_lineout_I9210,
 #else
 	.pamp_on = msm_snddev_poweramp_on_headset,
 	.pamp_off = msm_snddev_poweramp_off_headset,
@@ -3106,7 +3429,7 @@ static struct snddev_icodec_data tty_headset_rx_data = {
 	.profile = &tty_headset_rx_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_T769)
 	.pamp_on = msm_snddev_poweramp_on_headset_call,
 	.pamp_off = msm_snddev_poweramp_off_headset_call,
 #else	
@@ -3167,12 +3490,10 @@ static struct snddev_icodec_data hac_handset_call_rx_data = {
 	.copp_id = 0,
 	.profile = &hac_handset_call_rx_profile,
 	.channel_mode = 1,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_setting_audience_call_connect,
 	.pamp_off = msm_snddev_setting_audience_call_disconnect,
-#else	
-	.default_sample_rate = 48000,
 #endif
 };
 #endif 
@@ -3184,8 +3505,13 @@ static struct snddev_icodec_data camcoder_tx_data = {
 	.profile = &camcoder_tx_profile,
 	.channel_mode = 1,
 	.default_sample_rate = 48000,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+#else
 	.pamp_on = msm_snddev_enable_submic_power,
 	.pamp_off = msm_snddev_disable_submic_power,
+#endif
 };
 
 // ------- DEFINITION OF CALL2 PAIRED DEVICES ------ 
@@ -3198,12 +3524,10 @@ static struct snddev_icodec_data handset_call2_rx_data = {
 	.copp_id = 0,
 	.profile = &handset_call_rx_profile,
 	.channel_mode = 1,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
-	.pamp_on = msm_snddev_setting_audience_call_connect,
-	.pamp_off = msm_snddev_setting_audience_call_disconnect,
-#else	
-	.default_sample_rate = 48000,
+	.pamp_on = msm_snddev_poweramp_handset_on, //msm_snddev_setting_audience_call_connect,
+	.pamp_off = msm_snddev_poweramp_handset_off, //msm_snddev_setting_audience_call_disconnect,
 #endif
 };
 
@@ -3235,14 +3559,19 @@ static struct snddev_icodec_data speaker_call2_rx_data = {
 	.copp_id = 0,
 	.profile = &speaker_call_rx_profile,
 	.channel_mode = 2,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_audience_speaker_on,
 	.pamp_off = msm_snddev_audience_speaker_off,	
 #else		
-	.default_sample_rate = 48000,
+    #if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L)
+	.pamp_on = msm_snddev_poweramp_on_call,
+	.pamp_off = msm_snddev_poweramp_off_call,	
+    #else
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+#endif
+
 #endif
 };
 
@@ -3252,13 +3581,14 @@ static struct snddev_icodec_data speaker_call2_tx_data = {
 	.copp_id = PRIMARY_I2S_TX,
 	.profile = &speaker_call_tx_profile,
 	.channel_mode = 1,
-#ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
-#else		
-	.default_sample_rate = 48000,
-#endif
+	.default_sample_rate = AUDIO_FREQUENCY,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+#else
 	.pamp_on = msm_snddev_enable_submic_power,  //msm_snddev_enable_dmic_power,
 	.pamp_off =  msm_snddev_disable_submic_power,  //msm_snddev_disable_dmic_power,
+#endif
 };
 
 static struct snddev_icodec_data headset_call2_rx_data = {
@@ -3267,14 +3597,18 @@ static struct snddev_icodec_data headset_call2_rx_data = {
 	.copp_id = 0,
 	.profile = &headset_call_rx_profile,
 	.channel_mode = 2,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_audience_poweramp_on_headset,
 	.pamp_off = msm_snddev_audience_poweramp_off_headset,
 #else		
-	.default_sample_rate = 48000,
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L)
+	.pamp_on = msm_snddev_poweramp_on_call_headset,
+	.pamp_off = msm_snddev_poweramp_off_call_headset,
+#else
 	.pamp_on = msm_snddev_poweramp_on_headset,
 	.pamp_off = msm_snddev_poweramp_off_headset,
+#endif	
 #endif	
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
@@ -3286,11 +3620,7 @@ static struct snddev_icodec_data headset_call2_tx_data = {
 	.copp_id = PRIMARY_I2S_TX,
 	.profile = &headset_call_tx_profile,
 	.channel_mode = 1,
-#ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
-#else		
-	.default_sample_rate = 48000,
-#endif
+	.default_sample_rate = AUDIO_FREQUENCY,
 };
 
 static struct snddev_ecodec_data bt_sco_mono_call2_rx_data = {
@@ -3353,12 +3683,11 @@ static struct snddev_icodec_data deskdock_call2_rx_data = {
 	.copp_id = 0,
 	.profile = &speaker_call_rx_profile,
 	.channel_mode = 2,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_audience_speaker_on,
 	.pamp_off = msm_snddev_audience_speaker_off,	
 #else		
-	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
 #endif
@@ -3370,13 +3699,14 @@ static struct snddev_icodec_data deskdock_call2_tx_data = {
 	.copp_id = PRIMARY_I2S_TX,
 	.profile = &speaker_call_tx_profile,
 	.channel_mode = 1,
-#ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
+	.default_sample_rate = AUDIO_FREQUENCY,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
 #else		
-	.default_sample_rate = 48000,
-#endif
 	.pamp_on = msm_snddev_enable_submic_power,  //msm_snddev_enable_dmic_power,
 	.pamp_off =  msm_snddev_disable_submic_power,  //msm_snddev_disable_dmic_power,
+#endif
 };
 
 
@@ -3408,7 +3738,8 @@ static struct snddev_icodec_data speaker_voip2_rx_data = {
 	.profile = &speaker_voip2_rx_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)\
+    || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L)
 	.pamp_on = msm_snddev_poweramp_on_call,
 	.pamp_off = msm_snddev_poweramp_off_call,
 #else		
@@ -3424,8 +3755,13 @@ static struct snddev_icodec_data speaker_voip2_tx_data = {
 	.profile = &speaker_voip2_tx_profile,
 	.channel_mode = 1,
 	.default_sample_rate = 48000,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+#else
 	.pamp_on = msm_snddev_enable_submic_power,
 	.pamp_off = msm_snddev_disable_submic_power,
+#endif
 };
 
 static struct snddev_icodec_data headset_voip2_rx_data = {
@@ -3435,12 +3771,17 @@ static struct snddev_icodec_data headset_voip2_rx_data = {
 	.profile = &headset_voip2_rx_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
-#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_T769)
 	.pamp_on = msm_snddev_poweramp_on_headset_call,
 	.pamp_off = msm_snddev_poweramp_off_headset_call,
 #else	
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
+	.pamp_on = msm_snddev_poweramp_on_call_headset,
+	.pamp_off = msm_snddev_poweramp_off_call_headset,
+#else
 	.pamp_on = msm_snddev_poweramp_on_headset,
 	.pamp_off = msm_snddev_poweramp_off_headset,
+#endif	
 #endif	
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
@@ -3533,24 +3874,207 @@ static struct snddev_icodec_data deskdock_voip2_tx_data = {
 	.profile = &speaker_voip2_tx_profile,
 	.channel_mode = 1,
 	.default_sample_rate = 48000,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+#else
 	.pamp_on = msm_snddev_enable_submic_power,
 	.pamp_off = msm_snddev_disable_submic_power,
+#endif
 };
 
 
+// ------- DEFINITION OF VOIP CALL3 PAIRED DEVICES ------ 
+static struct snddev_icodec_data handset_voip3_rx_data = {
+	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
+	.name = "handset_voip3_rx",
+	.copp_id = 0,
+	.profile = &handset_voip3_rx_profile,
+	.channel_mode = 1,
+	.default_sample_rate = 48000,
+};
 
+static struct snddev_icodec_data handset_voip3_tx_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "handset_voip3_tx",
+	.copp_id = 1,
+	.profile = &handset_voip3_tx_profile,
+	.channel_mode = 1,
+	.default_sample_rate = 48000,
+	.pamp_on = msm_snddev_enable_voip_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+};
+
+static struct snddev_icodec_data speaker_voip3_rx_data = {
+	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
+	.name = "speaker_voip3_rx",
+	.copp_id = 0,
+	.profile = &speaker_voip3_rx_profile,
+	.channel_mode = 2,
+	.default_sample_rate = 48000,
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717)\
+    || defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_USA_MODEL_SGH_I757) || defined (CONFIG_USA_MODEL_SGH_T769)
+	.pamp_on = msm_snddev_poweramp_on_call,
+	.pamp_off = msm_snddev_poweramp_off_call,
+#else		
+	.pamp_on = msm_snddev_poweramp_on,
+	.pamp_off = msm_snddev_poweramp_off,
+#endif	
+};
+
+static struct snddev_icodec_data speaker_voip3_tx_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "speaker_voip3_tx",
+	.copp_id = PRIMARY_I2S_TX,
+	.profile = &speaker_voip3_tx_profile,
+	.channel_mode = 1,
+	.default_sample_rate = 48000,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+#else
+	.pamp_on = msm_snddev_enable_submic_power,
+	.pamp_off = msm_snddev_disable_submic_power,
+#endif
+};
+
+static struct snddev_icodec_data headset_voip3_rx_data = {
+	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
+	.name = "headset_voip3_rx",
+	.copp_id = 0,
+	.profile = &headset_voip3_rx_profile,
+	.channel_mode = 2,
+	.default_sample_rate = 48000,
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_I757) || defined (CONFIG_USA_MODEL_SGH_T769)
+	.pamp_on = msm_snddev_poweramp_on_headset_call,
+	.pamp_off = msm_snddev_poweramp_off_headset_call,
+#else	
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
+	.pamp_on = msm_snddev_poweramp_on_call_headset,
+	.pamp_off = msm_snddev_poweramp_off_call_headset,
+#else
+	.pamp_on = msm_snddev_poweramp_on_headset,
+	.pamp_off = msm_snddev_poweramp_off_headset,
+#endif
+#endif	
+	.voltage_on = msm_snddev_voltage_on,
+	.voltage_off = msm_snddev_voltage_off,
+};
+
+static struct snddev_icodec_data headset_voip3_tx_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "headset_voip3_tx",
+	.copp_id = PRIMARY_I2S_TX,
+	.profile = &headset_voip3_tx_profile,
+	.channel_mode = 1,
+	.default_sample_rate = 48000,
+};
+
+
+static struct snddev_ecodec_data bt_sco_mono_voip3_rx_data = {
+	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
+	.name = "bt_sco_mono_voip3_rx",
+	.copp_id = PCM_RX,
+	.channel_mode = 1,
+};
+
+static struct snddev_ecodec_data bt_sco_mono_voip3_tx_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "bt_sco_mono_voip3_tx",
+	.copp_id = PCM_TX,
+	.channel_mode = 1,
+};
+
+static struct snddev_ecodec_data bt_sco_mono_nrec_voip3_rx_data = {
+	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
+	.name = "bt_sco_mono_nrec_voip3_rx",
+	.copp_id = PCM_RX,
+	.channel_mode = 1,
+};
+
+static struct snddev_ecodec_data bt_sco_mono_nrec_voip3_tx_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "bt_sco_mono_nrec_voip3_tx",
+	.copp_id = PCM_TX,
+	.channel_mode = 1,
+};
+
+static struct snddev_ecodec_data bt_sco_stereo_voip3_rx_data = {
+	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
+	.name = "bt_sco_stereo_voip3_rx",
+	.copp_id = PCM_RX,
+	.channel_mode = 1,
+};
+
+static struct snddev_ecodec_data bt_sco_stereo_voip3_tx_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "bt_sco_stereo_voip3_tx",
+	.copp_id = PCM_TX,
+	.channel_mode = 1,
+};
+
+static struct snddev_ecodec_data bt_sco_stereo_nrec_voip3_rx_data = {
+	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
+	.name = "bt_sco_stereo_nrec_voip3_rx",
+	.copp_id = PCM_RX,
+	.channel_mode = 1,
+};
+static struct snddev_ecodec_data bt_sco_stereo_nrec_voip3_tx_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "bt_sco_stereo_nrec_voip3_tx",
+	.copp_id = PCM_TX,
+	.channel_mode = 1,
+};
+
+static struct snddev_icodec_data deskdock_voip3_rx_data = {
+	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
+	.name = "deskdock_voip3_rx",
+	.copp_id = 0,
+	.profile = &speaker_voip3_rx_profile,
+	.channel_mode = 2,
+	.default_sample_rate = 48000,
+#if defined (CONFIG_USA_MODEL_SGH_T989)  || defined (CONFIG_USA_MODEL_SGH_I727) || defined (CONFIG_USA_MODEL_SGH_I757) || defined (CONFIG_USA_MODEL_SGH_T769)
+	.pamp_on = msm_snddev_poweramp_on_call,
+	.pamp_off = msm_snddev_poweramp_off_call,
+#else		
+	.pamp_on = msm_snddev_poweramp_on,
+	.pamp_off = msm_snddev_poweramp_off,
+#endif	
+};
+
+static struct snddev_icodec_data deskdock_voip3_tx_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "deskdock_voip3_tx",
+	.copp_id = PRIMARY_I2S_TX,
+	.profile = &speaker_voip3_tx_profile,
+	.channel_mode = 1,
+	.default_sample_rate = 48000,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+#else
+	.pamp_on = msm_snddev_enable_submic_power,
+	.pamp_off = msm_snddev_disable_submic_power,
+#endif
+};
+
+
+// ------- DEFINITION OF LOOPBACK PAIRED DEVICES ------ 
 static struct snddev_icodec_data handset_loopback_rx_data = {
 	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
 	.name = "handset_loopback_rx",
 	.copp_id = 0,
 	.profile = &handset_call_rx_profile,
 	.channel_mode = 1,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
+#if defined(CONFIG_EUR_MODEL_GT_I9210)
+	.pamp_on = msm_snddev_setting_audience_loopback_on,
+	.pamp_off = msm_snddev_setting_audience_loopback_off,
+#else
 	.pamp_on = msm_snddev_setting_audience_call_connect,
 	.pamp_off = msm_snddev_setting_audience_call_disconnect,
-#else	
-	.default_sample_rate = 48000,
+#endif
 #endif
 };
 
@@ -3582,12 +4106,11 @@ static struct snddev_icodec_data speaker_loopback_rx_data = {
 	.copp_id = 0,
 	.profile = &speaker_call_rx_profile,
 	.channel_mode = 2,
+	.default_sample_rate = AUDIO_FREQUENCY,
 #ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
 	.pamp_on = msm_snddev_audience_speaker_on,
 	.pamp_off = msm_snddev_audience_speaker_off,	
 #else		
-	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
 #endif
@@ -3598,8 +4121,7 @@ static struct snddev_icodec_data speaker_loopback_tx_data = {
 	.name = "speaker_loopback_tx",
 	.copp_id = PRIMARY_I2S_TX,
 
-#if defined (CONFIG_KOR_MODEL_SHV_E110S)	
-
+#if defined (CONFIG_KOR_MODEL_SHV_E110S)|| defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_Q1_KOR_AUDIO)
 	.profile = &speaker_loopback_tx_profile,
 
 #else
@@ -3609,13 +4131,14 @@ static struct snddev_icodec_data speaker_loopback_tx_data = {
 #endif 
 
 	.channel_mode = 1,
-#ifdef CONFIG_VP_A2220
-	.default_sample_rate = 16000,
+	.default_sample_rate = AUDIO_FREQUENCY,
+#ifdef CONFIG_USA_MODEL_SGH_T769
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
 #else		
-	.default_sample_rate = 48000,
-#endif
 	.pamp_on = msm_snddev_enable_submic_power,  //msm_snddev_enable_dmic_power,
 	.pamp_off =  msm_snddev_disable_submic_power,  //msm_snddev_disable_dmic_power,
+#endif
 };
 
 
@@ -4124,7 +4647,75 @@ static struct platform_device device_deskdock_voip2_tx = {
 	.dev = { .platform_data = &deskdock_voip2_tx_data },
 };
 
+// ------- DEFINITION OF VOIP CALL3 PAIRED DEVICES ------ 
+static struct platform_device device_handset_voip3_rx = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &handset_voip3_rx_data },
+};
+static struct platform_device device_handset_voip3_tx = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &handset_voip3_tx_data },
+};
+static struct platform_device device_speaker_voip3_rx = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &speaker_voip3_rx_data },
+};
+static struct platform_device device_speaker_voip3_tx = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &speaker_voip3_tx_data },
+};
+static struct platform_device device_headset_voip3_rx = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &headset_voip3_rx_data },
+};
+static struct platform_device device_headset_voip3_tx = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &headset_voip3_tx_data },
+};
 
+static struct platform_device device_bt_sco_mono_voip3_rx = {
+	.name = "msm_snddev_ecodec",
+	.dev = { .platform_data = &bt_sco_mono_voip3_rx_data },
+};
+static struct platform_device device_bt_sco_mono_voip3_tx = {
+	.name = "msm_snddev_ecodec",
+	.dev = { .platform_data = &bt_sco_mono_voip3_tx_data },
+};
+static struct platform_device device_bt_sco_mono_nrec_voip3_rx = {
+	.name = "msm_snddev_ecodec",
+	.dev = { .platform_data = &bt_sco_mono_nrec_voip3_rx_data },
+};
+static struct platform_device device_bt_sco_mono_nrec_voip3_tx = {
+	.name = "msm_snddev_ecodec",
+	.dev = { .platform_data = &bt_sco_mono_nrec_voip3_tx_data },
+};
+static struct platform_device device_bt_sco_stereo_voip3_rx = {
+	.name = "msm_snddev_ecodec",
+	.dev = { .platform_data = &bt_sco_stereo_voip3_rx_data },
+};
+static struct platform_device device_bt_sco_stereo_voip3_tx = {
+	.name = "msm_snddev_ecodec",
+	.dev = { .platform_data = &bt_sco_stereo_voip3_tx_data },
+};
+static struct platform_device device_bt_sco_stereo_nrec_voip3_rx = {
+	.name = "msm_snddev_ecodec",
+	.dev = { .platform_data = &bt_sco_stereo_nrec_voip3_rx_data },
+};
+static struct platform_device device_bt_sco_stereo_nrec_voip3_tx = {
+	.name = "msm_snddev_ecodec",
+	.dev = { .platform_data = &bt_sco_stereo_nrec_voip3_tx_data },
+};
+
+static struct platform_device device_deskdock_voip3_rx = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &deskdock_voip3_rx_data },
+};
+static struct platform_device device_deskdock_voip3_tx = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &deskdock_voip3_tx_data },
+};
+
+// ------- DEFINITION OF LOOPBACK PAIRED DEVICES ------ 
 static struct platform_device device_handset_loopback_rx = {
 	.name = "snddev_icodec",
 	.dev = { .platform_data = &handset_loopback_rx_data },
@@ -4289,6 +4880,27 @@ static struct platform_device *snd_devices_celox[] __initdata = {
 	&device_deskdock_voip2_rx,
 	&device_deskdock_voip2_tx,
 
+	// ------- DEFINITION OF VOIP CALL3 PAIRED DEVICES ------ 
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_KOR_MODEL_SHV_E120L) || defined (CONFIG_Q1_KOR_AUDIO)
+	&device_handset_voip3_rx,
+	&device_handset_voip3_tx,
+	&device_speaker_voip3_rx,
+	&device_speaker_voip3_tx,
+	&device_headset_voip3_rx,
+	&device_headset_voip3_tx,
+
+	&device_bt_sco_mono_voip3_rx,
+	&device_bt_sco_mono_voip3_tx,
+	&device_bt_sco_mono_nrec_voip3_rx,
+	&device_bt_sco_mono_nrec_voip3_tx,
+	&device_bt_sco_stereo_voip3_rx,
+	&device_bt_sco_stereo_voip3_tx,
+	&device_bt_sco_stereo_nrec_voip3_rx,
+	&device_bt_sco_stereo_nrec_voip3_tx,
+
+	&device_deskdock_voip3_rx,
+	&device_deskdock_voip3_tx,
+#endif
     &device_handset_loopback_rx,
 	&device_handset_loopback_tx,
 	&device_speaker_loopback_rx,
@@ -4575,22 +5187,6 @@ static struct platform_device msm_imic_ffa_device = {
 };
 #endif
 
-static struct snddev_icodec_data snddev_qt_dual_dmic_d0_data = {
-	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
-	.name = "speaker_mono_tx",
-	.copp_id = PRIMARY_I2S_TX,
-	.profile = &idmic_mono_profile,
-	.channel_mode = 1,
-	.default_sample_rate = 48000,
-	.pamp_on = msm_snddev_enable_qt_dmic_power,
-	.pamp_off = msm_snddev_disable_qt_dmic_power,
-};
-
-static struct platform_device msm_qt_dual_dmic_d0_device = {
-	.name = "snddev_icodec",
-	.dev = { .platform_data = &snddev_qt_dual_dmic_d0_data },
-};
-
 static struct adie_codec_action_unit dual_mic_endfire_8KHz_osr256_actions[] =
 DMIC1_PRI_STEREO_OSR_256;
 
@@ -4692,6 +5288,110 @@ static struct platform_device msm_spkr_dual_mic_broadside_device = {
 	.name = "snddev_icodec",
 	.id = 18,
 	.dev = { .platform_data = &snddev_spkr_dual_mic_broadside_data },
+};
+
+static struct adie_codec_action_unit
+		fluid_dual_mic_endfire_8KHz_osr256_actions[] =
+	FLUID_AMIC_DUAL_8000_OSR_256;
+
+static struct adie_codec_hwsetting_entry fluid_dual_mic_endfire_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = fluid_dual_mic_endfire_8KHz_osr256_actions,
+		.action_sz =
+			ARRAY_SIZE(fluid_dual_mic_endfire_8KHz_osr256_actions),
+	}
+};
+
+static struct adie_codec_dev_profile fluid_dual_mic_endfire_profile = {
+	.path_type = ADIE_CODEC_TX,
+	.settings = fluid_dual_mic_endfire_settings,
+	.setting_sz = ARRAY_SIZE(fluid_dual_mic_endfire_settings),
+};
+
+static struct snddev_icodec_data snddev_fluid_dual_mic_endfire_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "handset_dual_mic_endfire_tx",
+	.copp_id = PRIMARY_I2S_TX,
+	.profile = &fluid_dual_mic_endfire_profile,
+	.channel_mode = 2,
+	.default_sample_rate = 48000,
+	.pamp_on = msm_snddev_enable_amic_sec_power,
+	.pamp_off = msm_snddev_disable_amic_sec_power,
+};
+
+static struct platform_device msm_fluid_hs_dual_mic_endfire_device = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &snddev_fluid_dual_mic_endfire_data },
+};
+
+static struct snddev_icodec_data snddev_fluid_dual_mic_spkr_endfire_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "speaker_dual_mic_endfire_tx",
+	.copp_id = PRIMARY_I2S_TX,
+	.profile = &fluid_dual_mic_endfire_profile,
+	.channel_mode = 2,
+	.default_sample_rate = 48000,
+	.pamp_on = msm_snddev_enable_amic_sec_power,
+	.pamp_off = msm_snddev_disable_amic_sec_power,
+};
+
+static struct platform_device msm_fluid_spkr_dual_mic_endfire_device = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &snddev_fluid_dual_mic_spkr_endfire_data },
+};
+
+static struct adie_codec_action_unit
+		fluid_dual_mic_broadside_8KHz_osr256_actions[] =
+	FLUID_AMIC_DUAL_BROADSIDE_8000_OSR_256;
+
+static struct adie_codec_hwsetting_entry fluid_dual_mic_broadside_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = fluid_dual_mic_broadside_8KHz_osr256_actions,
+		.action_sz =
+		ARRAY_SIZE(fluid_dual_mic_broadside_8KHz_osr256_actions),
+	}
+};
+
+static struct adie_codec_dev_profile fluid_dual_mic_broadside_profile = {
+	.path_type = ADIE_CODEC_TX,
+	.settings = fluid_dual_mic_broadside_settings,
+	.setting_sz = ARRAY_SIZE(fluid_dual_mic_broadside_settings),
+};
+
+static struct snddev_icodec_data snddev_fluid_dual_mic_broadside_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "handset_dual_mic_broadside_tx",
+	.copp_id = PRIMARY_I2S_TX,
+	.profile = &fluid_dual_mic_broadside_profile,
+	.channel_mode = 2,
+	.default_sample_rate = 48000,
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+};
+
+static struct platform_device msm_fluid_hs_dual_mic_broadside_device = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &snddev_fluid_dual_mic_broadside_data },
+};
+
+static struct snddev_icodec_data snddev_fluid_dual_mic_spkr_broadside_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "speaker_dual_mic_broadside_tx",
+	.copp_id = PRIMARY_I2S_TX,
+	.profile = &fluid_dual_mic_broadside_profile,
+	.channel_mode = 2,
+	.default_sample_rate = 48000,
+	.pamp_on = msm_snddev_enable_amic_power,
+	.pamp_off = msm_snddev_disable_amic_power,
+};
+
+static struct platform_device msm_fluid_spkr_dual_mic_broadside_device = {
+	.name = "snddev_icodec",
+	.dev = { .platform_data = &snddev_fluid_dual_mic_spkr_broadside_data },
 };
 
 static struct snddev_hdmi_data snddev_hdmi_stereo_rx_data = {
@@ -5004,6 +5704,7 @@ static struct platform_device msm_auxpga_lp_hs_device = {
 	.dev = { .platform_data = &snddev_auxpga_lp_hs_data },
 };
 
+#ifdef CONFIG_MSM8X60_FTM_AUDIO_DEVICES
 static struct adie_codec_action_unit ftm_headset_mono_rx_actions[] =
 	HPH_PRI_AB_CPLS_MONO;
 
@@ -5031,6 +5732,7 @@ static struct snddev_icodec_data ftm_headset_mono_rx_data = {
 	.default_sample_rate = 48000,
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_headset_mono_rx_device = {
@@ -5065,6 +5767,7 @@ static struct snddev_icodec_data ftm_headset_mono_diff_rx_data = {
 	.default_sample_rate = 48000,
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_headset_mono_diff_rx_device = {
@@ -5099,6 +5802,7 @@ static struct snddev_icodec_data ftm_spkr_mono_rx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_spkr_mono_rx_device = {
@@ -5133,6 +5837,7 @@ static struct snddev_icodec_data ftm_spkr_l_rx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_spkr_l_rx_device = {
@@ -5167,6 +5872,7 @@ static struct snddev_icodec_data ftm_spkr_r_rx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_spkr_r_rx_device = {
@@ -5201,6 +5907,7 @@ static struct snddev_icodec_data ftm_spkr_mono_diff_rx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_spkr_mono_diff_rx_device = {
@@ -5235,6 +5942,7 @@ static struct snddev_icodec_data ftm_headset_mono_l_rx_data = {
 	.default_sample_rate = 48000,
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_headset_mono_l_rx_device = {
@@ -5269,6 +5977,7 @@ static struct snddev_icodec_data ftm_headset_mono_r_rx_data = {
 	.default_sample_rate = 48000,
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_headset_mono_r_rx_device = {
@@ -5301,6 +6010,7 @@ static struct snddev_icodec_data ftm_linein_l_tx_data = {
 	.profile = &ftm_linein_l_tx_profile,
 	.channel_mode = 1,
 	.default_sample_rate = 48000,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_linein_l_tx_device = {
@@ -5333,6 +6043,7 @@ static struct snddev_icodec_data ftm_linein_r_tx_data = {
 	.profile = &ftm_linein_r_tx_profile,
 	.channel_mode = 1,
 	.default_sample_rate = 48000,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_linein_r_tx_device = {
@@ -5365,6 +6076,7 @@ static struct snddev_icodec_data ftm_aux_out_rx_data = {
 	.profile = &ftm_aux_out_rx_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_aux_out_rx_device = {
@@ -5399,6 +6111,7 @@ static struct snddev_icodec_data ftm_dmic1_left_tx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_enable_dmic_power,
 	.pamp_off = msm_snddev_disable_dmic_power,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_dmic1_left_tx_device = {
@@ -5433,6 +6146,7 @@ static struct snddev_icodec_data ftm_dmic1_right_tx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_enable_dmic_power,
 	.pamp_off = msm_snddev_disable_dmic_power,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_dmic1_right_tx_device = {
@@ -5467,6 +6181,7 @@ static struct snddev_icodec_data ftm_dmic1_l_and_r_tx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_enable_dmic_power,
 	.pamp_off = msm_snddev_disable_dmic_power,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_dmic1_l_and_r_tx_device = {
@@ -5501,6 +6216,7 @@ static struct snddev_icodec_data ftm_dmic2_left_tx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_enable_dmic_power,
 	.pamp_off = msm_snddev_disable_dmic_power,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_dmic2_left_tx_device = {
@@ -5535,6 +6251,7 @@ static struct snddev_icodec_data ftm_dmic2_right_tx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_enable_dmic_power,
 	.pamp_off = msm_snddev_disable_dmic_power,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_dmic2_right_tx_device = {
@@ -5569,6 +6286,7 @@ static struct snddev_icodec_data ftm_dmic2_l_and_r_tx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_enable_dmic_power,
 	.pamp_off = msm_snddev_disable_dmic_power,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_dmic2_l_and_r_tx_device = {
@@ -5601,6 +6319,7 @@ static struct snddev_icodec_data ftm_handset_mic1_aux_in_data = {
 	.profile = &ftm_handset_mic1_aux_in_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 	/* Assumption is that inputs are not tied to analog mic, so
 	 * no need to enable mic bias.
 	 */
@@ -5646,6 +6365,7 @@ static struct snddev_mi2s_data snddev_mi2s_sd2_rx_data = {
 	.channel_mode = 2, /* stereo */
 	.sd_lines = MI2S_SD2, /* sd2 */
 	.sample_rate = 48000,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_mi2s_sd2_rx_device = {
@@ -5679,6 +6399,7 @@ static struct snddev_icodec_data ftm_handset_adie_lp_rx_data = {
 	.profile = &ftm_handset_adie_lp_rx_profile,
 	.channel_mode = 1,
 	.default_sample_rate = 48000,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_handset_adie_lp_rx_device = {
@@ -5713,6 +6434,7 @@ static struct snddev_icodec_data ftm_headset_l_adie_lp_rx_data = {
 	.default_sample_rate = 48000,
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_headset_l_adie_lp_rx_device = {
@@ -5747,6 +6469,7 @@ static struct snddev_icodec_data ftm_headset_r_adie_lp_rx_data = {
 	.default_sample_rate = 48000,
 	.voltage_on = msm_snddev_voltage_on,
 	.voltage_off = msm_snddev_voltage_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_headset_r_adie_lp_rx_device = {
@@ -5781,6 +6504,7 @@ static struct snddev_icodec_data ftm_spkr_l_rx_lp_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_spk_l_adie_lp_rx_device = {
@@ -5789,7 +6513,7 @@ static struct platform_device ftm_spk_l_adie_lp_rx_device = {
 };
 
 static struct adie_codec_action_unit ftm_spkr_r_adie_lp_rx_actions[] =
-FTM_SPKR_RX_LB;
+	SPKR_R_RX;
 
 static struct adie_codec_hwsetting_entry ftm_spkr_r_adie_lp_rx_settings[] = {
 	{
@@ -5815,6 +6539,7 @@ static struct snddev_icodec_data ftm_spkr_r_adie_lp_rx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_spk_r_adie_lp_rx_device = {
@@ -5849,6 +6574,7 @@ static struct snddev_icodec_data ftm_spkr_adie_lp_rx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_poweramp_on,
 	.pamp_off = msm_snddev_poweramp_off,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_spk_adie_lp_rx_device = {
@@ -5883,6 +6609,7 @@ static struct snddev_icodec_data ftm_handset_dual_tx_lp_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_enable_amic_power,
 	.pamp_off = msm_snddev_disable_amic_power,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_handset_dual_tx_lp_device = {
@@ -5918,6 +6645,7 @@ static struct snddev_icodec_data ftm_handset_mic_adie_lp_tx_data = {
 	.default_sample_rate = 48000,
 	.pamp_on = msm_snddev_enable_amic_power,
 	.pamp_off = msm_snddev_disable_amic_power,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_handset_mic_adie_lp_tx_device = {
@@ -5951,12 +6679,14 @@ static struct snddev_icodec_data ftm_headset_mic_adie_lp_tx_data = {
 	.profile = &ftm_headset_mic_adie_lp_tx_profile,
 	.channel_mode = 1,
 	.default_sample_rate = 48000,
+	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device ftm_headset_mic_adie_lp_tx_device = {
 	.name = "snddev_icodec",
 	.dev = { .platform_data = &ftm_headset_mic_adie_lp_tx_data },
 };
+#endif /* CONFIG_MSM8X60_FTM_AUDIO_DEVICES */
 
 static struct snddev_virtual_data snddev_uplink_rx_data = {
 	.capability = SNDDEV_CAP_RX,
@@ -6162,20 +6892,15 @@ static struct platform_device *snd_devices_fluid[] __initdata = {
 	&msm_bt_sco_mic_device,
 	&msm_mi2s_fm_tx_device,
 	&msm_mi2s_fm_rx_device,
+	&msm_fluid_hs_dual_mic_endfire_device,
+	&msm_fluid_spkr_dual_mic_endfire_device,
+	&msm_fluid_hs_dual_mic_broadside_device,
+	&msm_fluid_spkr_dual_mic_broadside_device,
 	&msm_anc_headset_device,
 	&msm_auxpga_lp_hs_device,
 	&msm_auxpga_lp_lo_device,
 	&msm_icodec_gpio_device,
 	&msm_snddev_hdmi_non_linear_pcm_rx_device,
-};
-
-static struct platform_device *snd_devices_qt[] __initdata = {
-	&msm_headset_stereo_device,
-	&msm_headset_mic_device,
-	&msm_ispkr_stereo_device,
-	&msm_qt_dual_dmic_d0_device,
-	&msm_snddev_hdmi_stereo_rx_device,
-	&msm_qt_icodec_gpio_device,
 };
 
 static struct platform_device *snd_devices_common[] __initdata = {
@@ -6185,11 +6910,13 @@ static struct platform_device *snd_devices_common[] __initdata = {
 	&msm_mi2s_device,
 #endif
 	&msm_uplink_rx_device,
+	&msm_device_dspcrashd_8x60,
 };
 #ifdef CONFIG_VP_A2220
 extern int a2220_ioctl2(unsigned int cmd , unsigned long arg);
 #endif
 
+#ifdef CONFIG_MSM8X60_FTM_AUDIO_DEVICES
 static struct platform_device *snd_devices_ftm[] __initdata = {
 	&ftm_headset_mono_rx_device,
 	&ftm_headset_mono_l_rx_device,
@@ -6222,7 +6949,9 @@ static struct platform_device *snd_devices_ftm[] __initdata = {
 	&ftm_spk_adie_lp_rx_device,
 	&ftm_handset_dual_tx_lp_device,
 };
-
+#else
+static struct platform_device *snd_devices_ftm[] __initdata = {};
+#endif
 
 void __init msm_snddev_init(void)
 {
@@ -6232,6 +6961,8 @@ void __init msm_snddev_init(void)
 	atomic_set(&pamp_ref_cnt, 0);
 	atomic_set(&preg_ref_cnt, 0);
 
+    pr_err("%s \n",	__func__);
+
 	for (i = 0, dev_id = 0; i < ARRAY_SIZE(snd_devices_common); i++)
 		snd_devices_common[i]->id = dev_id++;
 
@@ -6239,15 +6970,17 @@ void __init msm_snddev_init(void)
 			ARRAY_SIZE(snd_devices_common));
 
 	/* Auto detect device base on machine info */
-	if (machine_is_msm8x60_surf() || machine_is_msm8x60_charm_surf()) {
+	if (machine_is_msm8x60_surf() || machine_is_msm8x60_fusion()) {
 		for (i = 0; i < ARRAY_SIZE(snd_devices_surf); i++)
 			snd_devices_surf[i]->id = dev_id++;
 
 		platform_add_devices(snd_devices_surf,
 				ARRAY_SIZE(snd_devices_surf));
 	} else if (machine_is_msm8x60_ffa() ||
-			machine_is_msm8x60_charm_ffa()) {
+			machine_is_msm8x60_fusn_ffa()) {
 #ifdef SEC_AUDIO_DEVICE
+		pr_err("%s snd_devices_celox - config \n", __func__);
+
 		for (i = 0; i < ARRAY_SIZE(snd_devices_celox); i++)
 			snd_devices_celox[i]->id = dev_id++;
 
@@ -6266,15 +6999,10 @@ void __init msm_snddev_init(void)
 
 		platform_add_devices(snd_devices_fluid,
 				ARRAY_SIZE(snd_devices_fluid));
-	} else if (machine_is_msm8x60_qt()) {
-		for (i = 0; i < ARRAY_SIZE(snd_devices_qt); i++)
-			snd_devices_qt[i]->id = dev_id++;
-
-		platform_add_devices(snd_devices_qt,
-				ARRAY_SIZE(snd_devices_qt));
 	}
-
-	if (machine_is_msm8x60_surf()) {
+	if (machine_is_msm8x60_surf() || machine_is_msm8x60_ffa()
+		|| machine_is_msm8x60_fusion()
+		|| machine_is_msm8x60_fusn_ffa()) {
 		for (i = 0; i < ARRAY_SIZE(snd_devices_ftm); i++)
 			snd_devices_ftm[i]->id = dev_id++;
 
@@ -6286,6 +7014,15 @@ void __init msm_snddev_init(void)
 	debugfs_hsed_config = debugfs_create_file("msm_hsed_config",
 			S_IFREG | S_IRUGO, NULL,
 			(void *) "msm_hsed_config", &snddev_hsed_config_debug_fops);
+#endif
+/*
+	Configuring SWITCH to QTR, since Audience is disabled and PCM data is re-directed to QTR directly
+*/
+#ifndef CONFIG_VP_A2220
+#if defined (CONFIG_TARGET_LOCALE_USA)
+	gpio_tlmm_config(GPIO_CFG(GPIO_SELECT_I2S_AUDIENCE_QTR,0,GPIO_CFG_OUTPUT,GPIO_CFG_NO_PULL,GPIO_CFG_2MA),GPIO_CFG_ENABLE); // 2MIC_RST
+	gpio_set_value(GPIO_SELECT_I2S_AUDIENCE_QTR, 1);
+#endif
 #endif
 }
 

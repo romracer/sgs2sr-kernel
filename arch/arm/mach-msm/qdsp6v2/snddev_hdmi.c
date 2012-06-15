@@ -1,4 +1,4 @@
-/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  *
  */
 #include <linux/module.h>
@@ -24,9 +19,9 @@
 #include <linux/slab.h>
 #include <asm/uaccess.h>
 #include <mach/qdsp6v2/audio_dev_ctl.h>
-#include <mach/qdsp6v2/apr_audio.h>
 #include <mach/debug_mm.h>
-#include <mach/qdsp6v2/q6afe.h>
+#include <sound/q6afe.h>
+#include <sound/apr_audio.h>
 #include "snddev_hdmi.h"
 
 static DEFINE_MUTEX(snddev_hdmi_lock);
@@ -107,7 +102,7 @@ static int snddev_hdmi_close(struct msm_snddev_info *dev_info)
 	snddev_hdmi_active = 0;
 
 	if (snddev_hdmi_data->on_apps) {
-		pr_debug("%s open done\n", dev_info->name);
+		pr_debug("%s Closed\n", dev_info->name);
 
 		mutex_unlock(&snddev_hdmi_lock);
 		return 0;

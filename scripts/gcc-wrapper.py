@@ -30,6 +30,7 @@
 # Invoke gcc, looking for warnings, and causing a failure if there are
 # non-whitelisted warnings.
 
+import errno
 import re
 import os
 import sys
@@ -40,35 +41,27 @@ import subprocess
 
 allowed_warnings = set([
     "alignment.c:720",
-    "async.c:127",
-    "async.c:283",
-    "decompress_bunzip2.c:511",
-    "dm.c:1118",
-    "dm.c:1146",
-    "dm-table.c:1065",
-    "dm-table.c:1071",
-    "ehci-dbg.c:44",
-    "ehci-dbg.c:88",
-    "ehci-hcd.c:1048",
-    "ehci-hcd.c:423",
-    "ehci-hcd.c:614",
-    "ehci-hub.c:109",
-    "ehci-hub.c:1265",
-    "ehci-msm.c:156",
-    "ehci-msm.c:201",
-    "ehci-msm.c:455",
-    "eventpoll.c:1118",
-    "gspca.c:1509",
-    "ioctl.c:4673",
-    "main.c:305",
-    "main.c:734",
-    "nf_conntrack_netlink.c:762",
+    "async.c:122",
+    "async.c:270",
+    "dir.c:43",
+    "dm.c:1053",
+    "dm.c:1080",
+    "dm-table.c:1120",
+    "dm-table.c:1126",
+    "drm_edid.c:1303",
+    "eventpoll.c:1143",
+    "f_mass_storage.c:3368",
+    "inode.c:72",
+    "inode.c:73",
+    "inode.c:74",
+    "msm_sdcc.c:126",
+    "msm_sdcc.c:128",
+    "nf_conntrack_netlink.c:790",
     "nf_nat_standalone.c:118",
-    "return_address.c:61",
-    "scan.c:749",
-    "smsc.c:257",
-    "yaffs_guts.c:1571",
-    "yaffs_guts.c:600",
+    "return_address.c:62",
+    "soc-core.c:1719",
+    "xt_log.h:50",
+    "vx6953.c:3124",
  ])
 
 # Capture the name of the object file, can find it.
@@ -102,12 +95,20 @@ def run_gcc():
 
     compiler = sys.argv[0]
 
-    proc = subprocess.Popen(args, stderr=subprocess.PIPE)
-    for line in proc.stderr:
-        print line,
-        interpret_warning(line)
+    try:
+        proc = subprocess.Popen(args, stderr=subprocess.PIPE)
+        for line in proc.stderr:
+            print line,
+            interpret_warning(line)
 
-    result = proc.wait()
+        result = proc.wait()
+    except OSError as e:
+        result = e.errno
+        if result == errno.ENOENT:
+            print args[0] + ':',e.strerror
+            print 'Is your PATH set correctly?'
+        else:
+            print ' '.join(args), str(e)
 
     return result
 

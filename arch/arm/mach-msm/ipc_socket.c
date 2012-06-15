@@ -50,9 +50,10 @@ static void *msm_ipc_router_load_modem(void)
 	int rc;
 
 	pil = pil_get("modem");
-	if (IS_ERR(pil))
-		pr_err("%s: modem load failed\n", __func__);
-	else {
+	if (IS_ERR(pil)) {
+		pr_debug("%s: modem load failed\n", __func__);
+		pil = NULL;
+	} else {
 		rc = wait_for_completion_interruptible_timeout(
 						&msm_ipc_remote_router_up,
 						MODEM_LOAD_TIMEOUT);
@@ -62,7 +63,7 @@ static void *msm_ipc_router_load_modem(void)
 			pr_err("%s: wait for remote router failed %d\n",
 				__func__, rc);
 			msm_ipc_router_unload_modem(pil);
-			pil = ERR_PTR(rc);
+			pil = NULL;
 		}
 	}
 
@@ -235,13 +236,7 @@ static int msm_ipc_router_create(struct net *net,
 	sock_init_data(sock, sk);
 	sk->sk_rcvtimeo = DEFAULT_RCV_TIMEO;
 
-	pr_info("%s: calling msm_ipc_router_load_modem\n", __func__);
 	pil = msm_ipc_router_load_modem();
-	if (IS_ERR(pil)) {
-		sk_free(sk);
-		msm_ipc_router_close_port(port_ptr);
-		return PTR_ERR(pil);
-	}
 	msm_ipc_sk(sk)->port = port_ptr;
 	msm_ipc_sk(sk)->modem_pil = pil;
 
@@ -281,8 +276,6 @@ int msm_ipc_router_bind(struct socket *sock, struct sockaddr *uaddr,
 	lock_sock(sk);
 
 	ret = msm_ipc_router_register_server(port_ptr, &addr->address);
-	if (!ret)
-		sk->sk_rcvtimeo = DEFAULT_RCV_TIMEO;
 
 	release_sock(sk);
 	return ret;
@@ -436,7 +429,8 @@ static int msm_ipc_router_ioctl(struct socket *sock,
 			}
 		}
 		ret = msm_ipc_router_lookup_server_name(&server_arg.port_name,
-				port_addr, server_arg.num_entries_in_array);
+				port_addr, server_arg.num_entries_in_array,
+				server_arg.lookup_mask);
 		if (ret < 0) {
 			pr_err("%s: Server not found\n", __func__);
 			ret = -ENODEV;

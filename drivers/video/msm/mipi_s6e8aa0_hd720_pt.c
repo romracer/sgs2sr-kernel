@@ -103,7 +103,11 @@ static int __init mipi_video_s6e8aa0_hd720_pt_init(void)
 
 	pinfo.bl_max = 255; 
 	pinfo.bl_min = 1; 
+#ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
+	pinfo.fb_num = 3; 
+#else
 	pinfo.fb_num = 2; 
+#endif
 
 //	pinfo.clk_rate = 400000000; 
 
@@ -132,6 +136,12 @@ static int __init mipi_video_s6e8aa0_hd720_pt_init(void)
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW; 
 	pinfo.mipi.frame_rate = 60;	
 	pinfo.mipi.dsi_phy_db = &dsi_video_mode_phy_db; 
+
+	// add info for CTS
+	pinfo.lcd.refx100 = pinfo.mipi.frame_rate *100;
+	pinfo.lcd.v_back_porch = pinfo.lcdc.v_back_porch;
+	pinfo.lcd.v_front_porch = pinfo.lcdc.v_front_porch;
+	pinfo.lcd.v_pulse_width = pinfo.lcdc.v_pulse_width;
 
 	ret = mipi_s6e8aa0_hd720_device_register(&pinfo, MIPI_DSI_PRIM,
 						MIPI_DSI_PANEL_WVGA_PT);

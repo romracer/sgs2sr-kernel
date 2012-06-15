@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/slab.h>
@@ -120,6 +115,23 @@
 #define SPKR_BYPASS_EN_PROC 93
 #define HP_SPKR_AUX_IN_EN_PROC 94
 #define XO_CORE_FORCE_ENABLE 96
+#define GPIO_SET_CURRENT_SOURCE_PULLS_PROC 97
+#define GPIO_SET_GPIO_DIRECTION_INPUT_PROC 98
+#define GPIO_SET_EXT_PIN_CONFIG_PROC 99
+#define GPIO_SET_GPIO_CONFIG_PROC 100
+#define GPIO_CONFIG_DIGITAL_OUTPUT_PROC 101
+#define GPIO_GET_GPIO_DIRECTION_PROC 102
+#define GPIO_SET_SLEEP_CLK_CONFIG_PROC 103
+#define GPIO_CONFIG_DIGITAL_INPUT_PROC 104
+#define GPIO_SET_OUTPUT_BUFFER_CONFIGURATION_PROC 105
+#define GPIO_SET_PROC 106
+#define GPIO_CONFIG_MODE_SELECTION_PROC 107
+#define GPIO_SET_INVERSION_CONFIGURATION_PROC 108
+#define GPIO_SET_GPIO_DIRECTION_OUTPUT_PROC 109
+#define GPIO_SET_SOURCE_CONFIGURATION_PROC 110
+#define GPIO_GET_PROC 111
+#define GPIO_SET_VOLTAGE_SOURCE_PROC 112
+#define GPIO_SET_OUTPUT_BUFFER_DRIVE_STRENGTH_PROC 113
 
 /* rpc related */
 #define PMIC_RPC_TIMEOUT (5*HZ)
@@ -130,6 +142,7 @@
 #define PMIC_RPC_VER_2_1	0x00020001
 #define PMIC_RPC_VER_3_1	0x00030001
 #define PMIC_RPC_VER_5_1	0x00050001
+#define PMIC_RPC_VER_6_1	0x00060001
 
 /* error bit flags defined by modem side */
 #define PM_ERR_FLAG__PAR1_OUT_OF_RANGE		(0x0001)
@@ -168,6 +181,7 @@ static struct pmic_ctrl pmic_ctrl = {
 
 /* Add newer versions at the top of array */
 static const unsigned int rpc_vers[] = {
+	PMIC_RPC_VER_6_1,
 	PMIC_RPC_VER_5_1,
 	PMIC_RPC_VER_3_1,
 	PMIC_RPC_VER_2_1,
@@ -218,6 +232,7 @@ static int pmic_buf_init(void)
 static inline void pmic_buf_reserve(struct pmic_buf *bp, int len)
 {
 	bp->data += len;
+	bp->len  += len;
 }
 
 static inline void pmic_buf_reset(struct pmic_buf *bp)
@@ -318,7 +333,7 @@ static int pmic_rpc_req_reply(struct pmic_buf *tbuf, struct pmic_buf *rbuf,
 	if ((pm->endpoint == NULL) || IS_ERR(pm->endpoint)) {
 		for (i = 0; i < ARRAY_SIZE(rpc_vers); i++) {
 			pm->endpoint = msm_rpc_connect_compatible(PMIC_RPC_PROG,
-					rpc_vers[i], 0);
+					rpc_vers[i], MSM_RPC_UNINTERRUPTIBLE);
 
 			if (IS_ERR(pm->endpoint)) {
 				ans  = PTR_ERR(pm->endpoint);
@@ -345,7 +360,6 @@ static int pmic_rpc_req_reply(struct pmic_buf *tbuf, struct pmic_buf *rbuf,
 	* the length
 	*/
 	tbuf->data = tbuf->start;
-	tbuf->len += sizeof(struct rpc_request_hdr);
 
 	len = msm_rpc_call_reply(pm->endpoint, proc,
 				tbuf->data, tbuf->len,
@@ -1218,3 +1232,55 @@ int pmic_xo_core_force_enable(uint enable)
 	return pmic_rpc_set_only(enable, 0, 0, 0, 1, XO_CORE_FORCE_ENABLE);
 }
 EXPORT_SYMBOL(pmic_xo_core_force_enable);
+
+int pmic_gpio_direction_input(unsigned gpio)
+{
+	return pmic_rpc_set_only(gpio, 0, 0, 0, 1,
+			GPIO_SET_GPIO_DIRECTION_INPUT_PROC);
+}
+EXPORT_SYMBOL(pmic_gpio_direction_input);
+
+int pmic_gpio_direction_output(unsigned gpio)
+{
+	return pmic_rpc_set_only(gpio, 0, 0, 0, 1,
+			GPIO_SET_GPIO_DIRECTION_OUTPUT_PROC);
+}
+EXPORT_SYMBOL(pmic_gpio_direction_output);
+
+int pmic_gpio_set_value(unsigned gpio, int value)
+{
+	return pmic_rpc_set_only(gpio, value, 0, 0, 2, GPIO_SET_PROC);
+}
+EXPORT_SYMBOL(pmic_gpio_set_value);
+
+int pmic_gpio_get_value(unsigned gpio)
+{
+	uint value;
+	int ret;
+
+	ret = pmic_rpc_set_get(gpio, &value, sizeof(value), GPIO_GET_PROC);
+	if (ret < 0)
+		return ret;
+	return value ? 1 : 0;
+}
+EXPORT_SYMBOL(pmic_gpio_get_value);
+
+int pmic_gpio_get_direction(unsigned gpio)
+{
+	enum pmic_direction_mode dir;
+	int ret;
+
+	ret = pmic_rpc_set_get(gpio, &dir, sizeof(dir),
+			GPIO_GET_GPIO_DIRECTION_PROC);
+	if (ret < 0)
+		return ret;
+	return dir;
+}
+EXPORT_SYMBOL(pmic_gpio_get_direction);
+
+int pmic_gpio_config(struct pm8xxx_gpio_rpc_cfg *param)
+{
+	return pmic_rpc_set_struct(0, 0, (uint *)param, sizeof(*param),
+			GPIO_SET_GPIO_CONFIG_PROC);
+}
+EXPORT_SYMBOL(pmic_gpio_config);

@@ -1,7 +1,7 @@
 /* arch/arm/mach-msm/smd_debug.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
  * Author: Brian Swetland <swetland@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
@@ -18,6 +18,7 @@
 #include <linux/debugfs.h>
 #include <linux/list.h>
 #include <linux/ctype.h>
+#include <linux/jiffies.h>
 
 #include <mach/msm_iomap.h>
 
@@ -199,8 +200,8 @@ static int dump_ch(char *buf, int max, int n,
 	return scnprintf(
 		buf, max,
 		"ch%02d:"
-		" %8s(%04d/%04d) %c%c%c%c%c%c%c <->"
-		" %8s(%04d/%04d) %c%c%c%c%c%c%c : %5x\n", n,
+		" %8s(%04d/%04d) %c%c%c%c%c%c%c%c <->"
+		" %8s(%04d/%04d) %c%c%c%c%c%c%c%c : %5x\n", n,
 		chstate(s->state), s->tail, s->head,
 		s->fDSR ? 'D' : 'd',
 		s->fCTS ? 'C' : 'c',
@@ -209,6 +210,7 @@ static int dump_ch(char *buf, int max, int n,
 		s->fHEAD ? 'W' : 'w',
 		s->fTAIL ? 'R' : 'r',
 		s->fSTATE ? 'S' : 's',
+		s->fBLOCKREADINTR ? 'B' : 'b',
 		chstate(r->state), r->tail, r->head,
 		r->fDSR ? 'D' : 'd',
 		r->fCTS ? 'R' : 'r',
@@ -217,6 +219,7 @@ static int dump_ch(char *buf, int max, int n,
 		r->fHEAD ? 'W' : 'w',
 		r->fTAIL ? 'R' : 'r',
 		r->fSTATE ? 'S' : 's',
+		r->fBLOCKREADINTR ? 'B' : 'b',
 		size
 		);
 }
@@ -235,7 +238,225 @@ static int debug_read_smsm_state(char *buf, int max)
 				       n, smsm[n]);
 
 	return i;
+}
 
+struct SMSM_CB_DATA {
+	int cb_count;
+	void *data;
+	uint32_t old_state;
+	uint32_t new_state;
+};
+static struct SMSM_CB_DATA smsm_cb_data;
+static struct completion smsm_cb_completion;
+
+static void smsm_state_cb(void *data, uint32_t old_state, uint32_t new_state)
+{
+	smsm_cb_data.cb_count++;
+	smsm_cb_data.old_state = old_state;
+	smsm_cb_data.new_state = new_state;
+	smsm_cb_data.data = data;
+	complete_all(&smsm_cb_completion);
+}
+
+#define UT_EQ_INT(a, b) \
+	if ((a) != (b)) { \
+		i += scnprintf(buf + i, max - i, \
+			"%s:%d " #a "(%d) != " #b "(%d)\n", \
+				__func__, __LINE__, \
+				a, b); \
+		break; \
+	} \
+	do {} while (0)
+
+#define UT_GT_INT(a, b) \
+	if ((a) <= (b)) { \
+		i += scnprintf(buf + i, max - i, \
+			"%s:%d " #a "(%d) > " #b "(%d)\n", \
+				__func__, __LINE__, \
+				a, b); \
+		break; \
+	} \
+	do {} while (0)
+
+#define SMSM_CB_TEST_INIT() \
+	do { \
+		smsm_cb_data.cb_count = 0; \
+		smsm_cb_data.old_state = 0; \
+		smsm_cb_data.new_state = 0; \
+		smsm_cb_data.data = 0; \
+	} while (0)
+
+
+static int debug_test_smsm(char *buf, int max)
+{
+	int i = 0;
+	int test_num = 0;
+	int ret;
+
+	/* Test case 1 - Register new callback for notification */
+	do {
+		test_num++;
+		SMSM_CB_TEST_INIT();
+		ret = smsm_state_cb_register(SMSM_APPS_STATE, SMSM_SMDINIT,
+				smsm_state_cb, (void *)0x1234);
+		UT_EQ_INT(ret, 0);
+
+		/* de-assert SMSM_SMD_INIT to trigger state update */
+		UT_EQ_INT(smsm_cb_data.cb_count, 0);
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+
+		UT_EQ_INT(smsm_cb_data.cb_count, 1);
+		UT_EQ_INT(smsm_cb_data.old_state & SMSM_SMDINIT, SMSM_SMDINIT);
+		UT_EQ_INT(smsm_cb_data.new_state & SMSM_SMDINIT, 0x0);
+		UT_EQ_INT((int)smsm_cb_data.data, 0x1234);
+
+		/* re-assert SMSM_SMD_INIT to trigger state update */
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 2);
+		UT_EQ_INT(smsm_cb_data.old_state & SMSM_SMDINIT, 0x0);
+		UT_EQ_INT(smsm_cb_data.new_state & SMSM_SMDINIT, SMSM_SMDINIT);
+
+		/* deregister callback */
+		ret = smsm_state_cb_deregister(SMSM_APPS_STATE, SMSM_SMDINIT,
+				smsm_state_cb, (void *)0x1234);
+		UT_EQ_INT(ret, 2);
+
+		/* make sure state change doesn't cause any more callbacks */
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
+		UT_EQ_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 2);
+
+		i += scnprintf(buf + i, max - i, "Test %d - PASS\n", test_num);
+	} while (0);
+
+	/* Test case 2 - Update already registered callback */
+	do {
+		test_num++;
+		SMSM_CB_TEST_INIT();
+		ret = smsm_state_cb_register(SMSM_APPS_STATE, SMSM_SMDINIT,
+				smsm_state_cb, (void *)0x1234);
+		UT_EQ_INT(ret, 0);
+		ret = smsm_state_cb_register(SMSM_APPS_STATE, SMSM_INIT,
+				smsm_state_cb, (void *)0x1234);
+		UT_EQ_INT(ret, 1);
+
+		/* verify both callback bits work */
+		INIT_COMPLETION(smsm_cb_completion);
+		UT_EQ_INT(smsm_cb_data.cb_count, 0);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 1);
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 2);
+
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_INIT, 0x0);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 3);
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_INIT);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 4);
+
+		/* deregister 1st callback */
+		ret = smsm_state_cb_deregister(SMSM_APPS_STATE, SMSM_SMDINIT,
+				smsm_state_cb, (void *)0x1234);
+		UT_EQ_INT(ret, 1);
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
+		UT_EQ_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 4);
+
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_INIT, 0x0);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 5);
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_INIT);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 6);
+
+		/* deregister 2nd callback */
+		ret = smsm_state_cb_deregister(SMSM_APPS_STATE, SMSM_INIT,
+				smsm_state_cb, (void *)0x1234);
+		UT_EQ_INT(ret, 2);
+
+		/* make sure state change doesn't cause any more callbacks */
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_INIT, 0x0);
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_INIT);
+		UT_EQ_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 6);
+
+		i += scnprintf(buf + i, max - i, "Test %d - PASS\n", test_num);
+	} while (0);
+
+	/* Test case 3 - Two callback registrations with different data */
+	do {
+		test_num++;
+		SMSM_CB_TEST_INIT();
+		ret = smsm_state_cb_register(SMSM_APPS_STATE, SMSM_SMDINIT,
+				smsm_state_cb, (void *)0x1234);
+		UT_EQ_INT(ret, 0);
+		ret = smsm_state_cb_register(SMSM_APPS_STATE, SMSM_INIT,
+				smsm_state_cb, (void *)0x3456);
+		UT_EQ_INT(ret, 0);
+
+		/* verify both callbacks work */
+		INIT_COMPLETION(smsm_cb_completion);
+		UT_EQ_INT(smsm_cb_data.cb_count, 0);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_SMDINIT, 0x0);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 1);
+		UT_EQ_INT((int)smsm_cb_data.data, 0x1234);
+
+		INIT_COMPLETION(smsm_cb_completion);
+		smsm_change_state(SMSM_APPS_STATE, SMSM_INIT, 0x0);
+		UT_GT_INT((int)wait_for_completion_timeout(&smsm_cb_completion,
+					msecs_to_jiffies(20)), 0);
+		UT_EQ_INT(smsm_cb_data.cb_count, 2);
+		UT_EQ_INT((int)smsm_cb_data.data, 0x3456);
+
+		/* cleanup and unregister
+		 * degregister in reverse to verify data field is
+		 * being used
+		 */
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_SMDINIT);
+		smsm_change_state(SMSM_APPS_STATE, 0x0, SMSM_INIT);
+		ret = smsm_state_cb_deregister(SMSM_APPS_STATE,
+				SMSM_INIT,
+				smsm_state_cb, (void *)0x3456);
+		UT_EQ_INT(ret, 2);
+		ret = smsm_state_cb_deregister(SMSM_APPS_STATE,
+				SMSM_SMDINIT,
+				smsm_state_cb, (void *)0x1234);
+		UT_EQ_INT(ret, 2);
+
+		i += scnprintf(buf + i, max - i, "Test %d - PASS\n", test_num);
+	} while (0);
+
+	return i;
 }
 
 static int debug_read_mem(char *buf, int max)
@@ -261,7 +482,8 @@ static int debug_read_mem(char *buf, int max)
 	return i;
 }
 
-static int debug_read_ch_v1(char *buf, int max)
+#if (!defined(CONFIG_MSM_SMD_PKG4) && !defined(CONFIG_MSM_SMD_PKG3))
+static int debug_read_ch(char *buf, int max)
 {
 	void *shared;
 	int n, i = 0;
@@ -280,8 +502,8 @@ static int debug_read_ch_v1(char *buf, int max)
 
 	return i;
 }
-
-static int debug_read_ch_v2(char *buf, int max)
+#else
+static int debug_read_ch(char *buf, int max)
 {
 	void *shared, *buffer;
 	unsigned buffer_sz;
@@ -306,20 +528,7 @@ static int debug_read_ch_v2(char *buf, int max)
 
 	return i;
 }
-
-static int debug_read_ch(char *buf, int max)
-{
-	uint32_t *smd_ver;
-
-	smd_ver = smem_alloc(SMEM_VERSION_SMD, 32 * sizeof(uint32_t));
-
-	if (smd_ver && (((smd_ver[VERSION_MODEM] >> 16) >= 1) ||
-			((smd_ver[VERSION_QDSP6] >> 16) >= 1) ||
-			((smd_ver[VERSION_DSPS] >> 16) >= 1)))
-		return debug_read_ch_v2(buf, max);
-	else
-		return debug_read_ch_v1(buf, max);
-}
+#endif
 
 static int debug_read_smem_version(char *buf, int max)
 {
@@ -441,7 +650,12 @@ static ssize_t debug_read(struct file *file, char __user *buf,
 			  size_t count, loff_t *ppos)
 {
 	int (*fill)(char *buf, int max) = file->private_data;
-	int bsize = fill(debug_buffer, DEBUG_BUFMAX);
+	int bsize;
+
+	if (*ppos != 0)
+		return 0;
+
+	bsize = fill(debug_buffer, DEBUG_BUFMAX);
 	return simple_read_from_buffer(buf, count, ppos, debug_buffer, bsize);
 }
 
@@ -499,6 +713,9 @@ static int __init smsm_debugfs_init(void)
 	debug_create("intr_mask", 0444, dent, debug_read_intr_mask);
 	debug_create("intr_mux", 0444, dent, debug_read_intr_mux);
 	debug_create("version", 0444, dent, debug_read_smem_version);
+	debug_create("smsm_test", 0444, dent, debug_test_smsm);
+
+	init_completion(&smsm_cb_completion);
 
 	return 0;
 }

@@ -53,6 +53,8 @@ int drm_get_platform_dev(struct platform_device *platdev,
 	dev->platformdev = platdev;
 	dev->dev = &platdev->dev;
 
+	mutex_lock(&drm_global_mutex);
+
 	ret = drm_fill_in_dev(dev, NULL, driver);
 
 	if (ret) {
@@ -87,6 +89,8 @@ int drm_get_platform_dev(struct platform_device *platdev,
 
 	list_add_tail(&dev->driver_item, &driver->device_list);
 
+	mutex_unlock(&drm_global_mutex);
+
 	DRM_INFO("Initialized %s %d.%d.%d %s on minor %d\n",
 		 driver->name, driver->major, driver->minor, driver->patchlevel,
 		 driver->date, dev->primary->index);
@@ -100,12 +104,65 @@ err_g2:
 		drm_put_minor(&dev->control);
 err_g1:
 	kfree(dev);
+	mutex_unlock(&drm_global_mutex);
 	return ret;
 }
 EXPORT_SYMBOL(drm_get_platform_dev);
 
+static int drm_platform_get_irq(struct drm_device *dev)
+{
+	return platform_get_irq(dev->platformdev, 0);
+}
+
+static const char *drm_platform_get_name(struct drm_device *dev)
+{
+	return dev->platformdev->name;
+}
+
+static int drm_platform_set_busid(struct drm_device *dev, struct drm_master *master)
+{
+	int len, ret;
+
+	master->unique_len = 10 + strlen(dev->platformdev->name);
+	master->unique = kmalloc(master->unique_len + 1, GFP_KERNEL);
+
+	if (master->unique == NULL)
+		return -ENOMEM;
+
+	len = snprintf(master->unique, master->unique_len,
+		       "platform:%s", dev->platformdev->name);
+
+	if (len > master->unique_len) {
+		DRM_ERROR("Unique buffer overflowed\n");
+		ret = -EINVAL;
+		goto err;
+	}
+
+	dev->devname =
+		kmalloc(strlen(dev->platformdev->name) +
+			master->unique_len + 2, GFP_KERNEL);
+
+	if (dev->devname == NULL) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	sprintf(dev->devname, "%s@%s", dev->platformdev->name,
+		master->unique);
+	return 0;
+err:
+	return ret;
+}
+
+static struct drm_bus drm_platform_bus = {
+	.bus_type = DRIVER_BUS_PLATFORM,
+	.get_irq = drm_platform_get_irq,
+	.get_name = drm_platform_get_name,
+	.set_busid = drm_platform_set_busid,
+};
+
 /**
- * Platform device initialization. Called via drm_init at module load time,
+ * Platform device initialization. Called direct from modules.
  *
  * \return zero on success or a negative number on failure.
  *
@@ -116,7 +173,24 @@ EXPORT_SYMBOL(drm_get_platform_dev);
  * after the initialization for driver customization.
  */
 
-int drm_platform_init(struct drm_driver *driver)
+int drm_platform_init(struct drm_driver *driver, struct platform_device *platform_device)
 {
-	return drm_get_platform_dev(driver->platform_device, driver);
+	DRM_DEBUG("\n");
+
+	driver->kdriver.platform_device = platform_device;
+	driver->bus = &drm_platform_bus;
+	INIT_LIST_HEAD(&driver->device_list);
+	return drm_get_platform_dev(platform_device, driver);
 }
+EXPORT_SYMBOL(drm_platform_init);
+
+void drm_platform_exit(struct drm_driver *driver, struct platform_device *platform_device)
+{
+	struct drm_device *dev, *tmp;
+	DRM_DEBUG("\n");
+
+	list_for_each_entry_safe(dev, tmp, &driver->device_list, driver_item)
+		drm_put_dev(dev);
+	DRM_INFO("Module unloaded\n");
+}
+EXPORT_SYMBOL(drm_platform_exit);

@@ -1,29 +1,13 @@
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 
@@ -44,6 +28,7 @@
 
 #define OTGSC_BSVIE            (1 << 27)
 #define OTGSC_IDIE             (1 << 24)
+#define OTGSC_IDPU             (1 << 5)
 #define OTGSC_BSVIS            (1 << 19)
 #define OTGSC_ID               (1 << 8)
 #define OTGSC_IDIS             (1 << 16)
@@ -51,15 +36,19 @@
 #define OTGSC_DPIE             (1 << 30)
 #define OTGSC_DPIS             (1 << 22)
 #define OTGSC_HADP             (1 << 6)
+#define OTGSC_IDPU             (1 << 5)
 
 #define ULPI_STP_CTRL   (1 << 30)
 #define ASYNC_INTR_CTRL (1 << 29)
+#define ULPI_SYNC_STATE (1 << 27)
 
 #define PORTSC_PHCD     (1 << 23)
 #define PORTSC_CSC	(1 << 1)
 #define disable_phy_clk() (writel(readl(USB_PORTSC) | PORTSC_PHCD, USB_PORTSC))
 #define enable_phy_clk() (writel(readl(USB_PORTSC) & ~PORTSC_PHCD, USB_PORTSC))
 #define is_phy_clk_disabled() (readl(USB_PORTSC) & PORTSC_PHCD)
+#define is_phy_active()       (readl_relaxed(USB_ULPI_VIEWPORT) &\
+						ULPI_SYNC_STATE)
 #define is_usb_active()       (!(readl(USB_PORTSC) & PORTSC_SUSP))
 
 /* Timeout (in msec) values (min - max) associated with OTG timers */
@@ -127,12 +116,9 @@ struct msm_otg {
 	struct otg_transceiver otg;
 
 	/* usb clocks */
-	struct clk		*hs_clk;
-	struct clk		*hs_pclk;
-	struct clk		*hs_cclk;
-
-	/* pclk source for voting */
-	struct clk		*pclk_src;
+	struct clk		*alt_core_clk;
+	struct clk		*iface_clk;
+	struct clk		*core_clk;
 
 	/* clk regime has created dummy clock id for phy so
 	 * that generic clk_reset api can be used to reset phy
@@ -141,6 +127,7 @@ struct msm_otg {
 
 	int			irq;
 	int			vbus_on_irq;
+	int			id_irq;
 	void __iomem		*regs;
 	atomic_t		in_lpm;
 	/* charger-type is modified by gadget for legacy chargers
@@ -160,10 +147,8 @@ struct msm_otg {
 
 	spinlock_t lock; /* protects OTG state */
 	struct wake_lock wlock;
-	struct wake_lock wlock_host;
 	unsigned long b_last_se0_sess; /* SRP initial condition check */
 	unsigned long inputs;
-	int pmic_id_status;
 	unsigned long tmouts;
 	u8 active_tmout;
 	struct hrtimer timer;
@@ -177,24 +162,18 @@ struct msm_otg {
 	unsigned		b_max_power;	/* ACA: max power of accessory*/
 #endif
 #ifdef CONFIG_USB_HOST_NOTIFY
+	struct wake_lock wlock_host;
 	struct host_notify_dev ndev;
+	struct delayed_work late_power_work;
+	struct work_struct notify_work;
+	unsigned notify_state;
+	u8      otg_control;
+#endif
+#ifdef CONFIG_30PIN_CONN
+	int accessory_irq;
+	int accessory_irq_gpio;
 #endif
 };
-
-static inline int pclk_requires_voting(struct otg_transceiver *xceiv)
-{
-	struct msm_otg *dev;
-
-	if (!xceiv)
-		return 0;
-
-	dev = container_of(xceiv, struct msm_otg, otg);
-
-	if (dev->pdata->pclk_src_name)
-		return 1;
-	else
-		return 0;
-}
 
 static inline int can_phy_power_collapse(struct msm_otg *dev)
 {

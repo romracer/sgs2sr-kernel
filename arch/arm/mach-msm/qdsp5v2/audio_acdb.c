@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 #include <linux/module.h>
 #include <linux/miscdevice.h>
@@ -27,9 +22,16 @@
 #include <linux/uaccess.h>
 #include <linux/msm_audio.h>
 #include <linux/slab.h>
+#include <linux/debugfs.h>
+#include <linux/memory_alloc.h>
+#include <linux/mfd/marimba.h>
 #include <mach/dal.h>
+#include <mach/iommu.h>
+#include <mach/iommu_domains.h>
+#include <mach/msm_subsystem_map.h>
 #include <mach/qdsp5v2/audio_dev_ctl.h>
 #include <mach/qdsp5v2/audpp.h>
+#include <mach/socinfo.h>
 #include <mach/qdsp5v2/audpreproc.h>
 #include <mach/qdsp5v2/qdsp5audppcmdi.h>
 #include <mach/qdsp5v2/qdsp5audpreproccmdi.h>
@@ -39,9 +41,8 @@
 #include <mach/qdsp5v2/audio_acdbi.h>
 #include <mach/qdsp5v2/acdb_commands.h>
 #include <mach/qdsp5v2/audio_acdb_def.h>
-#include <linux/mfd/marimba.h>
 #include <mach/debug_mm.h>
-#include <linux/debugfs.h>
+#include <mach/msm_memtypes.h>
 
 /* this is the ACDB device ID */
 #define DALDEVICEID_ACDB		0x02000069
@@ -110,6 +111,7 @@ struct acdb_data {
 	u16 *pbe_enable_flag;
 	u32 fluence_extbuff;
 	u8 *fluence_extbuff_virt;
+	struct msm_mapped_buffer *map_v_fluence;
 
 	struct acdb_pbe_block *pbe_blk;
 
@@ -128,6 +130,8 @@ struct acdb_data {
 	/* pmem for get acdb blk */
 	unsigned long	get_blk_paddr;
 	u8		*get_blk_kvaddr;
+	struct msm_mapped_buffer *map_v_get_blk;
+	char *build_id;
 };
 
 static struct acdb_data		acdb_data;
@@ -136,6 +140,7 @@ struct acdb_cache_node {
 	u32 node_status;
 	s32 stream_id;
 	u32 phys_addr_acdb_values;
+	struct msm_mapped_buffer *map_v_addr;
 	u8 *virt_addr_acdb_values;
 	struct auddev_evt_audcal_info device_info;
 };
@@ -232,6 +237,7 @@ static struct dentry *get_set_abid_data_dentry;
 struct rtc_acdb_pmem {
 	u8 *viraddr;
 	int32_t phys;
+	struct msm_mapped_buffer *map_v_rtc;
 };
 
 struct rtc_acdb_data {
@@ -1081,12 +1087,12 @@ static void rtc_acdb_deinit(void)
 	rtc_acdb.valid_abid = false;
 
 	if (rtc_read->viraddr != NULL || ((void *)rtc_read->phys) != NULL) {
-		iounmap(rtc_read->viraddr);
-		pmem_kfree(rtc_read->phys);
+		msm_subsystem_unmap_buffer(rtc_read->map_v_rtc);
+		free_contiguous_memory_by_paddr(rtc_read->phys);
 	}
 	if (rtc_write->viraddr != NULL || ((void *)rtc_write->phys) != NULL) {
-		iounmap(rtc_write->viraddr);
-		pmem_kfree(rtc_write->phys);
+		msm_subsystem_unmap_buffer(rtc_write->map_v_rtc);
+		free_contiguous_memory_by_paddr(rtc_write->phys);
 	}
 }
 
@@ -1105,57 +1111,67 @@ static bool rtc_acdb_init(void)
 	rtc_acdb.set_iid = 0;
 	rtc_acdb.valid_abid = false;
 	rtc_acdb.tx_rx_ctl = 0;
-	snprintf(name, sizeof name, "get_set_abid");
-	get_set_abid_dentry = debugfs_create_file(name,
+	if (acdb_data.build_id[17] == '1') {
+		snprintf(name, sizeof name, "get_set_abid");
+		get_set_abid_dentry = debugfs_create_file(name,
 					S_IFREG | S_IRUGO | S_IWUGO,
 					NULL, NULL, &rtc_acdb_debug_fops);
-	if (IS_ERR(get_set_abid_dentry)) {
-		MM_ERR("SET GET ABID debugfs_create_file failed\n");
-		return false;
+		if (IS_ERR(get_set_abid_dentry)) {
+			MM_ERR("SET GET ABID debugfs_create_file failed\n");
+			return false;
+		}
+
+		snprintf(name1, sizeof name1, "get_set_abid_data");
+		get_set_abid_data_dentry = debugfs_create_file(name1,
+						S_IFREG | S_IRUGO | S_IWUGO,
+						NULL, NULL,
+						&rtc_acdb_data_debug_fops);
+		if (IS_ERR(get_set_abid_data_dentry)) {
+			MM_ERR("SET GET ABID DATA"
+					" debugfs_create_file failed\n");
+			return false;
+		}
 	}
 
-    snprintf(name1, sizeof name1, "get_set_abid_data");
-	get_set_abid_data_dentry = debugfs_create_file(name1,
-					S_IFREG | S_IRUGO | S_IWUGO,
-					NULL, NULL,
-					&rtc_acdb_data_debug_fops);
-	if (IS_ERR(get_set_abid_data_dentry)) {
-		MM_ERR("SET GET ABID DATA debugfs_create_file failed\n");
-		return false;
-	}
+	rtc_read->phys = allocate_contiguous_ebi_nomap(PMEM_RTC_ACDB_QUERY_MEM,
+								 SZ_4K);
 
-	rtc_read->phys = pmem_kalloc(PMEM_RTC_ACDB_QUERY_MEM,
-					PMEM_MEMTYPE_EBI1|PMEM_ALIGNMENT_4K);
-
-	if (IS_ERR((void *)rtc_read->phys)) {
+	if (!rtc_read->phys) {
 		MM_ERR("ACDB Cannot allocate physical memory\n");
 		result = -ENOMEM;
 		goto error;
 	}
-	rtc_read->viraddr = ioremap(rtc_read->phys, PMEM_RTC_ACDB_QUERY_MEM);
+	rtc_read->map_v_rtc = msm_subsystem_map_buffer(
+				rtc_read->phys,
+				PMEM_RTC_ACDB_QUERY_MEM,
+				MSM_SUBSYSTEM_MAP_KADDR, NULL, 0);
 
-	if (rtc_read->viraddr == NULL) {
+	if (IS_ERR(rtc_read->map_v_rtc)) {
 		MM_ERR("ACDB Could not map physical address\n");
 		result = -ENOMEM;
 		goto error;
 	}
+	rtc_read->viraddr = rtc_read->map_v_rtc->vaddr;
 	memset(rtc_read->viraddr, 0, PMEM_RTC_ACDB_QUERY_MEM);
 
-	rtc_write->phys = pmem_kalloc(PMEM_RTC_ACDB_QUERY_MEM,
-					PMEM_MEMTYPE_EBI1|PMEM_ALIGNMENT_4K);
+	rtc_write->phys = allocate_contiguous_ebi_nomap(PMEM_RTC_ACDB_QUERY_MEM,
+								SZ_4K);
 
-	if (IS_ERR((void *)rtc_write->phys)) {
+	if (!rtc_write->phys) {
 		MM_ERR("ACDB Cannot allocate physical memory\n");
 		result = -ENOMEM;
 		goto error;
 	}
-	rtc_write->viraddr = ioremap(rtc_write->phys, PMEM_RTC_ACDB_QUERY_MEM);
+	rtc_write->map_v_rtc = msm_subsystem_map_buffer(
+				rtc_write->phys, PMEM_RTC_ACDB_QUERY_MEM,
+				MSM_SUBSYSTEM_MAP_KADDR, NULL, 0);
 
-	if (rtc_write->viraddr == NULL) {
+	if (IS_ERR(rtc_write->map_v_rtc)) {
 		MM_ERR("ACDB Could not map physical address\n");
 		result = -ENOMEM;
 		goto error;
 	}
+	rtc_write->viraddr = rtc_write->map_v_rtc->vaddr;
 	memset(rtc_write->viraddr, 0, PMEM_RTC_ACDB_QUERY_MEM);
 	init_waitqueue_head(&rtc_acdb.wait);
 	return true;
@@ -1171,12 +1187,12 @@ error:
 		debugfs_remove(get_set_abid_data_dentry);
 	}
 	if (rtc_read->viraddr != NULL || ((void *)rtc_read->phys) != NULL) {
-		iounmap(rtc_read->viraddr);
-		pmem_kfree(rtc_read->phys);
+		msm_subsystem_unmap_buffer(rtc_read->map_v_rtc);
+		free_contiguous_memory_by_paddr(rtc_read->phys);
 	}
 	if (rtc_write->viraddr != NULL || ((void *)rtc_write->phys) != NULL) {
-		iounmap(rtc_write->viraddr);
-		pmem_kfree(rtc_write->phys);
+		msm_subsystem_unmap_buffer(rtc_write->map_v_rtc);
+		free_contiguous_memory_by_paddr(rtc_write->phys);
 	}
 	return false;
 }
@@ -1463,7 +1479,7 @@ static u8 check_device_info_already_present(
 		acdb values are not cleaned from node so update node status
 		with acdb value filled*/
 		if ((acdb_cache_free_node->node_status != ACDB_VALUES_FILLED) &&
-			((acdb_data.device_info->dev_type & RX_DEVICE) == 1)) {
+			((audcal_info.dev_type & RX_DEVICE) == 1)) {
 			MM_DBG("device was released earlier\n");
 			acdb_cache_free_node->node_status = ACDB_VALUES_FILLED;
 			return 2; /*node is presnet but status as not filled*/
@@ -2321,18 +2337,20 @@ s32 acdb_calibrate_audpreproc(void)
 			MM_DBG("AUDPREPROC is calibrated"
 				" with calib_gain_tx\n");
 	}
-	acdb_rmc = get_rmc_blk();
-	if (acdb_rmc != NULL) {
-		result = afe_config_rmc_block(acdb_rmc);
-		if (result) {
-			MM_ERR("ACDB=> Failed to send rmc"
-				" data to afe\n");
-			result = -EINVAL;
-			goto done;
+	if (acdb_data.build_id[17] != '0') {
+		acdb_rmc = get_rmc_blk();
+		if (acdb_rmc != NULL) {
+			result = afe_config_rmc_block(acdb_rmc);
+			if (result) {
+				MM_ERR("ACDB=> Failed to send rmc"
+					" data to afe\n");
+				result = -EINVAL;
+				goto done;
+			} else
+				MM_DBG("AFE is calibrated with rmc params\n");
 		} else
-			MM_DBG("AFE is calibrated with rmc params\n");
-	} else
-		MM_DBG("RMC block was not found\n");
+			MM_DBG("RMC block was not found\n");
+	}
 	if (!acdb_data.fleuce_feature_status[acdb_data.preproc_stream_id]) {
 		result = acdb_fill_audpreproc_fluence();
 		if (!(IS_ERR_VALUE(result))) {
@@ -2518,34 +2536,38 @@ static u32 allocate_memory_acdb_cache_tx(void)
 	/*initialize local cache */
 	for (i = 0; i < MAX_AUDREC_SESSIONS; i++) {
 		acdb_cache_tx[i].phys_addr_acdb_values =
-					pmem_kalloc(ACDB_BUF_SIZE,
-						(PMEM_MEMTYPE_EBI1
-						| PMEM_ALIGNMENT_4K));
+				allocate_contiguous_ebi_nomap(ACDB_BUF_SIZE,
+								SZ_4K);
 
-		if (IS_ERR((void *)acdb_cache_tx[i].phys_addr_acdb_values)) {
+		if (!acdb_cache_tx[i].phys_addr_acdb_values) {
 			MM_ERR("ACDB=> Cannot allocate physical memory\n");
 			result = -ENOMEM;
 			goto error;
 		}
-		acdb_cache_tx[i].virt_addr_acdb_values =
-					ioremap(
+		acdb_cache_tx[i].map_v_addr =
+					msm_subsystem_map_buffer(
 					acdb_cache_tx[i].phys_addr_acdb_values,
-						ACDB_BUF_SIZE);
-		if (acdb_cache_tx[i].virt_addr_acdb_values == NULL) {
+						ACDB_BUF_SIZE,
+					MSM_SUBSYSTEM_MAP_KADDR, NULL, 0);
+		if (IS_ERR(acdb_cache_tx[i].map_v_addr)) {
 			MM_ERR("ACDB=> Could not map physical address\n");
 			result = -ENOMEM;
-			pmem_kfree(acdb_cache_tx[i].phys_addr_acdb_values);
+			free_contiguous_memory_by_paddr(
+					acdb_cache_tx[i].phys_addr_acdb_values);
 			goto error;
 		}
+		acdb_cache_tx[i].virt_addr_acdb_values =
+					acdb_cache_tx[i].map_v_addr->vaddr;
 		memset(acdb_cache_tx[i].virt_addr_acdb_values, 0,
 						ACDB_BUF_SIZE);
 	}
 	return result;
 error:
 	for (err = 0; err < i; err++) {
-		iounmap(acdb_cache_tx[i].virt_addr_acdb_values);
-		pmem_kfree(acdb_cache_tx[i].phys_addr_acdb_values);
-
+		msm_subsystem_unmap_buffer(
+				acdb_cache_tx[err].map_v_addr);
+		free_contiguous_memory_by_paddr(
+				acdb_cache_tx[err].phys_addr_acdb_values);
 	}
 	return result;
 }
@@ -2559,34 +2581,39 @@ static u32 allocate_memory_acdb_cache_rx(void)
 	/*initialize local cache */
 	for (i = 0; i < MAX_COPP_NODE_SUPPORTED; i++) {
 		acdb_cache_rx[i].phys_addr_acdb_values =
-					pmem_kalloc(ACDB_BUF_SIZE,
-						(PMEM_MEMTYPE_EBI1
-						| PMEM_ALIGNMENT_4K));
+					allocate_contiguous_ebi_nomap(
+						ACDB_BUF_SIZE, SZ_4K);
 
-		if (IS_ERR((void *)acdb_cache_rx[i].phys_addr_acdb_values)) {
+		if (!acdb_cache_rx[i].phys_addr_acdb_values) {
 			MM_ERR("ACDB=> Can not allocate physical memory\n");
 			result = -ENOMEM;
 			goto error;
 		}
-		acdb_cache_rx[i].virt_addr_acdb_values =
-					ioremap(
+		acdb_cache_rx[i].map_v_addr =
+				msm_subsystem_map_buffer(
 					acdb_cache_rx[i].phys_addr_acdb_values,
-						ACDB_BUF_SIZE);
-		if (acdb_cache_rx[i].virt_addr_acdb_values == NULL) {
+					ACDB_BUF_SIZE,
+					MSM_SUBSYSTEM_MAP_KADDR,
+					NULL, 0);
+		if (IS_ERR(acdb_cache_rx[i].map_v_addr)) {
 			MM_ERR("ACDB=> Could not map physical address\n");
 			result = -ENOMEM;
-			pmem_kfree(acdb_cache_rx[i].phys_addr_acdb_values);
+			free_contiguous_memory_by_paddr(
+					acdb_cache_rx[i].phys_addr_acdb_values);
 			goto error;
 		}
+		acdb_cache_rx[i].virt_addr_acdb_values =
+					acdb_cache_rx[i].map_v_addr->vaddr;
 		memset(acdb_cache_rx[i].virt_addr_acdb_values, 0,
 						ACDB_BUF_SIZE);
 	}
 	return result;
 error:
 	for (err = 0; err < i; err++) {
-		iounmap(acdb_cache_rx[i].virt_addr_acdb_values);
-		pmem_kfree(acdb_cache_rx[i].phys_addr_acdb_values);
-
+		msm_subsystem_unmap_buffer(
+					acdb_cache_rx[err].map_v_addr);
+		free_contiguous_memory_by_paddr(
+				acdb_cache_rx[err].phys_addr_acdb_values);
 	}
 	return result;
 }
@@ -2594,22 +2621,25 @@ error:
 static u32 allocate_memory_acdb_get_blk(void)
 {
 	u32 result = 0;
-	acdb_data.get_blk_paddr = pmem_kalloc(ACDB_BUF_SIZE,
-						(PMEM_MEMTYPE_EBI1
-						| PMEM_ALIGNMENT_4K));
-	if (IS_ERR((void *)acdb_data.get_blk_paddr)) {
+	acdb_data.get_blk_paddr = allocate_contiguous_ebi_nomap(
+						ACDB_BUF_SIZE, SZ_4K);
+	if (!acdb_data.get_blk_paddr) {
 		MM_ERR("ACDB=> Cannot allocate physical memory\n");
 		result = -ENOMEM;
 		goto error;
 	}
-	acdb_data.get_blk_kvaddr = ioremap(acdb_data.get_blk_paddr,
-					ACDB_BUF_SIZE);
-	if (acdb_data.get_blk_kvaddr == NULL) {
+	acdb_data.map_v_get_blk = msm_subsystem_map_buffer(
+					acdb_data.get_blk_paddr,
+					ACDB_BUF_SIZE,
+					MSM_SUBSYSTEM_MAP_KADDR, NULL, 0);
+	if (IS_ERR(acdb_data.map_v_get_blk)) {
 		MM_ERR("ACDB=> Could not map physical address\n");
 		result = -ENOMEM;
-		pmem_kfree(acdb_data.get_blk_paddr);
+		free_contiguous_memory_by_paddr(
+					acdb_data.get_blk_paddr);
 		goto error;
 	}
+	acdb_data.get_blk_kvaddr = acdb_data.map_v_get_blk->vaddr;
 	memset(acdb_data.get_blk_kvaddr, 0, ACDB_BUF_SIZE);
 error:
 	return result;
@@ -2620,8 +2650,9 @@ static void free_memory_acdb_cache_rx(void)
 	u32 i = 0;
 
 	for (i = 0; i < MAX_COPP_NODE_SUPPORTED; i++) {
-		iounmap(acdb_cache_rx[i].virt_addr_acdb_values);
-		pmem_kfree(acdb_cache_rx[i].phys_addr_acdb_values);
+		msm_subsystem_unmap_buffer(acdb_cache_rx[i].map_v_addr);
+		free_contiguous_memory_by_paddr(
+				acdb_cache_rx[i].phys_addr_acdb_values);
 	}
 }
 
@@ -2630,15 +2661,16 @@ static void free_memory_acdb_cache_tx(void)
 	u32 i = 0;
 
 	for (i = 0; i < MAX_AUDREC_SESSIONS; i++) {
-		iounmap(acdb_cache_tx[i].virt_addr_acdb_values);
-		pmem_kfree(acdb_cache_tx[i].phys_addr_acdb_values);
+		msm_subsystem_unmap_buffer(acdb_cache_tx[i].map_v_addr);
+		free_contiguous_memory_by_paddr(
+				acdb_cache_tx[i].phys_addr_acdb_values);
 	}
 }
 
 static void free_memory_acdb_get_blk(void)
 {
-	iounmap(acdb_data.get_blk_kvaddr);
-	pmem_kfree(acdb_data.get_blk_paddr);
+	msm_subsystem_unmap_buffer(acdb_data.map_v_get_blk);
+	free_contiguous_memory_by_paddr(acdb_data.get_blk_paddr);
 }
 
 static s32 initialize_memory(void)
@@ -2759,10 +2791,9 @@ static s32 initialize_memory(void)
 		result = -ENOMEM;
 		goto done;
 	}
-	acdb_data.pbe_extbuff = (u16 *)(pmem_kalloc(PBE_BUF_SIZE,
-					(PMEM_MEMTYPE_EBI1 |
-					PMEM_ALIGNMENT_4K)));
-	if (IS_ERR((void *)acdb_data.pbe_extbuff)) {
+	acdb_data.pbe_extbuff = (u16 *) allocate_contiguous_ebi_nomap(
+						PBE_BUF_SIZE, SZ_4K);
+	if (!acdb_data.pbe_extbuff) {
 		MM_ERR("ACDB=> Cannot allocate physical memory\n");
 		free_memory_acdb_get_blk();
 		free_memory_acdb_cache_rx();
@@ -2777,10 +2808,9 @@ static s32 initialize_memory(void)
 		result = -ENOMEM;
 		goto done;
 	}
-	acdb_data.fluence_extbuff = pmem_kalloc(FLUENCE_BUF_SIZE,
-							(PMEM_MEMTYPE_EBI1 |
-							PMEM_ALIGNMENT_4K));
-	if (IS_ERR((void *)acdb_data.fluence_extbuff)) {
+	acdb_data.fluence_extbuff = allocate_contiguous_ebi_nomap(
+					FLUENCE_BUF_SIZE, SZ_4K);
+	if (!acdb_data.fluence_extbuff) {
 		MM_ERR("ACDB=> cannot allocate physical memory for "
 					"fluence block\n");
 		free_memory_acdb_get_blk();
@@ -2793,15 +2823,16 @@ static s32 initialize_memory(void)
 		kfree(acdb_data.preproc_iir);
 		kfree(acdb_data.calib_gain_tx);
 		kfree(acdb_data.pbe_block);
-		pmem_kfree((int32_t)acdb_data.pbe_extbuff);
+		free_contiguous_memory_by_paddr((int32_t)acdb_data.pbe_extbuff);
 		result = -ENOMEM;
 		goto done;
 	}
-	acdb_data.fluence_extbuff_virt =
-					ioremap(
-					acdb_data.fluence_extbuff,
-						FLUENCE_BUF_SIZE);
-	if (acdb_data.fluence_extbuff_virt == NULL) {
+	acdb_data.map_v_fluence =
+			msm_subsystem_map_buffer(
+				acdb_data.fluence_extbuff,
+				FLUENCE_BUF_SIZE,
+				MSM_SUBSYSTEM_MAP_KADDR, NULL, 0);
+	if (IS_ERR(acdb_data.map_v_fluence)) {
 		MM_ERR("ACDB=> Could not map physical address\n");
 		free_memory_acdb_get_blk();
 		free_memory_acdb_cache_rx();
@@ -2813,11 +2844,15 @@ static s32 initialize_memory(void)
 		kfree(acdb_data.preproc_iir);
 		kfree(acdb_data.calib_gain_tx);
 		kfree(acdb_data.pbe_block);
-		pmem_kfree((int32_t)acdb_data.pbe_extbuff);
-		pmem_kfree((int32_t)acdb_data.fluence_extbuff);
+		free_contiguous_memory_by_paddr(
+				(int32_t)acdb_data.pbe_extbuff);
+		free_contiguous_memory_by_paddr(
+				(int32_t)acdb_data.fluence_extbuff);
 		result = -ENOMEM;
 		goto done;
-	}
+	} else
+		acdb_data.fluence_extbuff_virt =
+					acdb_data.map_v_fluence->vaddr;
 done:
 	return result;
 }
@@ -2836,13 +2871,10 @@ static u32 free_acdb_cache_node(union auddev_evt_data *evt)
 		acdb_cache_tx[session_id].
 			node_status = ACDB_VALUES_NOT_FILLED;
 	} else {
-		if (--(acdb_cache_rx[evt->audcal_info.dev_id].stream_id) <= 0) {
 			MM_DBG("freeing rx cache node %d\n",
 						evt->audcal_info.dev_id);
 			acdb_cache_rx[evt->audcal_info.dev_id].
 				node_status = ACDB_VALUES_NOT_FILLED;
-			acdb_cache_rx[evt->audcal_info.dev_id].stream_id = 0;
-		}
 	}
 	return 0;
 }
@@ -2992,8 +3024,13 @@ static void audpp_cb(void *private, u32 id, u16 *msg)
 		goto done;
 
 	if (msg[0] == AUDPP_MSG_ENA_DIS) {
-		acdb_data.acdb_state &= ~AUDPP_READY;
-		MM_DBG("AUDPP_MSG_ENA_DIS\n");
+		if (--acdb_cache_rx[acdb_data.\
+				device_info->dev_id].stream_id <= 0) {
+			acdb_data.acdb_state &= ~AUDPP_READY;
+			acdb_cache_rx[acdb_data.device_info->dev_id]\
+					.stream_id = 0;
+			MM_DBG("AUDPP_MSG_ENA_DIS\n");
+		}
 		goto done;
 	}
 
@@ -3020,9 +3057,11 @@ static s8 handle_audpreproc_cb(void)
 		MM_INFO("audpreproc is routed to pseudo device\n");
 		return result;
 	}
-	if (session_info[stream_id].sampling_freq)
-		acdb_data.device_info->sample_rate =
+	if (acdb_data.build_id[17] == '1') {
+		if (session_info[stream_id].sampling_freq)
+			acdb_data.device_info->sample_rate =
 					session_info[stream_id].sampling_freq;
+	}
 	if (!(acdb_data.acdb_state & CAL_DATA_READY)) {
 		result = check_tx_acdb_values_cached();
 		if (result) {
@@ -3080,17 +3119,19 @@ static void audpreproc_cb(void *private, u32 id, void *msg)
 	  callback at this scenario we should not access
 	  device information
 	 */
-	if (acdb_data.device_info &&
-		session_info[stream_id].sampling_freq) {
-		acdb_data.device_info->sample_rate =
+	if (acdb_data.build_id[17] != '0') {
+		if (acdb_data.device_info &&
+			session_info[stream_id].sampling_freq) {
+			acdb_data.device_info->sample_rate =
 					session_info[stream_id].sampling_freq;
-		result = check_tx_acdb_values_cached();
-		if (!result) {
-			MM_INFO("acdb values for the stream is" \
-						" querried from modem");
-			acdb_data.acdb_state |= CAL_DATA_READY;
-		} else {
-			acdb_data.acdb_state &= ~CAL_DATA_READY;
+			result = check_tx_acdb_values_cached();
+			if (!result) {
+				MM_INFO("acdb values for the stream is" \
+							" querried from modem");
+				acdb_data.acdb_state |= CAL_DATA_READY;
+			} else {
+				acdb_data.acdb_state &= ~CAL_DATA_READY;
+			}
 		}
 	}
 	if (acdb_data.preproc_stream_id == 0)
@@ -3164,6 +3205,7 @@ static s32 acdb_initialize_data(void)
 	result = register_audpreproc_cb();
 	if (result)
 		goto err4;
+
 
 	return result;
 
@@ -3246,10 +3288,11 @@ static s32 acdb_calibrate_device(void *data)
 	result = acdb_initialize_data();
 	if (result)
 		goto done;
-
-	result = initialize_modem_acdb();
-	if (result < 0)
-		MM_ERR("failed to initialize modem ACDB\n");
+	if (acdb_data.build_id[17] != '0') {
+		result = initialize_modem_acdb();
+		if (result < 0)
+			MM_ERR("failed to initialize modem ACDB\n");
+	}
 
 	while (!kthread_should_stop()) {
 		MM_DBG("Waiting for call back events\n");
@@ -3345,6 +3388,10 @@ static int __init acdb_init(void)
 		result = -ENODEV;
 		goto err;
 	}
+
+	acdb_data.build_id = socinfo_get_build_id();
+	MM_INFO("build id used is = %s\n", acdb_data.build_id);
+
 #ifdef CONFIG_DEBUG_FS
 	/*This is RTC specific INIT used only with debugfs*/
 	if (!rtc_acdb_init())
@@ -3384,20 +3431,24 @@ static void __exit acdb_exit(void)
 
 	for (i = 0; i < MAX_COPP_NODE_SUPPORTED; i++) {
 		if (i < MAX_AUDREC_SESSIONS) {
-			iounmap(acdb_cache_tx[i].virt_addr_acdb_values);
-			pmem_kfree(acdb_cache_tx[i].phys_addr_acdb_values);
+			msm_subsystem_unmap_buffer(acdb_cache_tx[i].map_v_addr);
+			free_contiguous_memory_by_paddr(
+					acdb_cache_tx[i].phys_addr_acdb_values);
 		}
-		iounmap(acdb_cache_rx[i].virt_addr_acdb_values);
-		pmem_kfree(acdb_cache_rx[i].phys_addr_acdb_values);
+		msm_subsystem_unmap_buffer(acdb_cache_rx[i].map_v_addr);
+		free_contiguous_memory_by_paddr(
+					acdb_cache_rx[i].phys_addr_acdb_values);
 	}
 	kfree(acdb_data.device_info);
 	kfree(acdb_data.pp_iir);
 	kfree(acdb_data.pp_mbadrc);
 	kfree(acdb_data.preproc_agc);
 	kfree(acdb_data.preproc_iir);
-	pmem_kfree((int32_t)acdb_data.pbe_extbuff);
-	iounmap(acdb_data.fluence_extbuff_virt);
-	pmem_kfree((int32_t)acdb_data.fluence_extbuff);
+	free_contiguous_memory_by_paddr(
+				(int32_t)acdb_data.pbe_extbuff);
+	msm_subsystem_unmap_buffer(acdb_data.map_v_fluence);
+	free_contiguous_memory_by_paddr(
+			(int32_t)acdb_data.fluence_extbuff);
 	mutex_destroy(&acdb_data.acdb_mutex);
 	memset(&acdb_data, 0, sizeof(acdb_data));
 	#ifdef CONFIG_DEBUG_FS

@@ -25,7 +25,13 @@
 //		Just #include here !!
 //
 //============================================================
-#include "OCTA_465_VC29_06_bin.c"
+#ifdef CONFIG_USA_MODEL_SGH_I757
+#include "CeloxHD_V06_bin.c"
+#else
+#include "OCTA_465_VC57_05_11_bin.c"
+#endif
+
+
 
 
 UINT8  ucVerifyBuffer[MELFAS_TRANSFER_LENGTH];		//	You may melloc *ucVerifyBuffer instead of this

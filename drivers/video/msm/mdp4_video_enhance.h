@@ -19,6 +19,8 @@
 #ifndef _MDP4_VIDEO_ENHANCE_H_
 #define _MDP4_VIDEO_ENHANCE_H_
 
+#define BROWSER_COLOR_TONE_SET
+
 #define SIG_MDNIE_UI_MODE				0
 #define SIG_MDNIE_VIDEO_MODE			1
 #define SIG_MDNIE_VIDEO_WARM_MODE	2
@@ -44,6 +46,11 @@
 #define SIG_MDNIE_ISDBT_COLD_MODE	32
 #endif
 
+#ifdef BROWSER_COLOR_TONE_SET
+#define SIG_MDNIE_BROWSER_TONE1	40
+#define SIG_MDNIE_BROWSER_TONE2	41
+#define SIG_MDNIE_BROWSER_TONE3	42
+#endif
  void init_mdnie_class(void);
 
 #endif // _MDP4_VIDEO_ENHANCE_H_

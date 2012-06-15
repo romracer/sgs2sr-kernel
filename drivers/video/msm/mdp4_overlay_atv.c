@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/module.h>
@@ -67,7 +62,7 @@ int mdp4_atv_on(struct platform_device *pdev)
 
 	if (atv_pipe == NULL) {
 		ptype = mdp4_overlay_format2type(mfd->fb_imgType);
-		pipe = mdp4_overlay_pipe_alloc(ptype, MDP4_MIXER1, 0);
+		pipe = mdp4_overlay_pipe_alloc(ptype, MDP4_MIXER1);
 		if (pipe == NULL)
 			return -EBUSY;
 		pipe->pipe_used++;

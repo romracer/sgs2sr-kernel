@@ -1,35 +1,3 @@
-/* Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- */
-/*
- * Qualcomm Tavarua FM core Driver header file
- */
-
 #ifndef __LINUX_TAVARUA_H
 #define __LINUX_TAVARUA_H
 
@@ -50,10 +18,11 @@
 #define BYTES_PER_BLOCK             (3)
 #define MAX_PS_LENGTH              (96)
 #define MAX_RT_LENGTH              (64)
-#define INTDET_PEEK                (0x42)
+
 #define XFRDAT0                    (0x20)
 #define XFRDAT1                    (0x21)
 #define XFRDAT2                    (0x22)
+
 #define INTDET_PEEK_MSB            (0x88)
 #define INTDET_PEEK_LSB            (0x26)
 
@@ -72,6 +41,12 @@
 #define MPX_DCC_PEEK_MSB_REG3      (0x88)
 #define MPX_DCC_PEEK_LSB_REG3      (0xC4)
 
+#define ON_CHANNEL_TH_MSB          (0x0B)
+#define ON_CHANNEL_TH_LSB          (0xA8)
+
+#define OFF_CHANNEL_TH_MSB         (0x0B)
+#define OFF_CHANNEL_TH_LSB         (0xAC)
+
 #define ENF_200Khz                    (1)
 #define SRCH200KHZ_OFFSET             (7)
 #define SRCH_MASK                  (1 << SRCH200KHZ_OFFSET)
@@ -86,8 +61,8 @@
 #define CTRL_ON                     (1)
 #define CTRL_OFF                    (0)
 
-#define US_LOW_BAND                 (87.5)
-#define US_HIGH_BAND                (108)
+#define US_LOW_BAND                (87.5)
+#define US_HIGH_BAND               (108)
 
 /* constant for Tx */
 
@@ -168,6 +143,36 @@ enum v4l2_cid_private_tavarua_t {
 	V4L2_CID_PRIVATE_TAVARUA_STOP_RDS_TX_RT,
 	V4L2_CID_PRIVATE_TAVARUA_IOVERC,
 	V4L2_CID_PRIVATE_TAVARUA_INTDET,
+	V4L2_CID_PRIVATE_TAVARUA_MPX_DCC,
+	V4L2_CID_PRIVATE_TAVARUA_AF_JUMP,
+	V4L2_CID_PRIVATE_TAVARUA_RSSI_DELTA,
+	V4L2_CID_PRIVATE_TAVARUA_HLSI,
+
+	/*
+	* Here we have IOCTl's that are specific to IRIS
+	* (V4L2_CID_PRIVATE_BASE + 0x1E to V4L2_CID_PRIVATE_BASE + 0x28)
+	*/
+	V4L2_CID_PRIVATE_SOFT_MUTE, /* 0x800001E*/
+	V4L2_CID_PRIVATE_RIVA_ACCS_ADDR,
+	V4L2_CID_PRIVATE_RIVA_ACCS_LEN,
+	V4L2_CID_PRIVATE_RIVA_PEEK,
+	V4L2_CID_PRIVATE_RIVA_POKE,
+	V4L2_CID_PRIVATE_SSBI_ACCS_ADDR,
+	V4L2_CID_PRIVATE_SSBI_PEEK,
+	V4L2_CID_PRIVATE_SSBI_POKE,
+	V4L2_CID_PRIVATE_TX_TONE,
+	V4L2_CID_PRIVATE_RDS_GRP_COUNTERS,
+	V4L2_CID_PRIVATE_SET_NOTCH_FILTER, /* 0x8000028 */
+
+	V4L2_CID_PRIVATE_TAVARUA_SET_AUDIO_PATH, /* 0x8000029 */
+	V4L2_CID_PRIVATE_TAVARUA_DO_CALIBRATION, /* 0x800002A : IRIS command */
+	V4L2_CID_PRIVATE_TAVARUA_SRCH_ALGORITHM, /* 0x800002B */
+
+	V4L2_CID_PRIVATE_TAVARUA_ON_CHANNEL_THRESHOLD =
+		V4L2_CTRL_CLASS_USER + 0x92B,
+	V4L2_CID_PRIVATE_TAVARUA_OFF_CHANNEL_THRESHOLD =
+		V4L2_CTRL_CLASS_USER + 0x92C
+
 };
 
 enum tavarua_buf_t {
@@ -267,6 +272,8 @@ enum register_t {
 #define RDCTRL_DEEMPHASIS_MASK	(1 << RDCTRL_DEEMPHASIS_OFFSET)
 #define RDCTRL_HLSI_OFFSET	6
 #define RDCTRL_HLSI_MASK	(3 << RDCTRL_HLSI_OFFSET)
+#define RDSAF_OFFSET		6
+#define RDSAF_MASK		(1 << RDSAF_OFFSET)
 
 /* Tune Control */
 #define TUNE_STATION	0x01
@@ -325,6 +332,10 @@ enum search_t {
 	RDS_AF_JUMP,
 };
 
+enum audio_path {
+	FM_DIGITAL_PATH,
+	FM_ANALOG_PATH
+};
 #define SRCH_MODE	0x07
 #define SRCH_DIR	0x08 /* 0-up 1-down */
 #define SCAN_DWELL	0x70
@@ -337,6 +348,8 @@ enum search_t {
 #define SET_REG_FIELD(reg, val, offset, mask) \
 	(reg = (reg & ~mask) | (((val) << offset) & mask))
 #define GET_REG_FIELD(reg, offset, mask) ((reg & mask) >> offset)
+#define RSH_DATA(val, offset)    ((val) >> (offset))
+#define GET_ABS_VAL(val)        ((val) & (0xFF))
 
 enum radio_state_t {
 	FM_OFF,
@@ -435,6 +448,8 @@ enum tavarua_xfr_ctrl_t {
 	PHY_CONFIG,
 	PHY_TXBLOCK,
 	PHY_TCB,
+	XFR_PEEK_MODE = 0x40,
+	XFR_POKE_MODE = 0xC0,
 	TAVARUA_XFR_CTRL_MAX
 };
 

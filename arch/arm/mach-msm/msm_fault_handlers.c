@@ -76,7 +76,7 @@ static int __init msm_register_fault_handlers(void)
 {
 	/* hook in our handler for imprecise abort for when we get
 	   i-cache parity errors */
-	hook_fault_code(22, msm_imp_ext_abort, SIGBUS,
+	hook_fault_code(22, msm_imp_ext_abort, SIGBUS, 0,
 			"imprecise external abort");
 
 	return 0;

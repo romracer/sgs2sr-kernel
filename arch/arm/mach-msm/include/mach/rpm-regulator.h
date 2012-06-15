@@ -10,47 +10,41 @@
  * GNU General Public License for more details.
  */
 
-#ifndef __ARCH_ARM_MACH_MSM_RPM_REGULATOR_H
-#define __ARCH_ARM_MACH_MSM_RPM_REGULATOR_H
+#ifndef __ARCH_ARM_MACH_MSM_INCLUDE_MACH_RPM_REGULATOR_H
+#define __ARCH_ARM_MACH_MSM_INCLUDE_MACH_RPM_REGULATOR_H
 
 #include <linux/regulator/machine.h>
 
-#define RPM_VREG_PIN_CTRL_NONE	0x00
-#define RPM_VREG_PIN_CTRL_A0	0x01
-#define RPM_VREG_PIN_CTRL_A1	0x02
-#define RPM_VREG_PIN_CTRL_D0	0x04
-#define RPM_VREG_PIN_CTRL_D1	0x08
+#define RPM_REGULATOR_DEV_NAME "rpm-regulator"
 
-/*
- * Pin Function
- * ENABLE  - pin control switches between disable and enable
- * MODE    - pin control switches between LPM and HPM
- * SLEEP_B - regulator is forced into LPM by asserting sleep_b signal
- * NONE    - do not use pin control
- *
- * The pin function specified in platform data corresponds to the active state
- * pin function value.  Pin function will be NONE until a consumer requests
- * pin control with regulator_set_mode(vreg, REGULATOR_MODE_IDLE).
+#include <mach/rpm-regulator-8660.h>
+#include <mach/rpm-regulator-8960.h>
+#include <mach/rpm-regulator-9615.h>
+#include <mach/rpm-regulator-copper.h>
+
+/**
+ * enum rpm_vreg_version - supported RPM regulator versions
  */
-enum rpm_vreg_pin_fn {
-	RPM_VREG_PIN_FN_ENABLE = 0,
-	RPM_VREG_PIN_FN_MODE,
-	RPM_VREG_PIN_FN_SLEEP_B,
-	RPM_VREG_PIN_FN_NONE,
+enum rpm_vreg_version {
+	RPM_VREG_VERSION_8660,
+	RPM_VREG_VERSION_8960,
+	RPM_VREG_VERSION_9615,
+	RPM_VREG_VERSION_MAX = RPM_VREG_VERSION_9615,
 };
 
-enum rpm_vreg_mode {
-	RPM_VREG_MODE_PIN_CTRL = 0,
-	RPM_VREG_MODE_NONE = 0,
-	RPM_VREG_MODE_LPM,
-	RPM_VREG_MODE_HPM,
-};
+#define RPM_VREG_PIN_CTRL_NONE		0x00
 
+/**
+ * enum rpm_vreg_state - enable state for switch or NCP
+ */
 enum rpm_vreg_state {
-	RPM_VREG_STATE_OFF = 0,
+	RPM_VREG_STATE_OFF,
 	RPM_VREG_STATE_ON,
 };
 
+/**
+ * enum rpm_vreg_freq - switching frequency for SMPS or NCP
+ */
 enum rpm_vreg_freq {
 	RPM_VREG_FREQ_NONE,
 	RPM_VREG_FREQ_19p20,
@@ -71,114 +65,85 @@ enum rpm_vreg_freq {
 	RPM_VREG_FREQ_1p20,
 };
 
-enum rpm_vreg_id {
-	RPM_VREG_ID_PM8058_L0 = 0,
-	RPM_VREG_ID_PM8058_L1,
-	RPM_VREG_ID_PM8058_L2,
-	RPM_VREG_ID_PM8058_L3,
-	RPM_VREG_ID_PM8058_L4,
-	RPM_VREG_ID_PM8058_L5,
-	RPM_VREG_ID_PM8058_L6,
-	RPM_VREG_ID_PM8058_L7,
-	RPM_VREG_ID_PM8058_L8,
-	RPM_VREG_ID_PM8058_L9,
-	RPM_VREG_ID_PM8058_L10,
-	RPM_VREG_ID_PM8058_L11,
-	RPM_VREG_ID_PM8058_L12,
-	RPM_VREG_ID_PM8058_L13,
-	RPM_VREG_ID_PM8058_L14,
-	RPM_VREG_ID_PM8058_L15,
-	RPM_VREG_ID_PM8058_L16,
-	RPM_VREG_ID_PM8058_L17,
-	RPM_VREG_ID_PM8058_L18,
-	RPM_VREG_ID_PM8058_L19,
-	RPM_VREG_ID_PM8058_L20,
-	RPM_VREG_ID_PM8058_L21,
-	RPM_VREG_ID_PM8058_L22,
-	RPM_VREG_ID_PM8058_L23,
-	RPM_VREG_ID_PM8058_L24,
-	RPM_VREG_ID_PM8058_L25,
-	RPM_VREG_ID_PM8058_S0,
-	RPM_VREG_ID_PM8058_S1,
-	RPM_VREG_ID_PM8058_S2,
-	RPM_VREG_ID_PM8058_S3,
-	RPM_VREG_ID_PM8058_S4,
-	RPM_VREG_ID_PM8058_LVS0,
-	RPM_VREG_ID_PM8058_LVS1,
-	RPM_VREG_ID_PM8058_NCP,
-	RPM_VREG_ID_PM8901_L0,
-	RPM_VREG_ID_PM8901_L1,
-	RPM_VREG_ID_PM8901_L2,
-	RPM_VREG_ID_PM8901_L3,
-	RPM_VREG_ID_PM8901_L4,
-	RPM_VREG_ID_PM8901_L5,
-	RPM_VREG_ID_PM8901_L6,
-	RPM_VREG_ID_PM8901_S0,
-	RPM_VREG_ID_PM8901_S1,
-	RPM_VREG_ID_PM8901_S2,
-	RPM_VREG_ID_PM8901_S3,
-	RPM_VREG_ID_PM8901_S4,
-	RPM_VREG_ID_PM8901_LVS0,
-	RPM_VREG_ID_PM8901_LVS1,
-	RPM_VREG_ID_PM8901_LVS2,
-	RPM_VREG_ID_PM8901_LVS3,
-	RPM_VREG_ID_PM8901_MVS0,
-	RPM_VREG_ID_MAX,
-};
-
-/* Minimum high power mode loads in uA. */
-#define RPM_VREG_LDO_50_HPM_MIN_LOAD	5000
-#define RPM_VREG_LDO_150_HPM_MIN_LOAD	10000
-#define RPM_VREG_LDO_300_HPM_MIN_LOAD	10000
-#define RPM_VREG_SMPS_HPM_MIN_LOAD	50000
-#define RPM_VREG_FTSMPS_HPM_MIN_LOAD	100000
-
-/*
- * default_uV = initial voltage to set the regulator to if enable is called
- *		before set_voltage (e.g. when boot_on or always_on is set).
- * peak_uA    = initial load requirement sent in RPM request; used to determine
- *		initial mode.
- * avg_uA     = initial avg load requirement sent in RPM request; overwritten
- *		along with peak_uA when regulator_set_mode or
- *		regulator_set_optimum_mode is called.
- * pin_fn     = RPM_VREG_PIN_FN_ENABLE  - pin control ON/OFF
- *	      = RPM_VREG_PIN_FN_MODE    - pin control LPM/HPM
- *	      = RPM_VREG_PIN_FN_SLEEP_B - regulator is forced into LPM by
- *					  asserting sleep_b signal
- *	      = RPM_VREG_PIN_FN_NONE    - do not use pin control
- * mode	      = used to specify a force mode which overrides the votes of other
- *		RPM masters.
- * state      = initial state sent in RPM request.
- * sleep_selectable = flag which indicates that regulator should be accessable
- *		by external private API and that spinlocks should be used.
+/**
+ * struct rpm_regulator_init_data - RPM regulator initialization data
+ * @init_data:		regulator constraints
+ * @id:			regulator id; from enum rpm_vreg_id
+ * @sleep_selectable:	flag which indicates that regulator should be accessable
+ *			by external private API and that spinlocks should be
+ *			used instead of mutex locks
+ * @system_uA:		current drawn from regulator not accounted for by any
+ *			regulator framework consumer
+ * @enable_time:	time in us taken to enable a regulator to the maximum
+ *			allowed voltage for the system.  This is dependent upon
+ *			the load and capacitance for a regulator on the board.
+ * @pull_down_enable:	0 = no pulldown, 1 = pulldown when regulator disabled
+ * @freq:		enum value representing the switching frequency of an
+ *			SMPS or NCP
+ * @pin_ctrl:		pin control inputs to use for the regulator; should be
+ *			a combination of RPM_VREG_PIN_CTRL_* values
+ * @pin_fn:		action to perform when pin control pin(s) is/are active
+ * @force_mode:		used to specify a force mode which overrides the votes
+ *			of other RPM masters.
+ * @default_uV:		initial voltage to set the regulator to if enable is
+ *			called before set_voltage (e.g. when boot_on or
+ *			always_on is set).
+ * @peak_uA:		initial peak load requirement sent in RPM request; used
+ *			to determine initial mode.
+ * @avg_uA:		average load requirement sent in RPM request
+ * @state:		initial enable state sent in RPM request for switch or
+ *			NCP
  */
-struct rpm_vreg_pdata {
+struct rpm_regulator_init_data {
 	struct regulator_init_data	init_data;
+	int				id;
+	int				sleep_selectable;
+	int				system_uA;
+	int				enable_time;
+	unsigned			pull_down_enable;
+	enum rpm_vreg_freq		freq;
+	unsigned			pin_ctrl;
+	int				pin_fn;
+	int				force_mode;
+	int				power_mode;
 	int				default_uV;
 	unsigned			peak_uA;
 	unsigned			avg_uA;
-	unsigned			pull_down_enable;
-	unsigned			pin_ctrl;
-	enum rpm_vreg_freq		freq;
-	enum rpm_vreg_pin_fn		pin_fn;
-	enum rpm_vreg_mode		mode;
 	enum rpm_vreg_state		state;
-	int				sleep_selectable;
 };
 
+/**
+ * struct rpm_regulator_platform_data - RPM regulator platform data
+ */
+struct rpm_regulator_platform_data {
+	struct rpm_regulator_init_data	*init_data;
+	int				num_regulators;
+	enum rpm_vreg_version		version;
+	int				vreg_id_vdd_mem;
+	int				vreg_id_vdd_dig;
+};
+
+/**
+ * enum rpm_vreg_voter - RPM regulator voter IDs for private APIs
+ */
 enum rpm_vreg_voter {
-	RPM_VREG_VOTER_REG_FRAMEWORK = 0, /* for internal use only */
-	RPM_VREG_VOTER1,		  /* for use by the acpu-clock driver */
-	RPM_VREG_VOTER2,		  /* for use by the acpu-clock driver */
-	RPM_VREG_VOTER3,		  /* for use by other drivers */
+	RPM_VREG_VOTER_REG_FRAMEWORK,	/* for internal use only */
+	RPM_VREG_VOTER1,		/* for use by the acpu-clock driver */
+	RPM_VREG_VOTER2,		/* for use by the acpu-clock driver */
+	RPM_VREG_VOTER3,		/* for use by other drivers */
+	RPM_VREG_VOTER4,		/* for use by the acpu-clock driver */
+	RPM_VREG_VOTER5,		/* for use by the acpu-clock driver */
+	RPM_VREG_VOTER6,		/* for use by the acpu-clock driver */
 	RPM_VREG_VOTER_COUNT,
 };
 
+#ifdef CONFIG_MSM_RPM_REGULATOR
 /**
  * rpm_vreg_set_voltage - vote for a min_uV value of specified regualtor
  * @vreg: ID for regulator
  * @voter: ID for the voter
  * @min_uV: minimum acceptable voltage (in uV) that is voted for
+ * @max_uV: maximum acceptable voltage (in uV) that is voted for
  * @sleep_also: 0 for active set only, non-0 for active set and sleep set
  *
  * Returns 0 on success or errno.
@@ -193,17 +158,41 @@ enum rpm_vreg_voter {
  *
  * This function may only be called for regulators which have the sleep flag
  * specified in their private data.
+ *
+ * Consumers can vote to disable a regulator with this function by passing
+ * min_uV = 0 and max_uV = 0.
  */
-int rpm_vreg_set_voltage(enum rpm_vreg_id vreg_id, enum rpm_vreg_voter voter,
-			 int min_uV, int sleep_also);
+int rpm_vreg_set_voltage(int vreg_id, enum rpm_vreg_voter voter, int min_uV,
+			 int max_uV, int sleep_also);
 
 /**
  * rpm_vreg_set_frequency - sets the frequency of a switching regulator
  * @vreg: ID for regulator
- * @min_uV: minimum acceptable frequency of operation
+ * @freq: enum corresponding to desired frequency
  *
  * Returns 0 on success or errno.
  */
-int rpm_vreg_set_frequency(enum rpm_vreg_id vreg_id, enum rpm_vreg_freq freq);
+int rpm_vreg_set_frequency(int vreg_id, enum rpm_vreg_freq freq);
+
+#else
+
+/*
+ * These stubs exist to allow consumers of these APIs to compile and run
+ * in absence of a real RPM regulator driver. It is assumed that they are
+ * aware of the state of their regulators and have either set them
+ * correctly by some other means or don't care about their state at all.
+ */
+static inline int rpm_vreg_set_voltage(int vreg_id, enum rpm_vreg_voter voter,
+				       int min_uV, int max_uV, int sleep_also)
+{
+	return 0;
+}
+
+static inline int rpm_vreg_set_frequency(int vreg_id, enum rpm_vreg_freq freq)
+{
+	return 0;
+}
+
+#endif /* CONFIG_MSM_RPM_REGULATOR */
 
 #endif

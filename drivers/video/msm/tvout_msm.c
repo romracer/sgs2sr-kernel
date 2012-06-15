@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/module.h>
@@ -606,6 +601,10 @@ static struct platform_device this_device = {
 static int __init tvout_init(void)
 {
 	int ret;
+
+	if (msm_fb_detect_client("tvout_msm"))
+		return 0;
+
 	tvout_msm_state = kzalloc(sizeof(*tvout_msm_state), GFP_KERNEL);
 	if (!tvout_msm_state) {
 		DEV_ERR("tvout_msm_init FAILED: out of memory\n");

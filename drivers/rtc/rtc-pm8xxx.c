@@ -30,6 +30,8 @@
 /* RTC_CTRL register bit fields */
 #define PM8xxx_RTC_ENABLE	BIT(7)
 #define PM8xxx_RTC_ALARM_ENABLE	BIT(1)
+#define PM8xxx_RTC_ABORT_ENABLE BIT(0)
+
 #define PM8xxx_RTC_ALARM_CLEAR  BIT(0)
 
 #define NUM_8_BIT_RTC_REGS	0x4
@@ -407,6 +409,10 @@ static int __devinit pm8xxx_rtc_probe(struct platform_device *pdev)
 	struct resource *rtc_resource;
 	const struct pm8xxx_rtc_platform_data *pdata =
 		pdev->dev.platform_data;
+#ifdef CONFIG_SAMSUNG_8X60_TABLET
+	struct rtc_time tm;
+	unsigned long tv_sec;
+#endif
 
 	if (pdata != NULL)
 		rtc_write_enable = pdata->rtc_write_enable;
@@ -461,6 +467,14 @@ static int __devinit pm8xxx_rtc_probe(struct platform_device *pdev)
 		}
 	}
 
+	/* Enable abort enable feature */
+	ctrl_reg |= PM8xxx_RTC_ABORT_ENABLE;
+	rc = pm8xxx_write_wrapper(rtc_dd, &ctrl_reg, rtc_dd->rtc_base, 1);
+	if (rc < 0) {
+		dev_err(&pdev->dev, "PM8xxx write failed!\n");
+		goto fail_rtc_enable;
+	}
+
 	rtc_dd->ctrl_reg = ctrl_reg;
 	if (rtc_write_enable == true)
 		pm8xxx_rtc_ops.set_time = pm8xxx_rtc_set_time;
@@ -487,6 +501,32 @@ static int __devinit pm8xxx_rtc_probe(struct platform_device *pdev)
 	}
 
 	device_init_wakeup(&pdev->dev, 1);
+
+#ifdef CONFIG_SAMSUNG_8X60_TABLET
+	rc = pm8xxx_rtc_read_time(&pdev->dev, &tm);
+	if (rc) {
+		pr_err("%s: Unable to read RTC time\n", __func__);
+	}
+	rtc_tm_to_time(&tm, &tv_sec);
+
+	if ( tm.tm_year + 1900 < 2012 ) {
+		pr_debug("rtc year is below 2012. initialize to 2012-01-01\n");
+		tm.tm_year = (2012 - 1900);
+		tm.tm_mon = (1 - 1);
+		tm.tm_mday = 1;
+		tm.tm_hour = 0;
+		tm.tm_min = 0;
+		tm.tm_sec = 0;
+		rtc_tm_to_time(&tm, &tv_sec);
+
+		if (rtc_write_enable == true) {
+			rc = pm8xxx_rtc_set_time(&pdev->dev, &tm);
+			if (rc) {
+				pr_err("%s: Unable to write RTC time\n", __func__);
+			}
+		}
+	}
+#endif
 
 	dev_dbg(&pdev->dev, "Probe success !!\n");
 
@@ -539,9 +579,48 @@ static int __devexit pm8xxx_rtc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void pm8xxx_rtc_shutdown(struct platform_device *pdev)
+{
+	u8 value[4] = {0, 0, 0, 0};
+	u8 reg;
+	int rc;
+	unsigned long irq_flags;
+	bool rtc_alarm_powerup = false;
+	struct pm8xxx_rtc *rtc_dd = platform_get_drvdata(pdev);
+	struct pm8xxx_rtc_platform_data *pdata = pdev->dev.platform_data;
+
+	if (pdata != NULL)
+		rtc_alarm_powerup =  pdata->rtc_alarm_powerup;
+
+	if (!rtc_alarm_powerup) {
+
+		spin_lock_irqsave(&rtc_dd->ctrl_reg_lock, irq_flags);
+		dev_dbg(&pdev->dev, "Disabling alarm interrupts\n");
+
+		/* Disable RTC alarms */
+		reg = rtc_dd->ctrl_reg;
+		reg &= ~PM8xxx_RTC_ALARM_ENABLE;
+		rc = pm8xxx_write_wrapper(rtc_dd, &reg, rtc_dd->rtc_base, 1);
+		if (rc < 0) {
+			dev_err(rtc_dd->rtc_dev, "PM8xxx write failed\n");
+			goto fail_alarm_disable;
+		}
+
+		/* Clear Alarm register */
+		rc = pm8xxx_write_wrapper(rtc_dd, value,
+				rtc_dd->alarm_rw_base, NUM_8_BIT_RTC_REGS);
+		if (rc < 0)
+			dev_err(rtc_dd->rtc_dev, "PM8xxx write failed\n");
+
+fail_alarm_disable:
+		spin_unlock_irqrestore(&rtc_dd->ctrl_reg_lock, irq_flags);
+	}
+}
+
 static struct platform_driver pm8xxx_rtc_driver = {
 	.probe		= pm8xxx_rtc_probe,
 	.remove		= __devexit_p(pm8xxx_rtc_remove),
+	.shutdown	= pm8xxx_rtc_shutdown,
 	.driver	= {
 		.name	= PM8XXX_RTC_DEV_NAME,
 		.owner	= THIS_MODULE,

@@ -277,13 +277,22 @@ signed char fDetectHiLoTransition(void)
 
     while(1) {
         SCLKLow(); //issp_test_20100709 unblock
-        //udelay(1);   
+#if defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined (CONFIG_KOR_MODEL_SHV_E160L)
+        udelay(300);   
+#else
+		//udelay(1);
+#endif
         if (!fSDATACheck()) {   // exit once SDATA returns LOW
             break;
         }
+#if defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined (CONFIG_KOR_MODEL_SHV_E160L)
+		//SCLKHigh(); //issp_test_20100709 unblock
+		udelay(300);   
+#else
+		SCLKHigh(); //issp_test_20100709 unblock
+		//udelay(1);
+#endif
 
-        SCLKHigh(); //issp_test_20100709 unblock
-        //udelay(1);
 
         // If the wait is too long then timeout
         if (iTimer-- == 0) {

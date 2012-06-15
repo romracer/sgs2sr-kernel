@@ -33,6 +33,7 @@ struct k3g_platform_data {
 	void (*exit)(void);
 	int (*power_on)(void);
 	int (*power_off)(void);
+	int (*get_irq)(void);
 };
 
 struct gyro_platform_data {

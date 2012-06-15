@@ -39,12 +39,12 @@ static const struct usb_device_id id_table[] = {
 	{USB_DEVICE(0x19d2, 0xfff3)},	/* ONDA Gobi Modem device */
 	{USB_DEVICE(0x19d2, 0xfff2)},	/* ONDA Gobi QDL device */
 	{USB_DEVICE(0x1557, 0x0a80)},	/* OQO Gobi QDL device */
-	{USB_DEVICE(0x05c6, 0x9001)},   /* Generic Gobi Modem device */
 	{USB_DEVICE(0x05c6, 0x9002)},	/* Generic Gobi Modem device */
 	{USB_DEVICE(0x05c6, 0x9202)},	/* Generic Gobi Modem device */
 	{USB_DEVICE(0x05c6, 0x9203)},	/* Generic Gobi Modem device */
 	{USB_DEVICE(0x05c6, 0x9222)},	/* Generic Gobi Modem device */
 	{USB_DEVICE(0x05c6, 0x9008)},	/* Generic Gobi QDL device */
+	{USB_DEVICE(0x05c6, 0x9009)},	/* Generic Gobi Modem device */
 	{USB_DEVICE(0x05c6, 0x9201)},	/* Generic Gobi QDL device */
 	{USB_DEVICE(0x05c6, 0x9221)},	/* Generic Gobi QDL device */
 	{USB_DEVICE(0x05c6, 0x9231)},	/* Generic Gobi QDL device */
@@ -82,9 +82,12 @@ static const struct usb_device_id id_table[] = {
 	{USB_DEVICE(0x16d8, 0x8002)},	/* CMDTech Gobi 2000 Modem device (VU922) */
 	{USB_DEVICE(0x05c6, 0x9204)},	/* Gobi 2000 QDL device */
 	{USB_DEVICE(0x05c6, 0x9205)},	/* Gobi 2000 Modem device */
+	{USB_DEVICE(0x05c6, 0x9048)},
 	{ }				/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, id_table);
+
+#define EFS_SYNC_IFC_NUM	2
 
 static struct usb_driver qcdriver = {
 	.name			= "qcserial",
@@ -111,12 +114,14 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 	ifnum = intf->desc.bInterfaceNumber;
 	dbg("This Interface = %d", ifnum);
 
-	data = serial->private = kzalloc(sizeof(struct usb_wwan_intf_private),
+	data = kzalloc(sizeof(struct usb_wwan_intf_private),
 					 GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
 	spin_lock_init(&data->susp_lock);
+
+	usb_enable_autosuspend(serial->dev);
 
 	switch (nintf) {
 	case 1:
@@ -132,8 +137,10 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 		    usb_endpoint_is_bulk_out(&intf->endpoint[1].desc)) {
 			dbg("QDL port found");
 
-			if (serial->interface->num_altsetting == 1)
-				return 0;
+			if (serial->interface->num_altsetting == 1) {
+				retval = 0; /* Success */
+				break;
+			}
 
 			retval = usb_set_interface(serial->dev, ifnum, 1);
 			if (retval < 0) {
@@ -143,14 +150,29 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 				retval = -ENODEV;
 				kfree(data);
 			}
-			return retval;
 		}
 		break;
 
 	case 3:
 	case 4:
 		/* Composite mode */
-		if (ifnum == 2) {
+		/* ifnum == 0 is a broadband network adapter */
+		if (ifnum == 1) {
+			/*
+			 * Diagnostics Monitor (serial line 9600 8N1)
+			 * Qualcomm DM protocol
+			 * use "libqcdm" (ModemManager) for communication
+			 */
+			dbg("Diagnostics Monitor found");
+			retval = usb_set_interface(serial->dev, ifnum, 0);
+			if (retval < 0) {
+				dev_err(&serial->dev->dev,
+					"Could not set interface, error %d\n",
+					retval);
+				retval = -ENODEV;
+				kfree(data);
+			}
+		} else if (ifnum == 2) {
 			dbg("Modem port found");
 			retval = usb_set_interface(serial->dev, ifnum, 0);
 			if (retval < 0) {
@@ -160,18 +182,55 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 				retval = -ENODEV;
 				kfree(data);
 			}
-			return retval;
+		} else if (ifnum==3) {
+			/*
+			 * NMEA (serial line 9600 8N1)
+			 * # echo "\$GPS_START" > /dev/ttyUSBx
+			 * # echo "\$GPS_STOP"  > /dev/ttyUSBx
+			 */
+			dbg("NMEA GPS interface found");
+			retval = usb_set_interface(serial->dev, ifnum, 0);
+			if (retval < 0) {
+				dev_err(&serial->dev->dev,
+					"Could not set interface, error %d\n",
+					retval);
+				retval = -ENODEV;
+				kfree(data);
+			}
 		}
 		break;
 
+	case 9:
+		if (ifnum != EFS_SYNC_IFC_NUM) {
+			kfree(data);
+			break;
+		}
+
+		retval = 0;
+		break;
 	default:
 		dev_err(&serial->dev->dev,
 			"unknown number of interfaces: %d\n", nintf);
 		kfree(data);
-		return -ENODEV;
+		retval = -ENODEV;
 	}
 
+	/* Set serial->private if not returning -ENODEV */
+	if (retval != -ENODEV)
+		usb_set_serial_data(serial, data);
 	return retval;
+}
+
+static void qc_release(struct usb_serial *serial)
+{
+	struct usb_wwan_intf_private *priv = usb_get_serial_data(serial);
+
+	dbg("%s", __func__);
+
+	/* Call usb_wwan release & free the private data allocated in qcprobe */
+	usb_wwan_release(serial);
+	usb_set_serial_data(serial, NULL);
+	kfree(priv);
 }
 
 static struct usb_serial_driver qcdevice = {
@@ -191,7 +250,7 @@ static struct usb_serial_driver qcdevice = {
 	.chars_in_buffer     = usb_wwan_chars_in_buffer,
 	.attach		     = usb_wwan_startup,
 	.disconnect	     = usb_wwan_disconnect,
-	.release	     = usb_wwan_release,
+	.release	     = qc_release,
 #ifdef CONFIG_PM
 	.suspend	     = usb_wwan_suspend,
 	.resume		     = usb_wwan_resume,

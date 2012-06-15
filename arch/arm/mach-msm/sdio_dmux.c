@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 /*
@@ -321,8 +316,8 @@ static void sdio_mux_read_data(struct work_struct *work)
 
 		if (sched_setaffinity(current->pid, &cpus))
 			pr_err("%s: sdio_dmux set CPU affinity failed\n",
-			__func__);
-		workqueue_pinned = 1;	
+					__func__);
+		workqueue_pinned = 1;
 	}
 
 	DBG("%s: reading\n", __func__);
@@ -512,11 +507,12 @@ static void sdio_mux_write_data(struct work_struct *work)
 			 */
 			fatal_error = 1;
 			do {
-				ch_id = ((struct sdio_mux_hdr *) skb->data)->ch_id;
+				ch_id = ((struct sdio_mux_hdr *)
+						skb->data)->ch_id;
 				spin_lock(&sdio_ch[ch_id].lock);
 				sdio_ch[ch_id].num_tx_pkts--;
 				spin_unlock(&sdio_ch[ch_id].lock);
-			dev_kfree_skb_any(skb);
+				dev_kfree_skb_any(skb);
 			} while ((skb = __skb_dequeue(&sdio_mux_write_pool)));
 			spin_unlock_irqrestore(&sdio_mux_write_lock, flags);
 			return;
@@ -835,7 +831,6 @@ static int sdio_dmux_probe(struct platform_device *pdev)
 		sdio_mux_workqueue = create_singlethread_workqueue("sdio_dmux");
 		if (!sdio_mux_workqueue)
 			return -ENOMEM;
-
 
 		skb_queue_head_init(&sdio_mux_write_pool);
 		spin_lock_init(&sdio_mux_write_lock);

@@ -1,29 +1,13 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 
@@ -76,16 +60,10 @@
 #define DDL_ENC_MIN_DPB_BUFFERS           2
 #define DDL_ENC_MAX_DPB_BUFFERS           4
 
-#define DDL_FW_AUX_HOST_CMD_SPACE_SIZE         (DDL_KILO_BYTE(10))
-/* Qualcomm Modification */
-//#define DDL_FW_INST_GLOBAL_CONTEXT_SPACE_SIZE  (DDL_KILO_BYTE(400))
-#if 0 //ksnr   QC Patch for H263-Non-PlusType Encoding
-#define DDL_FW_INST_GLOBAL_CONTEXT_SPACE_SIZE  (DDL_KILO_BYTE(500))
-#else
+#define DDL_FW_AUX_HOST_CMD_SPACE_SIZE         (DDL_KILO_BYTE(8))
 #define DDL_FW_INST_GLOBAL_CONTEXT_SPACE_SIZE  (DDL_KILO_BYTE(800))
-#endif
-/* End */
 #define DDL_FW_H264DEC_CONTEXT_SPACE_SIZE      (DDL_KILO_BYTE(800))
+#define DDL_FW_H264ENC_CONTEXT_SPACE_SIZE      (DDL_KILO_BYTE(20))
 #define DDL_FW_OTHER_CONTEXT_SPACE_SIZE        (DDL_KILO_BYTE(10))
 
 #define VCD_DEC_CPB_SIZE         (DDL_KILO_BYTE(512))
@@ -104,6 +82,9 @@
 
 #define DDL_MAX_H264_QP            51
 #define DDL_MAX_MPEG4_QP           31
+
+#define DDL_CONCEALMENT_Y_COLOR                 16
+#define DDL_CONCEALMENT_C_COLOR                 128
 
 #define DDL_ALLOW_DEC_FRAMESIZE(width, height) \
 	((DDL_NO_OF_MB(width, height) <= \

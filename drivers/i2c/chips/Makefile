@@ -11,9 +11,24 @@
 #
 
 obj-$(CONFIG_SENSORS_MT9T013)	+= mt9t013.o
-obj-$(CONFIG_SENSORS_YDA165)	+= yda165.o
-obj-$(CONFIG_OPTICAL_GP2AP020A00F)		+= gp2ap020_proximity.o gp2ap020_light.o
+ifdef CONFIG_USA_MODEL_SGH_I717
+obj-$(CONFIG_SENSORS_YDA165)	+= yda165_integ.o
+else ifdef CONFIG_USA_MODEL_SGH_I577
+obj-$(CONFIG_SENSORS_YDA165)	+= yda165_integ.o
+else ifdef CONFIG_USA_MODEL_SGH_I957
+obj-$(CONFIG_WM8994_AMP)        += wm8994_amp.o
+else ifdef CONFIG_KOR_MODEL_SHV_E140S
+obj-$(CONFIG_WM8994_AMP)        += wm8994_amp.o
+else ifdef CONFIG_KOR_MODEL_SHV_E140K
+obj-$(CONFIG_WM8994_AMP)        += wm8994_amp.o
+else ifdef CONFIG_KOR_MODEL_SHV_E140L
+obj-$(CONFIG_WM8994_AMP)        += wm8994_amp.o
+else
+obj-$(CONFIG_SENSORS_YDA165)    += yda165.o
+
+endif
 obj-$(CONFIG_OPTICAL_GP2A)		+= gp2a_proximity.o gp2a_light.o gp2a_proc.o
+obj-$(CONFIG_OPTICAL_GP2AP020A00F)		+= gp2ap020_proximity.o gp2ap020_light.o
 obj-$(CONFIG_USB_SWITCH_FSA9480)	+= fsa9480.o
 
 ifeq ($(CONFIG_TARGET_LOCALE_US_ATT_REV01),y)
@@ -22,6 +37,7 @@ else
 #obj-$(CONFIG_SENSORS_AK8975)	+= ak8975.o
 endif
 
+obj-$(CONFIG_OPTICAL_TAOS)		+= taos.o
 obj-$(CONFIG_GYRO_K3G)		+= k3g.o
 
 ifeq ($(CONFIG_TARGET_LOCALE_US_ATT_REV01),y)

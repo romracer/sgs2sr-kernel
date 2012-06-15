@@ -1,6 +1,6 @@
 /* linux/sound/soc/msm/msm7201.c
  *
- * Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2008-2009, 2011 Code Aurora Forum. All rights reserved.
  *
  * All source code in this file is licensed under the following license except
  * where indicated.
@@ -44,6 +44,7 @@ static struct msm_rpc_endpoint *snd_ep;
 struct msm_snd_rpc_ids {
 	unsigned long   prog;
 	unsigned long   vers;
+	unsigned long   vers2;
 	unsigned long   rpc_set_snd_device;
 	int device;
 };
@@ -92,7 +93,7 @@ static int snd_msm_device_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 1; /* Device */
+	uinfo->count = 3; /* Device */
 
 	/*
 	 * The number of devices supported is 26 (0 to 25)
@@ -113,6 +114,7 @@ int msm_snd_init_rpc_ids(void)
 {
 	snd_rpc_ids.prog	= 0x30000002;
 	snd_rpc_ids.vers	= 0x00020001;
+	snd_rpc_ids.vers2	= 0x00030001;
 	/*
 	 * The magic number 2 corresponds to the rpc call
 	 * index for snd_set_device
@@ -138,8 +140,16 @@ int msm_snd_rpc_connect(void)
 	snd_ep = msm_rpc_connect_compatible(snd_rpc_ids.prog,
 				snd_rpc_ids.vers, 0);
 	if (IS_ERR(snd_ep)) {
-		printk(KERN_ERR "%s: failed (compatible VERS = %ld)\n",
+		printk(KERN_DEBUG "%s failed (compatible VERS = %ld) \
+				 trying again with another API\n",
 				__func__, snd_rpc_ids.vers);
+		snd_ep =
+			msm_rpc_connect_compatible(snd_rpc_ids.prog,
+					snd_rpc_ids.vers2, 0);
+	}
+	if (IS_ERR(snd_ep)) {
+		printk(KERN_ERR "%s: failed (compatible VERS = %ld)\n",
+				__func__, snd_rpc_ids.vers2);
 		snd_ep = NULL;
 		return -EAGAIN;
 	}
@@ -187,8 +197,10 @@ static int snd_msm_device_put(struct snd_kcontrol *kcontrol,
 	req.hdr.rpc_vers = 2;
 
 	req.rpc_snd_device = cpu_to_be32(snd_rpc_ids.device);
-	req.snd_mute_ear_mute = cpu_to_be32(1);
-	req.snd_mute_mic_mute = cpu_to_be32(0);
+	req.snd_mute_ear_mute =
+		cpu_to_be32((int)ucontrol->value.integer.value[1]);
+	req.snd_mute_mic_mute =
+		cpu_to_be32((int)ucontrol->value.integer.value[2]);
 	req.callback_ptr = -1;
 	req.client_data = cpu_to_be32(0);
 
@@ -236,15 +248,15 @@ static struct snd_kcontrol_new snd_msm_controls[] = {
 						 snd_msm_device_put, 0),
 };
 
-static int msm_new_mixer(struct snd_card *card)
+static int msm_new_mixer(struct snd_soc_codec *codec)
 {
 	unsigned int idx;
 	int err;
 
 	pr_err("msm_soc: ALSA MSM Mixer Setting\n");
-	strcpy(card->mixername, "MSM Mixer");
+	strcpy(codec->card->snd_card->mixername, "MSM Mixer");
 	for (idx = 0; idx < ARRAY_SIZE(snd_msm_controls); idx++) {
-		err = snd_ctl_add(card,
+		err = snd_ctl_add(codec->card->snd_card,
 				snd_ctl_new1(&snd_msm_controls[idx], NULL));
 		if (err < 0)
 			return err;
@@ -252,56 +264,12 @@ static int msm_new_mixer(struct snd_card *card)
 	return 0;
 }
 
-static int msm_soc_dai_init(struct snd_soc_codec *codec)
+static int msm_soc_dai_init(
+	struct snd_soc_pcm_runtime *rtd)
 {
-
 	int ret = 0;
-	ret = msm_new_mixer(codec->card);
-	if (ret < 0) {
-		pr_err("msm_soc: ALSA MSM Mixer Fail\n");
-	}
+        struct snd_soc_codec *codec = rtd->codec;
 
-	return ret;
-}
-
-
-static struct snd_soc_dai_link msm_dai = {
-	.name = "ASOC",
-	.stream_name = "ASOC",
-	.codec_dai = &msm_dais[0],
-	.cpu_dai = &msm_dais[1],
-	.init	= msm_soc_dai_init,
-};
-
-struct snd_soc_card snd_soc_card_msm = {
-	.name 		= "msm-audio",
-	.dai_link	= &msm_dai,
-	.num_links = 1,
-	.platform = &msm_soc_platform,
-};
-
-/* msm_audio audio subsystem */
-static struct snd_soc_device msm_audio_snd_devdata = {
-	.card = &snd_soc_card_msm,
-	.codec_dev = &soc_codec_dev_msm,
-};
-
-
-static int __init msm_audio_init(void)
-{
-	int ret;
-
-	msm_audio_snd_device = platform_device_alloc("soc-audio", -1);
-	if (!msm_audio_snd_device)
-		return -ENOMEM;
-
-	platform_set_drvdata(msm_audio_snd_device, &msm_audio_snd_devdata);
-	msm_audio_snd_devdata.dev = &msm_audio_snd_device->dev;
-	ret = platform_device_add(msm_audio_snd_device);
-	if (ret) {
-		platform_device_put(msm_audio_snd_device);
-		return ret;
-	}
 	mutex_init(&the_locks.lock);
 	mutex_init(&the_locks.write_lock);
 	mutex_init(&the_locks.read_lock);
@@ -313,6 +281,47 @@ static int __init msm_audio_init(void)
 	init_waitqueue_head(&the_locks.read_wait);
 	msm_vol_ctl.volume = MSM_PLAYBACK_DEFAULT_VOLUME;
 	msm_vol_ctl.pan = MSM_PLAYBACK_DEFAULT_PAN;
+
+	ret = msm_new_mixer(codec);
+	if (ret < 0) {
+		pr_err("msm_soc: ALSA MSM Mixer Fail\n");
+	}
+
+	return ret;
+}
+
+static struct snd_soc_dai_link msm_dai[] = {
+{
+	.name = "MSM Primary I2S",
+	.stream_name = "DSP 1",
+	.cpu_dai_name = "msm-cpu-dai.0",
+	.platform_name = "msm-dsp-audio.0",
+	.codec_name = "msm-codec-dai.0",
+	.codec_dai_name = "msm-codec-dai",
+	.init   = &msm_soc_dai_init,
+},
+};
+
+static struct snd_soc_card snd_soc_card_msm = {
+	.name		= "msm-audio",
+	.dai_link	= msm_dai,
+	.num_links = ARRAY_SIZE(msm_dai),
+};
+
+static int __init msm_audio_init(void)
+{
+	int ret;
+
+	msm_audio_snd_device = platform_device_alloc("soc-audio", -1);
+	if (!msm_audio_snd_device)
+		return -ENOMEM;
+
+	platform_set_drvdata(msm_audio_snd_device, &snd_soc_card_msm);
+	ret = platform_device_add(msm_audio_snd_device);
+	if (ret) {
+		platform_device_put(msm_audio_snd_device);
+		return ret;
+	}
 
 	ret = msm_snd_rpc_connect();
 

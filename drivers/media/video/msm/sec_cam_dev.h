@@ -91,11 +91,11 @@ enum cam_metering_mode {
 };
 
 
-
-
 /* Scene Mode */ 
+
 /* Effect  */ 
 
+/* Focus  */ 
 // from msm_camera.h
 
 #endif

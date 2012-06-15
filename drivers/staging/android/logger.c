@@ -322,8 +322,7 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 		    && log->buffer[logger_offset(log->w_off + 1)] == '@') {
 			char tmp[256];
 			int i;
-			for (i = 0; i < min(count, sizeof(tmp) - 1); i++)
-			{
+			for (i = 0; i < min(count, sizeof(tmp) - 1); i++) {
 				tmp[i] =
 				    log->buffer[logger_offset(log->w_off + i)];
 #ifdef BOOTPARAM_FILEIO
@@ -335,8 +334,7 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 			tmp[i] = '\0';
 			printk("%s\n", tmp);
 #ifdef BOOTPARAM_FILEIO
-			if (matching == STOP_LOG_LEN + 1) // + 1 for NULL
-			{
+			if (matching == STOP_LOG_LEN + 1) { // + 1 for NULL
 				printk("got an only-kernel-boot log!!\n");
 				if (modify_bootparam() < 0)
 					printk("modifying file error - boot param\n");
@@ -467,10 +465,7 @@ static int logger_release(struct inode *ignored, struct file *file)
 {
 	if (file->f_mode & FMODE_READ) {
 		struct logger_reader *reader = file->private_data;
-		struct logger_log *log = reader->log;
-		mutex_lock(&log->mutex);
 		list_del(&reader->list);
-		mutex_unlock(&log->mutex);
 		kfree(reader);
 	}
 

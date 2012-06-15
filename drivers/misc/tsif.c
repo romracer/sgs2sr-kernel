@@ -12,11 +12,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 #include <linux/module.h>       /* Needed by all modules */
 #include <linux/kernel.h>       /* Needed for KERN_INFO */
@@ -96,6 +91,7 @@
 #define TSIF_CHUNKS_IN_BUF        (tsif_device->chunks_per_buf)
 #define TSIF_PKTS_IN_BUF          (TSIF_PKTS_IN_CHUNK * TSIF_CHUNKS_IN_BUF)
 #define TSIF_BUF_SIZE             (TSIF_PKTS_IN_BUF * TSIF_PKT_SIZE)
+#define TSIF_MAX_ID               1
 
 #define ROW_RESET                 (MSM_CLK_CTL_BASE + 0x214)
 #define GLBL_CLK_ENA              (MSM_CLK_CTL_BASE + 0x000)
@@ -213,7 +209,8 @@ static int tsif_get_clocks(struct msm_tsif_device *tsif_device)
 	int rc = 0;
 
 	if (pdata->tsif_clk) {
-		tsif_device->tsif_clk = clk_get(NULL, pdata->tsif_clk);
+		tsif_device->tsif_clk = clk_get(&tsif_device->pdev->dev,
+						pdata->tsif_clk);
 		if (IS_ERR(tsif_device->tsif_clk)) {
 			dev_err(&tsif_device->pdev->dev, "failed to get %s\n",
 				pdata->tsif_clk);
@@ -223,7 +220,8 @@ static int tsif_get_clocks(struct msm_tsif_device *tsif_device)
 		}
 	}
 	if (pdata->tsif_pclk) {
-		tsif_device->tsif_pclk = clk_get(NULL, pdata->tsif_pclk);
+		tsif_device->tsif_pclk = clk_get(&tsif_device->pdev->dev,
+						 pdata->tsif_pclk);
 		if (IS_ERR(tsif_device->tsif_pclk)) {
 			dev_err(&tsif_device->pdev->dev, "failed to get %s\n",
 				pdata->tsif_pclk);
@@ -233,7 +231,8 @@ static int tsif_get_clocks(struct msm_tsif_device *tsif_device)
 		}
 	}
 	if (pdata->tsif_ref_clk) {
-		tsif_device->tsif_ref_clk = clk_get(NULL, pdata->tsif_ref_clk);
+		tsif_device->tsif_ref_clk = clk_get(&tsif_device->pdev->dev,
+						    pdata->tsif_ref_clk);
 		if (IS_ERR(tsif_device->tsif_ref_clk)) {
 			dev_err(&tsif_device->pdev->dev, "failed to get %s\n",
 				pdata->tsif_ref_clk);
@@ -1021,6 +1020,8 @@ static int action_open(struct msm_tsif_device *tsif_device)
 	int rc = -EINVAL;
 	int result;
 
+	struct msm_tsif_platform_data *pdata =
+		tsif_device->pdev->dev.platform_data;
 	dev_info(&tsif_device->pdev->dev, "%s\n", __func__);
 	if (tsif_device->state != tsif_state_stopped)
 		return -EAGAIN;
@@ -1037,6 +1038,11 @@ static int action_open(struct msm_tsif_device *tsif_device)
 	enable_irq(tsif_device->irq);
 	tsif_clock(tsif_device, 1);
 	tsif_dma_schedule(tsif_device);
+	/*
+	 * init the device if required
+	 */
+	if (pdata->init)
+		pdata->init(pdata);
 	rc = tsif_start_hw(tsif_device);
 	if (rc) {
 		dev_err(&tsif_device->pdev->dev, "Unable to start HW\n");
@@ -1265,8 +1271,8 @@ static int __devinit msm_tsif_probe(struct platform_device *pdev)
 		rc = -EINVAL;
 		goto out;
 	}
-/*TODO macro for max. id*/
-	if ((pdev->id < 0) || (pdev->id > 0)) {
+
+	if ((pdev->id < 0) || (pdev->id > TSIF_MAX_ID)) {
 		dev_err(&pdev->dev, "Invalid device ID %d\n", pdev->id);
 		rc = -EINVAL;
 		goto out;
@@ -1424,9 +1430,21 @@ static void __exit mod_exit(void)
 
 /* public API */
 
+int tsif_get_active(void)
+{
+	struct msm_tsif_device *tsif_device;
+	list_for_each_entry(tsif_device, &tsif_devices, devlist) {
+		return tsif_device->pdev->id;
+	}
+	return -ENODEV;
+}
+EXPORT_SYMBOL(tsif_get_active);
+
 void *tsif_attach(int id, void (*notify)(void *client_data), void *data)
 {
 	struct msm_tsif_device *tsif_device = tsif_find_by_id(id);
+	if (!tsif_device)
+		return ERR_PTR(-ENODEV);
 	if (tsif_device->client_notify || tsif_device->client_data)
 		return ERR_PTR(-EBUSY);
 	tsif_device->client_notify = notify;

@@ -12,7 +12,7 @@
 
 #ifndef __Q6CORE_H__
 #define __Q6CORE_H__
-#include <mach/qdsp6v2/apr_audio.h>
+#include <mach/qdsp6v2/apr.h>
 
 
 #define ADSP_CMD_REMOTE_BUS_BW_REQUEST		0x0001115D
@@ -24,7 +24,7 @@ struct adsp_cmd_remote_bus_bw_request {
 	u16 reserved;
 	u32 ab_bps;
 	u32 ib_bps;
-} __attribute__ ((packed));
+} __packed;
 
 #define ADSP_GET_VERSION     0x00011152
 #define ADSP_GET_VERSION_RSP 0x00011153

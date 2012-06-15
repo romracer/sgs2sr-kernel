@@ -28,6 +28,7 @@
 #define COM_SURVEYSCAN     0x2B
 #define COM_QUERY          0x2A
 #define COM_FLASH          0xff
+#define COM_CHECKSUM       0x63
 
 /*I2C address for digitizer and its boot loader*/
 #define WACOM_I2C_ADDR 0x56
@@ -66,7 +67,7 @@
 #define GPIO_PEN_IRQ	4
 #define GPIO_PEN_SLP	5
 #define GPIO_PEN_PDCT	6
-#if defined(CONFIG_KOR_MODEL_SHV_E160S)
+#if defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined(CONFIG_KOR_MODEL_SHV_E160L) || defined(CONFIG_JPN_MODEL_SC_05D)
 #define GPIO_PEN_LDO_EN	7 //Xtopher_WACOM
 #endif
 #define GPIO_PEN_RESET	8

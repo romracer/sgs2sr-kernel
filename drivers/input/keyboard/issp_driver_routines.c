@@ -88,6 +88,11 @@ extern unsigned char firmware_data_rev02[];
 extern unsigned char firmware_data_rev03[];
 extern unsigned char firmware_data_rev04[];
 extern unsigned char firmware_data_rev05[];  //active high
+
+#elif defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R)
+extern unsigned int  get_hw_rev(void);
+extern unsigned char firmware_data_activehigh[];
+
 #elif defined(CONFIG_USA_MODEL_SGH_I727)
 extern unsigned int  get_hw_rev(void);
 extern unsigned char firmware_data_activehigh[];
@@ -101,18 +106,26 @@ extern unsigned char firmware_data_3key[];
 extern unsigned char firmware_data_activehigh[];
 extern unsigned char firmware_data_activehigh_rev06[];
 extern unsigned char firmware_data_activehigh_rev08[];
-#elif defined(CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_KOR_SHV_E120L_HD720) || defined(CONFIG_KOR_MODEL_SHV_E120K) 
+#elif defined(CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_KOR_MODEL_SHV_E120L) || defined(CONFIG_KOR_MODEL_SHV_E120K) 
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
+extern unsigned char firmware_data_3key_rev10[];
+extern unsigned char firmware_data_3key_rev09[];
+#endif
 extern unsigned char data_mdule_rev;
 extern unsigned int  get_hw_rev(void);
 extern unsigned char firmware_data_3key[];
 extern unsigned char firmware_data_3key_rev02[];
 extern unsigned char firmware_data_3key_rev03[];
 extern unsigned char firmware_data_3key_rev04[];
-#elif defined(CONFIG_KOR_MODEL_SHV_E160S)
+#elif defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined(CONFIG_KOR_MODEL_SHV_E160L)
 extern unsigned char data_mdule_rev;
 extern unsigned int  get_hw_rev(void);
 extern unsigned char firmware_data_rev02[];
 extern unsigned char firmware_data_rev03[];
+extern unsigned char firmware_data_rev04[];
+extern unsigned char firmware_data_rev06[];
+extern unsigned char firmware_data_rev07[];
+
 #endif
 
 
@@ -288,13 +301,20 @@ else
 #elif defined(CONFIG_KOR_MODEL_SHV_E120S) || defined(CONFIG_KOR_MODEL_SHV_E120K)
 printk(KERN_ERR "%s get_hw_rev(): %d data_mdule_rev = %x\n",__func__,get_hw_rev(),data_mdule_rev);
 
-/*if ((get_hw_rev() >= 0x09))
+if ((get_hw_rev() >= 0x0a))
 {
     for (dataNum = 0; dataNum < TARGET_DATABUFF_LEN; dataNum++) {
-        abTargetDataOUT[dataNum] = firmware_data_3key_rev04[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
+        abTargetDataOUT[dataNum] = firmware_data_3key_rev10[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
         // abTargetDataOUT[bTargetDataPtr] = bTargetDataPtr + bBlockNum + bBankNum;
     }
-}else */if ((get_hw_rev() == 0x08))
+}
+else if ((get_hw_rev() == 0x09))
+{
+    for (dataNum = 0; dataNum < TARGET_DATABUFF_LEN; dataNum++) {
+        abTargetDataOUT[dataNum] = firmware_data_3key_rev09[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
+        // abTargetDataOUT[bTargetDataPtr] = bTargetDataPtr + bBlockNum + bBankNum;
+    }
+}else if ((get_hw_rev() == 0x08))
 {
     for (dataNum = 0; dataNum < TARGET_DATABUFF_LEN; dataNum++) {
         abTargetDataOUT[dataNum] = firmware_data_3key_rev03[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
@@ -313,18 +333,18 @@ printk(KERN_ERR "%s get_hw_rev(): %d data_mdule_rev = %x\n",__func__,get_hw_rev(
     }
 }
 else
-#elif defined(CONFIG_KOR_MODEL_SHV_E160S)
-printk(KERN_ERR "[TKEY] 160S %s get_hw_rev(): %d data_module_rev = %x\n",__func__,get_hw_rev(),data_mdule_rev);
+#elif defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined(CONFIG_KOR_MODEL_SHV_E160L)
+//printk(KERN_ERR "[TKEY] 160S %s get_hw_rev(): %d data_module_rev = %x\n",__func__,get_hw_rev(),data_mdule_rev);
 if (get_hw_rev() >= 0x02) 
 {
     for (dataNum = 0; dataNum < TARGET_DATABUFF_LEN; dataNum++) {
         // abTargetDataOUT[dataNum] = firmware_data[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
         // abTargetDataOUT[dataNum] = firmware_data_rev02[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
-        abTargetDataOUT[dataNum] = firmware_data_rev03[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
+        abTargetDataOUT[dataNum] = firmware_data_rev07[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
     }
 }
 else
-#elif defined(CONFIG_KOR_SHV_E120L_HD720)
+#elif defined(CONFIG_KOR_MODEL_SHV_E120L)
 printk(KERN_ERR "%s get_hw_rev(): %d \n",__func__,get_hw_rev());
 if (get_hw_rev() >= 0x04)
 {
@@ -352,6 +372,24 @@ else if (get_hw_rev() == 0x01)
     for (dataNum = 0; dataNum < TARGET_DATABUFF_LEN; dataNum++) {
         abTargetDataOUT[dataNum] = firmware_data_3key[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
         // abTargetDataOUT[bTargetDataPtr] = bTargetDataPtr + bBlockNum + bBankNum;
+    }
+}
+else
+#elif defined(CONFIG_EUR_MODEL_GT_I9210)
+if (get_hw_rev() >= 0x07)
+{
+    for (dataNum = 0; dataNum < TARGET_DATABUFF_LEN; dataNum++) {
+        abTargetDataOUT[dataNum] = firmware_data_activehigh[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
+        // abTargetDataOUT[bTargetDataPtr] = bTargetDataPtr + bBlockNum + bBankNum;
+    }
+}
+else
+#elif defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_CAN_MODEL_SGH_I577R)
+if (get_hw_rev() >= 0x0d)
+{
+    for (dataNum = 0; dataNum < TARGET_DATABUFF_LEN; dataNum++) {
+	abTargetDataOUT[dataNum] = firmware_data_activehigh[bBlockNum*TARGET_DATABUFF_LEN + dataNum];
+	// abTargetDataOUT[bTargetDataPtr] = bTargetDataPtr + bBlockNum + bBankNum;
     }
 }
 else
@@ -442,6 +480,9 @@ unsigned char fSDATACheck(void)
 void SCLKHigh(void)
 {
   gpio_direction_output(GPIO_TOUCHKEY_SCL, 1);
+#if defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined (CONFIG_KOR_MODEL_SHV_E160L)
+  udelay(2);
+#endif
 }
 
 // ********************* LOW-LEVEL ISSP SUBROUTINE SECTION ********************
@@ -624,8 +665,9 @@ void ApplyTargetVDD(void)
 {
     gpio_direction_input(GPIO_TOUCHKEY_SDA);
     gpio_direction_input(GPIO_TOUCHKEY_SCL);
-
+#if !defined(CONFIG_KOR_MODEL_SHV_E160S) && !defined(CONFIG_KOR_MODEL_SHV_E160K) && !defined (CONFIG_KOR_MODEL_SHV_E160L)
     printk("[TKEY] %s: tkey_vdd_enable(ON) \n", __func__);
+#endif
     tkey_vdd_enable(1);
 
     // gpio_direction_output(_3_GPIO_TOUCH_EN, 1);
@@ -662,7 +704,9 @@ void RemoveTargetVDD(void)
     gpio_out(EXT_TSP_SDA, GPIO_LOW_VALUE);
     gpio_out(EXT_TSP_RST, GPIO_LOW_VALUE);
     #else
+#if !defined(CONFIG_KOR_MODEL_SHV_E160S) && !defined(CONFIG_KOR_MODEL_SHV_E160K) && !defined (CONFIG_KOR_MODEL_SHV_E160L)
 	printk("[TKEY] %s: tkey_vdd_enable(OFF)\n", __func__);
+#endif
 	tkey_vdd_enable(0);
     #endif
     //gpio_direction_output(_3_GPIO_TOUCH_EN, 0);

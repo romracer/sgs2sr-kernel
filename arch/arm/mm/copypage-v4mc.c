@@ -30,7 +30,7 @@
 #define minicache_pgprot __pgprot(L_PTE_PRESENT | L_PTE_YOUNG | \
 				  L_PTE_MT_MINICACHE)
 
-static DEFINE_SPINLOCK(minicache_lock);
+static DEFINE_RAW_SPINLOCK(minicache_lock);
 
 /*
  * ARMv4 mini-dcache optimised copy_user_highpage
@@ -73,17 +73,17 @@ void v4_mc_copy_user_highpage(struct page *to, struct page *from,
 {
 	void *kto = kmap_atomic(to, KM_USER1);
 
-	if (test_and_clear_bit(PG_dcache_dirty, &from->flags))
+	if (!test_and_set_bit(PG_dcache_clean, &from->flags))
 		__flush_dcache_page(page_mapping(from), from);
 
-	spin_lock(&minicache_lock);
+	raw_spin_lock(&minicache_lock);
 
 	set_pte_ext(TOP_PTE(0xffff8000), pfn_pte(page_to_pfn(from), minicache_pgprot), 0);
 	flush_tlb_kernel_page(0xffff8000);
 
 	mc_copy_user_page((void *)0xffff8000, kto);
 
-	spin_unlock(&minicache_lock);
+	raw_spin_unlock(&minicache_lock);
 
 	kunmap_atomic(kto, KM_USER1);
 }

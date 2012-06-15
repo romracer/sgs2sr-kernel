@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 /*
  * SPI driver for Qualcomm MSM platforms
@@ -40,6 +35,7 @@
 #include <mach/dma.h>
 #include <asm/atomic.h>
 #include <linux/mutex.h>
+#include <linux/gpio.h>
 #include <linux/remote_spinlock.h>
 #include <linux/pm_qos_params.h>
 
@@ -154,7 +150,6 @@ enum msm_spi_state {
 #define SPI_ERR_INPUT_OVER_RUN_ERR    0x00000004
 #define SPI_ERR_CLK_OVER_RUN_ERR      0x00000002
 #define SPI_ERR_CLK_UNDER_RUN_ERR     0x00000001
-#define SPI_ERR_MASK                  0x0000007F
 
 /* We don't allow transactions larger than 4K-64 or 64K-64 due to
    mx_input/output_cnt register size */
@@ -175,11 +170,30 @@ enum msm_spi_state {
 /* Data Mover commands should be aligned to 64 bit(8 bytes) */
 #define DM_BYTE_ALIGN                 8
 
+static char const * const spi_rsrcs[] = {
+	"spi_clk",
+	"spi_miso",
+	"spi_mosi"
+};
+
+static char const * const spi_cs_rsrcs[] = {
+	"spi_cs",
+	"spi_cs1",
+	"spi_cs2",
+	"spi_cs3",
+};
+
 enum msm_spi_mode {
 	SPI_FIFO_MODE  = 0x0,  /* 00 */
 	SPI_BLOCK_MODE = 0x1,  /* 01 */
 	SPI_DMOV_MODE  = 0x2,  /* 10 */
 	SPI_MODE_NONE  = 0xFF, /* invalid value */
+};
+
+/* Structure for SPI CS GPIOs */
+struct spi_cs_gpio {
+	int  gpio_num;
+	bool valid;
 };
 
 /* Structures for Data Mover */
@@ -195,7 +209,7 @@ MODULE_LICENSE("GPL v2");
 MODULE_VERSION("0.3");
 MODULE_ALIAS("platform:"SPI_DRV_NAME);
 
-static struct pm_qos_request_list *qos_req_list;
+static struct pm_qos_request_list qos_req_list;
 
 #ifdef CONFIG_DEBUG_FS
 /* Used to create debugfs entries */
@@ -265,14 +279,14 @@ struct msm_spi {
 	u32                      rx_bytes_remaining;
 	u32                      tx_bytes_remaining;
 	u32                      clock_speed;
-	u32                      irq_in;
+	int                      irq_in;
 	int                      read_xfr_cnt;
 	int                      write_xfr_cnt;
 	int                      write_len;
 	int                      read_len;
 #if defined(CONFIG_SPI_QSD) || defined(CONFIG_SPI_QSD_MODULE)
-	u32                      irq_out;
-	u32                      irq_err;
+	int                      irq_out;
+	int                      irq_err;
 #endif
 	int                      bytes_per_word;
 	bool                     suspended;
@@ -319,9 +333,19 @@ struct msm_spi {
 	bool                     use_rlock;
 	remote_mutex_t           r_lock;
 	uint32_t                 pm_lat;
-	/* When set indicates a write followed by read transfer */
+	/* When set indicates multiple transfers in a single message */
 	bool                     multi_xfr;
 	bool                     done;
+	u32                      cur_msg_len;
+	/* Used in FIFO mode to keep track of the transfer being processed */
+	struct spi_transfer     *cur_tx_transfer;
+	struct spi_transfer     *cur_rx_transfer;
+	/* Temporary buffer used for WR-WR or WR-RD transfers */
+	u8                      *temp_buf;
+	/* GPIO pin numbers for SPI clk, miso and mosi */
+	int                      spi_gpios[ARRAY_SIZE(spi_rsrcs)];
+	/* SPI CS GPIOs for each slave */
+	struct spi_cs_gpio       cs_gpios[ARRAY_SIZE(spi_cs_rsrcs)];
 };
 
 /* Forward declaration */
@@ -421,6 +445,16 @@ static inline void msm_spi_complete(struct msm_spi *dd)
 	complete(&dd->transfer_complete);
 }
 
+static inline void msm_spi_enable_error_flags(struct msm_spi *dd)
+{
+	writel_relaxed(0x0000007B, dd->base + SPI_ERROR_FLAGS_EN);
+}
+
+static inline void msm_spi_clear_error_flags(struct msm_spi *dd)
+{
+	writel_relaxed(0x0000007F, dd->base + SPI_ERROR_FLAGS);
+}
+
 #elif defined(CONFIG_SPI_QUP) || defined(CONFIG_SPI_QUP_MODULE)
 
 /* Interrupt Handling */
@@ -491,12 +525,22 @@ static irqreturn_t msm_spi_qup_irq(int irq, void *dev_id)
 	if (op & SPI_OP_INPUT_SERVICE_FLAG) {
 		writel_relaxed(SPI_OP_INPUT_SERVICE_FLAG,
 			       dd->base + SPI_OPERATIONAL);
+		/*
+		 * Ensure service flag was cleared before further
+		 * processing of interrupt.
+		 */
+		mb();
 		ret |= msm_spi_input_irq(irq, dev_id);
 	}
 
 	if (op & SPI_OP_OUTPUT_SERVICE_FLAG) {
 		writel_relaxed(SPI_OP_OUTPUT_SERVICE_FLAG,
 			       dd->base + SPI_OPERATIONAL);
+		/*
+		 * Ensure service flag was cleared before further
+		 * processing of interrupt.
+		 */
+		mb();
 		ret |= msm_spi_output_irq(irq, dev_id);
 	}
 
@@ -584,7 +628,60 @@ static inline void msm_spi_complete(struct msm_spi *dd)
 	dd->done = 1;
 }
 
+static inline void msm_spi_enable_error_flags(struct msm_spi *dd)
+{
+	writel_relaxed(0x00000078, dd->base + SPI_ERROR_FLAGS_EN);
+}
+
+static inline void msm_spi_clear_error_flags(struct msm_spi *dd)
+{
+	writel_relaxed(0x0000007C, dd->base + SPI_ERROR_FLAGS);
+}
+
 #endif
+
+static inline int msm_spi_request_gpios(struct msm_spi *dd)
+{
+	int i;
+	int result = 0;
+
+	for (i = 0; i < ARRAY_SIZE(spi_rsrcs); ++i) {
+		if (dd->spi_gpios[i] >= 0) {
+			result = gpio_request(dd->spi_gpios[i], spi_rsrcs[i]);
+			if (result) {
+				dev_err(dd->dev, "%s: gpio_request for pin %d "
+					"failed with error %d\n", __func__,
+					dd->spi_gpios[i], result);
+				goto error;
+			}
+		}
+	}
+	return 0;
+
+error:
+	for (; --i >= 0;) {
+		if (dd->spi_gpios[i] >= 0)
+			gpio_free(dd->spi_gpios[i]);
+	}
+	return result;
+}
+
+static inline void msm_spi_free_gpios(struct msm_spi *dd)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(spi_rsrcs); ++i) {
+		if (dd->spi_gpios[i] >= 0)
+			gpio_free(dd->spi_gpios[i]);
+	}
+
+	for (i = 0; i < ARRAY_SIZE(spi_cs_rsrcs); ++i) {
+		if (dd->cs_gpios[i].valid) {
+			gpio_free(dd->cs_gpios[i].gpio_num);
+			dd->cs_gpios[i].valid = 0;
+		}
+	}
+}
 
 static void msm_spi_clock_set(struct msm_spi *dd, int speed)
 {
@@ -721,13 +818,16 @@ static void msm_spi_read_word_from_fifo(struct msm_spi *dd)
 			dd->read_xfr_cnt = 0;
 		else if ((dd->read_xfr_cnt * dd->bytes_per_word) ==
 						dd->read_len) {
-			struct spi_transfer *t = dd->cur_transfer;
-			t = list_entry(t->transfer_list.next,
-					struct spi_transfer,
-					transfer_list);
-			dd->read_buf = t->rx_buf;
-			dd->read_len = t->len;
-			dd->read_xfr_cnt = 0;
+			struct spi_transfer *t = dd->cur_rx_transfer;
+			if (t->transfer_list.next != &dd->cur_msg->transfers) {
+				t = list_entry(t->transfer_list.next,
+						struct spi_transfer,
+						transfer_list);
+				dd->read_buf = t->rx_buf;
+				dd->read_len = t->len;
+				dd->read_xfr_cnt = 0;
+				dd->cur_rx_transfer = t;
+			}
 		}
 	}
 }
@@ -763,7 +863,7 @@ static inline int msm_spi_wait_valid(struct msm_spi *dd)
 	timeout = jiffies + msecs_to_jiffies(delay * SPI_DEFAULT_TIMEOUT) + 1;
 	while (!msm_spi_is_valid_state(dd)) {
 		if (time_after(jiffies, timeout)) {
-			if(!msm_spi_is_valid_state(dd)) {
+			if (!msm_spi_is_valid_state(dd)) {
 				if (dd->cur_msg)
 					dd->cur_msg->status = -EIO;
 				dev_err(dd->dev, "%s: SPI operational state"
@@ -814,7 +914,7 @@ static inline void msm_spi_add_configs(struct msm_spi *dd, u32 *config, int n)
 	if (n != (*config & SPI_CFG_N))
 		*config = (*config & ~SPI_CFG_N) | n;
 
-	if ((dd->mode == SPI_DMOV_MODE) && (!dd->multi_xfr)) {
+	if ((dd->mode == SPI_DMOV_MODE) && (!dd->read_len)) {
 		if (dd->read_buf == NULL)
 			*config |= SPI_NO_INPUT;
 		if (dd->write_buf == NULL)
@@ -846,11 +946,19 @@ static void msm_spi_setup_dm_transfer(struct msm_spi *dd)
 	dmov_box *box;
 	int bytes_to_send, num_rows, bytes_sent;
 	u32 num_transfers;
-	u32 write_transfers;
-	u32 read_transfers;
 
 	atomic_set(&dd->rx_irq_called, 0);
-	bytes_sent = dd->cur_transfer->len - dd->tx_bytes_remaining;
+	if (dd->write_len && !dd->read_len) {
+		/* WR-WR transfer */
+		bytes_sent = dd->cur_msg_len - dd->tx_bytes_remaining;
+		dd->write_buf = dd->temp_buf;
+	} else {
+		bytes_sent = dd->cur_transfer->len - dd->tx_bytes_remaining;
+		/* For WR-RD transfer, bytes_sent can be negative */
+		if (bytes_sent < 0)
+			bytes_sent = 0;
+	}
+
 	/* We'll send in chunks of SPI_MAX_LEN if larger */
 	bytes_to_send = dd->tx_bytes_remaining / SPI_MAX_LEN ?
 			  SPI_MAX_LEN : dd->tx_bytes_remaining;
@@ -897,6 +1005,9 @@ static void msm_spi_setup_dm_transfer(struct msm_spi *dd)
 		dmov_s *rx_cmd = &(dd->rx_dmov_cmd->single_pad);
 		u32 offset = dd->cur_transfer->len - dd->unaligned_len;
 
+		if ((dd->multi_xfr) && (dd->read_len <= 0))
+			offset = dd->cur_msg_len - dd->unaligned_len;
+
 		dd->tx_dmov_cmd->box.cmd &= ~CMD_LC;
 		dd->rx_dmov_cmd->box.cmd &= ~CMD_LC;
 
@@ -913,21 +1024,26 @@ static void msm_spi_setup_dm_transfer(struct msm_spi *dd)
 	/* This also takes care of the padding dummy buf
 	   Since this is set to the correct length, the
 	   dummy bytes won't be actually sent */
-	if (dd->read_len && dd->write_len) {
-		if (dd->read_len + dd->write_len > 0) {
+	if (dd->multi_xfr) {
+		u32 write_transfers = 0;
+		u32 read_transfers = 0;
+
+		if (dd->write_len > 0) {
+			write_transfers = DIV_ROUND_UP(dd->write_len,
+						       dd->bytes_per_word);
+			writel_relaxed(write_transfers,
+				       dd->base + SPI_MX_OUTPUT_COUNT);
+		}
+		if (dd->read_len > 0) {
 			/*
 			 *  The read following a write transfer must take
 			 *  into account, that the bytes pertaining to
 			 *  the write transfer needs to be discarded,
 			 *  before the actual read begins.
 			 */
-			write_transfers = DIV_ROUND_UP(dd->write_len,
-						       dd->bytes_per_word);
-			read_transfers = DIV_ROUND_UP(
-						dd->read_len + dd->write_len,
-						dd->bytes_per_word);
-			writel_relaxed(write_transfers,
-				       dd->base + SPI_MX_OUTPUT_COUNT);
+			read_transfers = DIV_ROUND_UP(dd->read_len +
+						      dd->write_len,
+						      dd->bytes_per_word);
 			writel_relaxed(read_transfers,
 				       dd->base + SPI_MX_INPUT_COUNT);
 		}
@@ -976,8 +1092,7 @@ static int msm_spi_dm_send_next(struct msm_spi *dd)
 		if (msm_spi_set_state(dd, SPI_OP_STATE_RUN))
 			return 0;
 		return 1;
-	} else if (dd->multi_xfr) {
-		u32 prev_xfr_len = dd->cur_transfer->len;
+	} else if (dd->read_len && dd->write_len) {
 		dd->tx_bytes_remaining -= dd->cur_transfer->len;
 		if (list_is_last(&dd->cur_transfer->transfer_list,
 					    &dd->cur_msg->transfers))
@@ -985,8 +1100,8 @@ static int msm_spi_dm_send_next(struct msm_spi *dd)
 		get_next_transfer(dd);
 		if (msm_spi_set_state(dd, SPI_OP_STATE_PAUSE))
 			return 0;
-		dd->tx_bytes_remaining = dd->rx_bytes_remaining =
-					 dd->cur_transfer->len + prev_xfr_len;
+		dd->tx_bytes_remaining = dd->read_len + dd->write_len;
+		dd->read_buf = dd->temp_buf;
 		dd->read_len = dd->write_len = -1;
 		msm_spi_setup_dm_transfer(dd);
 		msm_spi_enqueue_dm_commands(dd);
@@ -1002,6 +1117,8 @@ static inline void msm_spi_ack_transfer(struct msm_spi *dd)
 	writel_relaxed(SPI_OP_MAX_INPUT_DONE_FLAG |
 		       SPI_OP_MAX_OUTPUT_DONE_FLAG,
 		       dd->base + SPI_OPERATIONAL);
+	/* Ensure done flag was cleared before proceeding further */
+	mb();
 }
 
 static irqreturn_t msm_spi_input_irq(int irq, void *dev_id)
@@ -1066,13 +1183,16 @@ static void msm_spi_write_word_to_fifo(struct msm_spi *dd)
 			dd->write_xfr_cnt = 0;
 		else if ((dd->write_xfr_cnt * dd->bytes_per_word) ==
 						dd->write_len) {
-			struct spi_transfer *t = dd->cur_transfer;
-			t = list_entry(t->transfer_list.next,
-					struct spi_transfer,
-					transfer_list);
-			dd->write_buf = t->tx_buf;
-			dd->write_len = t->len;
-			dd->write_xfr_cnt = 0;
+			struct spi_transfer *t = dd->cur_tx_transfer;
+			if (t->transfer_list.next != &dd->cur_msg->transfers) {
+				t = list_entry(t->transfer_list.next,
+						struct spi_transfer,
+						transfer_list);
+				dd->write_buf = t->tx_buf;
+				dd->write_len = t->len;
+				dd->write_xfr_cnt = 0;
+				dd->cur_tx_transfer = t;
+			}
 		}
 	}
 	writel_relaxed(word, dd->base + SPI_OUTPUT_FIFO);
@@ -1132,32 +1252,145 @@ static irqreturn_t msm_spi_error_irq(int irq, void *dev_id)
 		dev_warn(master->dev.parent, "SPI input underrun error\n");
 	if (spi_err & SPI_ERR_OUTPUT_UNDER_RUN_ERR)
 		dev_warn(master->dev.parent, "SPI output underrun error\n");
-	if (spi_err & SPI_ERR_INPUT_OVER_RUN_ERR) {
-		/*
-		 * When switching from Run to Reset state, the core generates
-		 * a bogus input overrun error on 8660. We ignore such errors
-		 * when the transfer has completed successfully.
-		 */
-		if (dd->mode != SPI_MODE_NONE)
-			dev_warn(master->dev.parent,
-				 "SPI input overrun error\n");
-	}
 	msm_spi_get_clk_err(dd, &spi_err);
 	if (spi_err & SPI_ERR_CLK_OVER_RUN_ERR)
 		dev_warn(master->dev.parent, "SPI clock overrun error\n");
 	if (spi_err & SPI_ERR_CLK_UNDER_RUN_ERR)
 		dev_warn(master->dev.parent, "SPI clock underrun error\n");
-	writel_relaxed(SPI_ERR_MASK, dd->base + SPI_ERROR_FLAGS);
+	msm_spi_clear_error_flags(dd);
 	msm_spi_ack_clk_err(dd);
+	/* Ensure clearing of QUP_ERROR_FLAGS was completed */
+	mb();
 	return IRQ_HANDLED;
+}
+
+static int msm_spi_map_dma_buffers(struct msm_spi *dd)
+{
+	struct device *dev;
+	struct spi_transfer *first_xfr;
+	struct spi_transfer *nxt_xfr = NULL;
+	void *tx_buf, *rx_buf;
+	unsigned tx_len, rx_len;
+	int ret = -EINVAL;
+
+	dev = &dd->cur_msg->spi->dev;
+	first_xfr = dd->cur_transfer;
+	tx_buf = (void *)first_xfr->tx_buf;
+	rx_buf = first_xfr->rx_buf;
+	tx_len = rx_len = first_xfr->len;
+
+	/*
+	 * For WR-WR and WR-RD transfers, we allocate our own temporary
+	 * buffer and copy the data to/from the client buffers.
+	 */
+	if (dd->multi_xfr) {
+		dd->temp_buf = kzalloc(dd->cur_msg_len,
+				       GFP_KERNEL | __GFP_DMA);
+		if (!dd->temp_buf)
+			return -ENOMEM;
+		nxt_xfr = list_entry(first_xfr->transfer_list.next,
+				     struct spi_transfer, transfer_list);
+
+		if (dd->write_len && !dd->read_len) {
+			if (!first_xfr->tx_buf || !nxt_xfr->tx_buf)
+				goto error;
+
+			memcpy(dd->temp_buf, first_xfr->tx_buf, first_xfr->len);
+			memcpy(dd->temp_buf + first_xfr->len, nxt_xfr->tx_buf,
+			       nxt_xfr->len);
+			tx_buf = dd->temp_buf;
+			tx_len = dd->cur_msg_len;
+		} else {
+			if (!first_xfr->tx_buf || !nxt_xfr->rx_buf)
+				goto error;
+
+			rx_buf = dd->temp_buf;
+			rx_len = dd->cur_msg_len;
+		}
+	}
+	if (tx_buf != NULL) {
+		first_xfr->tx_dma = dma_map_single(dev, tx_buf,
+						   tx_len, DMA_TO_DEVICE);
+		if (dma_mapping_error(NULL, first_xfr->tx_dma)) {
+			dev_err(dev, "dma %cX %d bytes error\n",
+				'T', tx_len);
+			ret = -ENOMEM;
+			goto error;
+		}
+	}
+	if (rx_buf != NULL) {
+		dma_addr_t dma_handle;
+		dma_handle = dma_map_single(dev, rx_buf,
+					    rx_len, DMA_FROM_DEVICE);
+		if (dma_mapping_error(NULL, dma_handle)) {
+			dev_err(dev, "dma %cX %d bytes error\n",
+				'R', rx_len);
+			if (tx_buf != NULL)
+				dma_unmap_single(NULL, first_xfr->tx_dma,
+						 tx_len, DMA_TO_DEVICE);
+			ret = -ENOMEM;
+			goto error;
+		}
+		if (dd->multi_xfr)
+			nxt_xfr->rx_dma = dma_handle;
+		else
+			first_xfr->rx_dma = dma_handle;
+	}
+	return 0;
+
+error:
+	kfree(dd->temp_buf);
+	dd->temp_buf = NULL;
+	return ret;
 }
 
 static void msm_spi_unmap_dma_buffers(struct msm_spi *dd)
 {
 	struct device *dev;
+	u32 offset;
 
 	dev = &dd->cur_msg->spi->dev;
-	if (!dd->cur_msg->is_dma_mapped) {
+	if (dd->cur_msg->is_dma_mapped)
+		goto unmap_end;
+
+	if (dd->multi_xfr) {
+		if (dd->write_len && !dd->read_len) {
+			dma_unmap_single(dev,
+					 dd->cur_transfer->tx_dma,
+					 dd->cur_msg_len,
+					 DMA_TO_DEVICE);
+		} else {
+			struct spi_transfer *prev_xfr;
+			prev_xfr = list_entry(
+				   dd->cur_transfer->transfer_list.prev,
+				   struct spi_transfer,
+				   transfer_list);
+			if (dd->cur_transfer->rx_buf) {
+				dma_unmap_single(dev,
+						 dd->cur_transfer->rx_dma,
+						 dd->cur_msg_len,
+						 DMA_FROM_DEVICE);
+			}
+			if (prev_xfr->tx_buf) {
+				dma_unmap_single(dev,
+						 prev_xfr->tx_dma,
+						 prev_xfr->len,
+						 DMA_TO_DEVICE);
+			}
+			if (dd->unaligned_len && dd->read_buf) {
+				offset = dd->cur_msg_len - dd->unaligned_len;
+				dma_coherent_post_ops();
+				memcpy(dd->read_buf + offset, dd->rx_padding,
+				       dd->unaligned_len);
+				memcpy(dd->cur_transfer->rx_buf,
+				       dd->read_buf + prev_xfr->len,
+				       dd->cur_transfer->len);
+			}
+		}
+		kfree(dd->temp_buf);
+		dd->temp_buf = NULL;
+		return;
+	} else {
 		if (dd->cur_transfer->rx_buf)
 			dma_unmap_single(dev, dd->cur_transfer->rx_dma,
 					 dd->cur_transfer->len,
@@ -1167,9 +1400,11 @@ static void msm_spi_unmap_dma_buffers(struct msm_spi *dd)
 					 dd->cur_transfer->len,
 					 DMA_TO_DEVICE);
 	}
+
+unmap_end:
 	/* If we padded the transfer, we copy it from the padding buf */
 	if (dd->unaligned_len && dd->read_buf) {
-		u32 offset = dd->cur_transfer->len - dd->unaligned_len;
+		offset = dd->cur_transfer->len - dd->unaligned_len;
 		dma_coherent_post_ops();
 		memcpy(dd->read_buf + offset, dd->rx_padding,
 		       dd->unaligned_len);
@@ -1185,16 +1420,20 @@ static void msm_spi_unmap_dma_buffers(struct msm_spi *dd)
  * Start using DM if:
  * 1. Transfer is longer than 3*block size.
  * 2. Buffers should be aligned to cache line.
+ * 3. For WR-RD or WR-WR transfers, if condition (1) and (2) above are met.
   */
 static inline int msm_use_dm(struct msm_spi *dd, struct spi_transfer *tr,
-				u32 xfr_len, u8 bpw)
+			     u8 bpw)
 {
 	u32 cache_line = dma_get_cache_alignment();
 
 	if (!dd->use_dma)
 		return 0;
 
-	if (xfr_len < 3*dd->input_block_size)
+	if (dd->cur_msg_len < 3*dd->input_block_size)
+		return 0;
+
+	if (dd->multi_xfr && !dd->read_len && !dd->write_len)
 		return 0;
 
 	if (tr->tx_buf) {
@@ -1222,20 +1461,10 @@ static void msm_spi_process_transfer(struct msm_spi *dd)
 	u32 chip_select;
 	u32 read_count;
 	u32 timeout;
-	u32 transfer_len = 0;
 	u32 int_loopback = 0;
 
-	if (dd->read_len && dd->write_len) {
-		dd->tx_bytes_remaining = dd->write_len;
-		dd->rx_bytes_remaining = dd->read_len;
-		dd->multi_xfr = 1;
-		transfer_len = dd->write_len + dd->read_len;
-	} else {
-		dd->tx_bytes_remaining = dd->cur_transfer->len;
-		dd->rx_bytes_remaining = dd->cur_transfer->len;
-		dd->multi_xfr = 0;
-		transfer_len = dd->cur_transfer->len;
-	}
+	dd->tx_bytes_remaining = dd->cur_msg_len;
+	dd->rx_bytes_remaining = dd->cur_msg_len;
 	dd->read_buf           = dd->cur_transfer->rx_buf;
 	dd->write_buf          = dd->cur_transfer->tx_buf;
 	init_completion(&dd->transfer_complete);
@@ -1255,21 +1484,25 @@ static void msm_spi_process_transfer(struct msm_spi *dd)
 	if (!dd->clock_speed || max_speed != dd->clock_speed)
 		msm_spi_clock_set(dd, max_speed);
 
-	read_count = DIV_ROUND_UP(transfer_len, dd->bytes_per_word);
+	read_count = DIV_ROUND_UP(dd->cur_msg_len, dd->bytes_per_word);
 	if (dd->cur_msg->spi->mode & SPI_LOOP)
 		int_loopback = 1;
-	if (int_loopback && dd->read_len && dd->write_len &&
+	if (int_loopback && dd->multi_xfr &&
 			(read_count > dd->input_fifo_size)) {
-		printk(KERN_WARNING
-		"%s:Internal Loopback does not support > fifo size\
-		for write-then-read transactions\n",
-		__func__);
+		if (dd->read_len && dd->write_len)
+			printk(KERN_WARNING
+			"%s:Internal Loopback does not support > fifo size\
+			for write-then-read transactions\n",
+			__func__);
+		else if (dd->write_len && !dd->read_len)
+			printk(KERN_WARNING
+			"%s:Internal Loopback does not support > fifo size\
+			for write-then-write transactions\n",
+			__func__);
 		return;
 	}
-	if (!msm_use_dm(dd, dd->cur_transfer, transfer_len, bpw)) {
+	if (!msm_use_dm(dd, dd->cur_transfer, bpw)) {
 		dd->mode = SPI_FIFO_MODE;
-		dd->tx_bytes_remaining = transfer_len;
-		dd->rx_bytes_remaining = transfer_len;
 		if (dd->multi_xfr) {
 			dd->read_len = dd->cur_transfer->len;
 			dd->write_len = dd->cur_transfer->len;
@@ -1287,8 +1520,13 @@ static void msm_spi_process_transfer(struct msm_spi *dd)
 			writel_relaxed(0, dd->base + SPI_MX_READ_COUNT);
 			msm_spi_set_write_count(dd, 0);
 		}
-	} else
+	} else {
 		dd->mode = SPI_DMOV_MODE;
+		if (dd->write_len && dd->read_len) {
+			dd->tx_bytes_remaining = dd->write_len;
+			dd->rx_bytes_remaining = dd->read_len;
+		}
+	}
 
 	/* Write mode - fifo or data mover*/
 	spi_iom = readl_relaxed(dd->base + SPI_IO_MODES);
@@ -1341,7 +1579,7 @@ static void msm_spi_process_transfer(struct msm_spi *dd)
 		goto transfer_end;
 
 	timeout = 100 * msecs_to_jiffies(
-	      DIV_ROUND_UP(dd->cur_transfer->len * 8,
+	      DIV_ROUND_UP(dd->cur_msg_len * 8,
 		 DIV_ROUND_UP(max_speed, MSEC_PER_SEC)));
 
 	/* Assume success, this might change later upon transaction result */
@@ -1370,72 +1608,135 @@ transfer_end:
 		       dd->base + SPI_IO_CONTROL);
 }
 
-static int get_transfer_length(struct spi_transfer *tr, struct spi_message *msg)
+static void get_transfer_length(struct msm_spi *dd)
 {
-	struct spi_transfer *next_transfer = NULL;
-	u32 write_len;
-	u32 read_len;
+	struct spi_transfer *tr;
+	int num_xfrs = 0;
+	int readlen = 0;
+	int writelen = 0;
 
-	write_len = read_len = 0;
+	dd->cur_msg_len = 0;
+	dd->multi_xfr = 0;
+	dd->read_len = dd->write_len = 0;
 
-	if (tr->tx_buf)
-		write_len = tr->len;
-
-	if (tr->rx_buf)
-		read_len = tr->len;
-
-	if (write_len && read_len)
-		return tr->len;
-	else if ((tr->transfer_list.next != &msg->transfers) && (!read_len)) {
-		next_transfer = list_entry(tr->transfer_list.next,
-					struct spi_transfer,
-					transfer_list);
-		if (next_transfer->tx_buf && next_transfer->rx_buf)
-			return tr->len;
-
-		if (next_transfer->tx_buf && !write_len)
-			write_len = next_transfer->len;
-
-		if (next_transfer->rx_buf && !read_len)
-			read_len = next_transfer->len;
-
-		if (write_len && read_len)
-			return write_len + read_len;
+	list_for_each_entry(tr, &dd->cur_msg->transfers, transfer_list) {
+		if (tr->tx_buf)
+			writelen += tr->len;
+		if (tr->rx_buf)
+			readlen += tr->len;
+		dd->cur_msg_len += tr->len;
+		num_xfrs++;
 	}
-	return tr->len;
+
+	if (num_xfrs == 2) {
+		struct spi_transfer *first_xfr = dd->cur_transfer;
+
+		dd->multi_xfr = 1;
+		tr = list_entry(first_xfr->transfer_list.next,
+				struct spi_transfer,
+				transfer_list);
+		/*
+		 * We update dd->read_len and dd->write_len only
+		 * for WR-WR and WR-RD transfers.
+		 */
+		if ((first_xfr->tx_buf) && (!first_xfr->rx_buf)) {
+			if (((tr->tx_buf) && (!tr->rx_buf)) ||
+			    ((!tr->tx_buf) && (tr->rx_buf))) {
+				dd->read_len = readlen;
+				dd->write_len = writelen;
+			}
+		}
+	} else if (num_xfrs > 1)
+		dd->multi_xfr = 1;
+}
+
+static inline int combine_transfers(struct msm_spi *dd)
+{
+	struct spi_transfer *t = dd->cur_transfer;
+	struct spi_transfer *nxt;
+	int xfrs_grped = 1;
+
+	dd->cur_msg_len = dd->cur_transfer->len;
+	while (t->transfer_list.next != &dd->cur_msg->transfers) {
+		nxt = list_entry(t->transfer_list.next,
+				 struct spi_transfer,
+				 transfer_list);
+		if (t->cs_change != nxt->cs_change)
+			return xfrs_grped;
+		dd->cur_msg_len += nxt->len;
+		xfrs_grped++;
+		t = nxt;
+	}
+	return xfrs_grped;
 }
 
 static void msm_spi_process_message(struct msm_spi *dd)
 {
-	u32 xfr_len = 0;
-	int next_xfr_processed = 0;
+	int xfrs_grped = 0;
+	int cs_num;
+	int rc;
 
-	list_for_each_entry(dd->cur_transfer,
-			    &dd->cur_msg->transfers,
-			    transfer_list) {
-		if (!dd->cur_transfer->len)
+	dd->write_xfr_cnt = dd->read_xfr_cnt = 0;
+	cs_num = dd->cur_msg->spi->chip_select;
+	if ((!(dd->cur_msg->spi->mode & SPI_LOOP)) &&
+		(!(dd->cs_gpios[cs_num].valid)) &&
+		(dd->cs_gpios[cs_num].gpio_num >= 0)) {
+		rc = gpio_request(dd->cs_gpios[cs_num].gpio_num,
+				spi_cs_rsrcs[cs_num]);
+		if (rc) {
+			dev_err(dd->dev, "gpio_request for pin %d failed with "
+				"error %d\n", dd->cs_gpios[cs_num].gpio_num,
+				rc);
 			return;
+		}
+		dd->cs_gpios[cs_num].valid = 1;
+	}
 
-		dd->write_xfr_cnt = dd->read_xfr_cnt = 0;
-		dd->read_len = dd->write_len = 0;
-		if (next_xfr_processed) {
-			next_xfr_processed = 0;
-			continue;
-		}
-		xfr_len = get_transfer_length(dd->cur_transfer, dd->cur_msg);
-		if (xfr_len == dd->cur_transfer->len)
-			msm_spi_process_transfer(dd);
-		else {
-			if (dd->cur_transfer->tx_buf) {
-				dd->write_len =  dd->cur_transfer->len;
-				dd->read_len = xfr_len - dd->write_len;
+	dd->cur_transfer = list_first_entry(&dd->cur_msg->transfers,
+					    struct spi_transfer,
+					    transfer_list);
+	get_transfer_length(dd);
+	if (dd->multi_xfr && !dd->read_len && !dd->write_len) {
+		/* Handling of multi-transfers. FIFO mode is used by default */
+		list_for_each_entry(dd->cur_transfer,
+				    &dd->cur_msg->transfers,
+				    transfer_list) {
+			if (!dd->cur_transfer->len)
+				goto error;
+			if (xfrs_grped) {
+				xfrs_grped--;
+				continue;
 			} else {
-				dd->read_len = dd->cur_transfer->len;
-				dd->write_len = xfr_len - dd->read_len;
+				dd->read_len = dd->write_len = 0;
+				xfrs_grped = combine_transfers(dd);
 			}
+			dd->cur_tx_transfer = dd->cur_transfer;
+			dd->cur_rx_transfer = dd->cur_transfer;
 			msm_spi_process_transfer(dd);
-			next_xfr_processed = 1;
+			xfrs_grped--;
 		}
+	} else {
+		/* Handling of a single transfer or WR-WR or WR-RD transfers */
+		if ((!dd->cur_msg->is_dma_mapped) &&
+		    (msm_use_dm(dd, dd->cur_transfer,
+				dd->cur_transfer->bits_per_word))) {
+			/* Mapping of DMA buffers */
+			int ret = msm_spi_map_dma_buffers(dd);
+			if (ret < 0) {
+				dd->cur_msg->status = ret;
+				goto error;
+			}
+		}
+		dd->cur_tx_transfer = dd->cur_rx_transfer = dd->cur_transfer;
+		msm_spi_process_transfer(dd);
+	}
+
+	return;
+
+error:
+	if (dd->cs_gpios[cs_num].valid) {
+		gpio_free(dd->cs_gpios[cs_num].gpio_num);
+		dd->cs_gpios[cs_num].valid = 0;
 	}
 }
 
@@ -1450,7 +1751,8 @@ static void msm_spi_workq(struct work_struct *work)
 	mutex_lock(&dd->core_lock);
 
 	/* Don't allow power collapse until we release mutex */
-	pm_qos_update_request(qos_req_list,
+	if (pm_qos_request_active(&qos_req_list))
+		pm_qos_update_request(&qos_req_list,
 				  dd->pm_lat);
 	if (dd->use_rlock)
 		remote_mutex_lock(&dd->r_lock);
@@ -1489,7 +1791,8 @@ static void msm_spi_workq(struct work_struct *work)
 	if (dd->use_rlock)
 		remote_mutex_unlock(&dd->r_lock);
 
-	pm_qos_update_request(qos_req_list,
+	if (pm_qos_request_active(&qos_req_list))
+		pm_qos_update_request(&qos_req_list,
 				  PM_QOS_DEFAULT_VALUE);
 
 	mutex_unlock(&dd->core_lock);
@@ -1504,10 +1807,6 @@ static int msm_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 	struct msm_spi	*dd;
 	unsigned long    flags;
 	struct spi_transfer *tr;
-	int ret = -EINVAL;
-	u32 xfr_len = 0;
-	struct spi_transfer *next_transfer;
-	int next_xfr_processed = 0;
 
 	dd = spi_master_get_devdata(spi->master);
 	if (dd->suspended)
@@ -1517,106 +1816,29 @@ static int msm_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 		return -EINVAL;
 
 	list_for_each_entry(tr, &msg->transfers, transfer_list) {
-		void *tx_buf = (void *)tr->tx_buf;
-		void       *rx_buf = tr->rx_buf;
-		unsigned len = tr->len;
-		next_transfer = NULL;
-
 		/* Check message parameters */
 		if (tr->speed_hz > dd->pdata->max_clock_speed ||
 		    (tr->bits_per_word &&
 		     (tr->bits_per_word < 4 || tr->bits_per_word > 32)) ||
-		    (tx_buf == NULL && rx_buf == NULL)) {
+		    (tr->tx_buf == NULL && tr->rx_buf == NULL)) {
 			dev_err(&spi->dev, "Invalid transfer: %d Hz, %d bpw"
 					   "tx=%p, rx=%p\n",
 					    tr->speed_hz, tr->bits_per_word,
-					    tx_buf, rx_buf);
-			goto error;
+					    tr->tx_buf, tr->rx_buf);
+			return -EINVAL;
 		}
-
-		if (next_xfr_processed) {
-			next_xfr_processed = 0;
-			continue;
-		}
-
-		xfr_len = get_transfer_length(tr, msg);
-		if (!msm_use_dm(dd, tr, xfr_len, tr->bits_per_word) ||
-		   msg->is_dma_mapped)
-			continue;
-
-		/* Do DMA mapping "early" for better error reporting */
-		do {
-			if (tx_buf != NULL) {
-				tr->tx_dma = dma_map_single(&spi->dev, tx_buf,
-							     len,
-							     DMA_TO_DEVICE);
-				if (dma_mapping_error(NULL, tr->tx_dma)) {
-					dev_err(&spi->dev,
-						"dma %cX %d bytes error\n",
-						'T', len);
-					goto error;
-				}
-			}
-
-			if (rx_buf != NULL) {
-				tr->rx_dma = dma_map_single(&spi->dev, rx_buf,
-						len,
-						DMA_FROM_DEVICE);
-				if (dma_mapping_error(NULL, tr->rx_dma)) {
-					dev_err(&spi->dev,
-						"dma %cX %d bytes error\n",
-						'R', len);
-					if (tx_buf != NULL)
-						dma_unmap_single(NULL,
-								tr->tx_dma,
-								len,
-								DMA_TO_DEVICE);
-					ret = -EINVAL;
-					goto error;
-				}
-			}
-			if (next_xfr_processed)
-				break;
-			if (tr->len != xfr_len) {
-				next_transfer = list_entry(
-						tr->transfer_list.next,
-						struct spi_transfer,
-						transfer_list);
-				tr = next_transfer;
-				tx_buf = (void *)tr->tx_buf;
-				rx_buf = tr->rx_buf;
-				len = tr->len;
-				next_xfr_processed = 1;
-			}
-		} while (next_xfr_processed);
 	}
 
 	spin_lock_irqsave(&dd->queue_lock, flags);
 	if (dd->suspended) {
 		spin_unlock_irqrestore(&dd->queue_lock, flags);
-		ret = -EBUSY;
-		goto error;
+		return -EBUSY;
 	}
 	dd->transfer_pending = 1;
 	list_add_tail(&msg->queue, &dd->queue);
 	spin_unlock_irqrestore(&dd->queue_lock, flags);
 	queue_work(dd->workqueue, &dd->work_data);
 	return 0;
-
-error:
-	list_for_each_entry_continue_reverse(tr, &msg->transfers, transfer_list)
-	{
-		if (msm_use_dm(dd, tr, xfr_len, tr->bits_per_word) &&
-		   !msg->is_dma_mapped) {
-			if (tr->rx_buf != NULL)
-				dma_unmap_single(&spi->dev, tr->rx_dma, tr->len,
-						 DMA_TO_DEVICE);
-			if (tr->tx_buf != NULL)
-				dma_unmap_single(&spi->dev, tr->tx_dma, tr->len,
-						  DMA_FROM_DEVICE);
-		}
-	}
-	return ret;
 }
 
 static int msm_spi_setup(struct spi_device *spi)
@@ -1679,6 +1901,8 @@ static int msm_spi_setup(struct spi_device *spi)
 		spi_config |= SPI_CFG_INPUT_FIRST;
 	writel_relaxed(spi_config, dd->base + SPI_CONFIG);
 
+	/* Ensure previous write completed before disabling the clocks */
+	mb();
 	clk_disable(dd->clk);
 	clk_disable(dd->pclk);
 
@@ -1694,13 +1918,16 @@ err_setup_exit:
 static int debugfs_iomem_x32_set(void *data, u64 val)
 {
 	writel_relaxed(val, data);
-	wmb();
+	/* Ensure the previous write completed. */
+	mb();
 	return 0;
 }
 
 static int debugfs_iomem_x32_get(void *data, u64 *val)
 {
 	*val = readl_relaxed(data);
+	/* Ensure the previous read completed. */
+	mb();
 	return 0;
 }
 
@@ -1990,6 +2217,7 @@ static int __init msm_spi_probe(struct platform_device *pdev)
 	struct resource	       *resource;
 	int                     rc = -ENXIO;
 	int                     locked = 0;
+	int                     i = 0;
 	int                     clk_enabled = 0;
 	int                     pclk_enabled = 0;
 	struct msm_spi_platform_data *pdata = pdev->dev.platform_data;
@@ -2069,6 +2297,23 @@ skip_dma_resources:
 		}
 	}
 
+	for (i = 0; i < ARRAY_SIZE(spi_rsrcs); ++i) {
+		resource = platform_get_resource_byname(pdev, IORESOURCE_IO,
+							spi_rsrcs[i]);
+		dd->spi_gpios[i] = resource ? resource->start : -1;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(spi_cs_rsrcs); ++i) {
+		resource = platform_get_resource_byname(pdev, IORESOURCE_IO,
+							spi_cs_rsrcs[i]);
+		dd->cs_gpios[i].gpio_num = resource ? resource->start : -1;
+		dd->cs_gpios[i].valid = 0;
+	}
+
+	rc = msm_spi_request_gpios(dd);
+	if (rc)
+		goto err_probe_gpio;
+
 	spin_lock_init(&dd->queue_lock);
 	mutex_init(&dd->core_lock);
 	INIT_LIST_HEAD(&dd->queue);
@@ -2105,13 +2350,8 @@ skip_dma_resources:
 		}
 		dd->use_rlock = 1;
 		dd->pm_lat = pdata->pm_lat;
-		qos_req_list = pm_qos_add_request(PM_QOS_CPU_DMA_LATENCY, 
-					    PM_QOS_DEFAULT_VALUE);
-		if (IS_ERR(qos_req_list)) {
-			dev_err(&pdev->dev, "%s: Failed to request pm_qos\n",
-				__func__);
-			goto err_probe_add_pm_qos;
-		}
+		pm_qos_add_request(&qos_req_list, PM_QOS_CPU_DMA_LATENCY, 
+					    	 PM_QOS_DEFAULT_VALUE);
 	}
 	mutex_lock(&dd->core_lock);
 	if (dd->use_rlock)
@@ -2119,26 +2359,26 @@ skip_dma_resources:
 	locked = 1;
 
 	dd->dev = &pdev->dev;
-	dd->clk = clk_get(&pdev->dev, "spi_clk");
+	dd->clk = clk_get(&pdev->dev, "core_clk");
 	if (IS_ERR(dd->clk)) {
-		dev_err(&pdev->dev, "%s: unable to get spi_clk\n", __func__);
+		dev_err(&pdev->dev, "%s: unable to get core_clk\n", __func__);
 		rc = PTR_ERR(dd->clk);
 		goto err_probe_clk_get;
 	}
 
-	dd->pclk = clk_get(&pdev->dev, "spi_pclk");
+	dd->pclk = clk_get(&pdev->dev, "iface_clk");
 	if (IS_ERR(dd->pclk)) {
-		dev_err(&pdev->dev, "%s: unable to get spi_pclk\n", __func__);
+		dev_err(&pdev->dev, "%s: unable to get iface_clk\n", __func__);
 		rc = PTR_ERR(dd->pclk);
 		goto err_probe_pclk_get;
 	}
-	msm_spi_init_gsbi(dd);
+
 	if (pdata && pdata->max_clock_speed)
 		msm_spi_clock_set(dd, dd->pdata->max_clock_speed);
 
 	rc = clk_enable(dd->clk);
 	if (rc) {
-		dev_err(&pdev->dev, "%s: unable to enable spi_clk\n",
+		dev_err(&pdev->dev, "%s: unable to enable core_clk\n",
 			__func__);
 		goto err_probe_clk_enable;
 	}
@@ -2146,12 +2386,12 @@ skip_dma_resources:
 
 	rc = clk_enable(dd->pclk);
 	if (rc) {
-		dev_err(&pdev->dev, "%s: unable to enable spi_pclk\n",
+		dev_err(&pdev->dev, "%s: unable to enable iface_clk\n",
 		__func__);
 		goto err_probe_pclk_enable;
 	}
 	pclk_enabled = 1;
-
+	msm_spi_init_gsbi(dd);
 	msm_spi_calculate_fifo_size(dd);
 	if (dd->use_dma) {
 		rc = msm_spi_init_dma(dd);
@@ -2166,7 +2406,13 @@ skip_dma_resources:
 	writel_relaxed(0x00000000, dd->base + SPI_OPERATIONAL);
 	writel_relaxed(0x00000000, dd->base + SPI_CONFIG);
 	writel_relaxed(0x00000000, dd->base + SPI_IO_MODES);
-	writel_relaxed(0x0000007C, dd->base + SPI_ERROR_FLAGS_EN);
+	/*
+	 * The SPI core generates a bogus input overrun error on some targets,
+	 * when a transition from run to reset state occurs and if the FIFO has
+	 * an odd number of entries. Hence we disable the INPUT_OVER_RUN_ERR_EN
+	 * bit.
+	 */
+	msm_spi_enable_error_flags(dd);
 
 	writel_relaxed(SPI_IO_C_NO_TRI_STATE, dd->base + SPI_IO_CONTROL);
 	rc = msm_spi_set_state(dd, SPI_OP_STATE_RESET);
@@ -2230,7 +2476,6 @@ err_probe_clk_get:
 			remote_mutex_unlock(&dd->r_lock);
 		mutex_unlock(&dd->core_lock);
 	}
-err_probe_add_pm_qos:
 err_probe_rlock_init:
 	msm_spi_release_gsbi(dd);
 err_probe_ioremap2:
@@ -2240,6 +2485,7 @@ err_probe_ioremap:
 err_probe_reqmem:
 	destroy_workqueue(dd->workqueue);
 err_probe_workq:
+	msm_spi_free_gpios(dd);
 err_probe_gpio:
 	if (pdata && pdata->gpio_release)
 		pdata->gpio_release();
@@ -2270,6 +2516,7 @@ static int msm_spi_suspend(struct platform_device *pdev, pm_message_t state)
 
 	/* Wait for transactions to end, or time out */
 	wait_event_interruptible(dd->continue_suspend, !dd->transfer_pending);
+	msm_spi_free_gpios(dd);
 
 suspend_exit:
 	return 0;
@@ -2286,6 +2533,7 @@ static int msm_spi_resume(struct platform_device *pdev)
 	if (!dd)
 		goto resume_exit;
 
+	BUG_ON(msm_spi_request_gpios(dd) != 0);
 	dd->suspended = 0;
 resume_exit:
 	return 0;
@@ -2301,7 +2549,7 @@ static int __devexit msm_spi_remove(struct platform_device *pdev)
 	struct msm_spi    *dd = spi_master_get_devdata(master);
 	struct msm_spi_platform_data *pdata = pdev->dev.platform_data;
 
-	pm_qos_remove_request(qos_req_list);
+	pm_qos_remove_request(&qos_req_list);
 	spi_debugfs_exit(dd);
 	sysfs_remove_group(&pdev->dev.kobj, &dev_attr_grp);
 
@@ -2311,6 +2559,7 @@ static int __devexit msm_spi_remove(struct platform_device *pdev)
 	if (pdata && pdata->gpio_release)
 		pdata->gpio_release();
 
+	msm_spi_free_gpios(dd);
 	iounmap(dd->base);
 	release_mem_region(dd->mem_phys_addr, dd->mem_size);
 	msm_spi_release_gsbi(dd);

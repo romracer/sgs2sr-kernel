@@ -225,7 +225,9 @@ extern byte ReadByteTPI (byte Offset);
 #define IRQ_MHL_HPD gpio_to_irq(172)
 
 #define PM8058_GPIO_BASE			NR_MSM_GPIOS
+#ifndef PM8058_GPIO_PM_TO_SYS
 #define PM8058_GPIO_PM_TO_SYS(pm_gpio)		(pm_gpio + PM8058_GPIO_BASE)
+#endif
 
 #define IRQ_MHL_INT_9 PM8058_GPIO_IRQ(PMIC8058_IRQ_BASE, (PM8058_GPIO(9)))
 #define IRQ_MHL_INT_31 PM8058_GPIO_IRQ(PMIC8058_IRQ_BASE, (PM8058_GPIO(31)))

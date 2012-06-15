@@ -21,8 +21,6 @@
 #include <linux/mmc/sdio.h>
 #include <linux/mmc/sdio_func.h>
 
-#include <asm/mach-types.h>
-
 #include "sdio_cis.h"
 #include "sdio_ops.h"
 
@@ -57,7 +55,7 @@ static int cistpl_vers_1(struct mmc_card *card, struct sdio_func *func,
 
 	for (i = 0; i < nr_strings; i++) {
 		buffer[i] = string;
-		strcpy(string, buf);
+		strlcpy(string, buf, sizeof(string));
 		string += strlen(string) + 1;
 		buf += strlen(buf) + 1;
 	}

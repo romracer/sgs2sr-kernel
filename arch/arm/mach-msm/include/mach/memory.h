@@ -15,12 +15,16 @@
  */
 #ifndef __ASM_ARCH_MEMORY_H
 #define __ASM_ARCH_MEMORY_H
+#include <linux/types.h>
 
 /* physical offset of RAM */
-#define PHYS_OFFSET UL(CONFIG_PHYS_OFFSET)
+#define PLAT_PHYS_OFFSET UL(CONFIG_PHYS_OFFSET)
 
 #define MAX_PHYSMEM_BITS 32
 #define SECTION_SIZE_BITS 28
+
+/* Maximum number of Memory Regions */
+#define MAX_NR_REGIONS 4
 
 /* Certain configurations of MSM7x30 have multiple memory banks.
 *  One or more of these banks can contain holes in the memory map as well.
@@ -54,16 +58,18 @@
 
 #endif
 
-#define HAS_ARCH_IO_REMAP_PFN_RANGE
-
 #ifndef __ASSEMBLY__
 void *alloc_bootmem_aligned(unsigned long size, unsigned long alignment);
+void *allocate_contiguous_ebi(unsigned long, unsigned long, int);
+unsigned long allocate_contiguous_ebi_nomap(unsigned long, unsigned long);
 void clean_and_invalidate_caches(unsigned long, unsigned long, unsigned long);
 void clean_caches(unsigned long, unsigned long, unsigned long);
 void invalidate_caches(unsigned long, unsigned long, unsigned long);
-int platform_physical_remove_pages(unsigned long, unsigned long);
-int platform_physical_active_pages(unsigned long, unsigned long);
-int platform_physical_low_power_pages(unsigned long, unsigned long);
+int platform_physical_remove_pages(u64, u64);
+int platform_physical_active_pages(u64, u64);
+int platform_physical_low_power_pages(u64, u64);
+
+extern int (*change_memory_power)(u64, u64, int);
 
 #if defined(CONFIG_ARCH_MSM_ARM11) || defined(CONFIG_ARCH_MSM_CORTEX_A5)
 void write_to_strongly_ordered_memory(void);
@@ -75,9 +81,35 @@ extern void l2x0_cache_sync(void);
 #define finish_arch_switch(prev)     do { l2x0_cache_sync(); } while (0)
 #endif
 
+#if defined(CONFIG_ARCH_MSM8X60) || defined(CONFIG_ARCH_MSM8960)
+extern void store_ttbr0(void);
+#define finish_arch_switch(prev)	do { store_ttbr0(); } while (0)
 #endif
 
-#if defined CONFIG_ARCH_MSM_SCORPION || defined CONFIG_ARCH_MSM_SCORPIONMP
+#ifdef CONFIG_DONT_MAP_HOLE_AFTER_MEMBANK0
+extern unsigned long membank0_size;
+extern unsigned long membank1_start;
+
+#define MEMBANK0_PHYS_OFFSET PHYS_OFFSET
+#define MEMBANK0_PAGE_OFFSET PAGE_OFFSET
+
+#define MEMBANK1_PHYS_OFFSET (membank1_start)
+#define MEMBANK1_PAGE_OFFSET (MEMBANK0_PAGE_OFFSET + (membank0_size))
+
+#define __phys_to_virt(phys)				\
+	((MEMBANK1_PHYS_OFFSET && ((phys) >= MEMBANK1_PHYS_OFFSET)) ?	\
+	(phys) - MEMBANK1_PHYS_OFFSET + MEMBANK1_PAGE_OFFSET :	\
+	(phys) - MEMBANK0_PHYS_OFFSET + MEMBANK0_PAGE_OFFSET)
+
+#define __virt_to_phys(virt)				\
+	((MEMBANK1_PHYS_OFFSET && ((virt) >= MEMBANK1_PAGE_OFFSET)) ?	\
+	(virt) - MEMBANK1_PAGE_OFFSET + MEMBANK1_PHYS_OFFSET :	\
+	(virt) - MEMBANK0_PAGE_OFFSET + MEMBANK0_PHYS_OFFSET)
+#endif
+
+#endif
+
+#if defined CONFIG_ARCH_MSM_SCORPION || defined CONFIG_ARCH_MSM_KRAIT
 #define arch_has_speculative_dfetch()	1
 #endif
 

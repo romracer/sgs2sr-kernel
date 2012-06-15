@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include "mdp.h"
@@ -200,7 +195,7 @@ static void mdp_ppp_flush_dirty_djobs(void *cond)
 		msm_fb_ensure_mem_coherency_after_dma(job->info, &job->req, 1);
 
 		/* Schedule jobs for cleanup
-		 * A seperate worker thread does this */
+		 * A separate worker thread does this */
 		queue_delayed_work(mdp_ppp_djob_clnr, &job->cleaner,
 			mdp_timer_duration);
 	}

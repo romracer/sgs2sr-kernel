@@ -34,6 +34,7 @@
 #include <linux/msm_adc.h>
 
 #include <mach/vreg.h>
+#include <linux/workqueue.h>
 
 
 /* for debugging */
@@ -56,8 +57,7 @@
 #define ABS_WAKE                        (ABS_MISC)
 #define ABS_CONTROL_REPORT              (ABS_THROTTLE)
 
-#define LIGHT_BUFFER_UP	5
-#define LIGHT_BUFFER_DOWN	20
+#define LIGHT_BUFFER_NUM	5
 
 struct sensor_data {
 	struct mutex mutex;
@@ -75,16 +75,16 @@ struct sensor_data {
 	int testmode;
 	int light_buffer;
 	int light_count;
-	int light_level_state;
-	bool light_first_level;
 };
 
 static const int adc_table[4] = {
-	35, //15 lux match adc value
-	290, //150 lux match adc value
-	2900, //1500 lux match adc value
-	27000, //15000 lux match adc value
+	15, //15 lux match adc value
+	140, //150 lux match adc value
+	1490, //1500 lux match adc value
+	15000, //15000 lux match adc value
 };
+
+struct workqueue_struct *light_workqueue;
 
 /* global var */
 static struct platform_device *sensor_pdev = NULL;
@@ -185,8 +185,8 @@ static int StateToLux(state_type state)
 static ssize_t lightsensor_file_state_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	struct input_dev *input_data = to_input_dev(dev);
-	struct sensor_data *data = input_get_drvdata(input_data);
+//	struct input_dev *input_data = to_input_dev(dev);
+//	struct sensor_data *data = input_get_drvdata(input_data);
 	int adc = 0;
 
 //	if (!(data->power_state & LIGHT_ENABLED))
@@ -223,12 +223,33 @@ light_delay_store(struct device *dev,
 {
 	struct input_dev *input_data = to_input_dev(dev);
 	struct sensor_data *data = input_get_drvdata(input_data);
+	#if 0
 	int delay = simple_strtoul(buf, NULL, 10);
 
 	if (delay < 0) {
 		return count;
 	}
 
+
+	#else
+	int delay;
+	int err = 0;
+
+	err = kstrtoint(buf, 10, &delay);
+	if (err)
+		pr_err("%s, kstrtoint failed.", __func__);
+		
+	if (delay < 0) {
+		return count;
+	}
+
+	delay = delay / 1000000;	//ns to msec 
+
+	#endif
+	
+	pr_info("%s, new_delay = %d, old_delay = %d", __func__, delay,
+	       data->delay);
+	       
 	if (SENSOR_MAX_DELAY < delay) {
 		delay = SENSOR_MAX_DELAY;
 	}
@@ -240,7 +261,7 @@ light_delay_store(struct device *dev,
 	if( data->enabled)
 	{
 		cancel_delayed_work_sync(&data->work);
-		schedule_delayed_work(&data->work, msecs_to_jiffies(delay));
+		queue_delayed_work(light_workqueue,&data->work,msecs_to_jiffies(delay));
 	}
 
 	input_report_abs(input_data, ABS_CONTROL_REPORT, (data->delay<<16) | delay);
@@ -282,15 +303,16 @@ light_enable_store(struct device *dev,
 
 	if (data->enabled && !value) {
 		lightsensor_onoff(0);
+		data->enabled= value; // sync with gp2a_work_func_light function
 		cancel_delayed_work_sync(&data->work);
 		gprintk("timer canceled.\n");
 	}
 	if (!data->enabled && value) {
 		lightsensor_onoff(1);
-		schedule_delayed_work(&data->work, 0);
+		data->enabled= value; // sync with gp2a_work_func_light function
+		queue_delayed_work(light_workqueue,&data->work,0);
 		gprintk("timer started.\n");
 	}
-	data->enabled= value;
 
 	input_report_abs(input_data, ABS_CONTROL_REPORT, (value<<16) | data->delay);
 
@@ -444,7 +466,7 @@ static ssize_t light_testmode_show(struct device *dev, struct device_attribute *
 }
 
 
-static DEVICE_ATTR(delay, S_IRUGO|S_IWUSR|S_IWGRP, light_delay_show, light_delay_store);
+static DEVICE_ATTR(poll_delay, S_IRUGO|S_IWUSR|S_IWGRP, light_delay_show, light_delay_store);
 static DEVICE_ATTR(enable, S_IRUGO|S_IWUSR|S_IWGRP, light_enable_show, light_enable_store);
 static DEVICE_ATTR(wake, S_IWUSR|S_IWGRP, NULL, light_wake_store);
 static DEVICE_ATTR(data, S_IRUGO, light_data_show, NULL);
@@ -455,7 +477,7 @@ static DEVICE_ATTR(lightsensor_file_state, 0644, lightsensor_file_state_show, NU
 
 
 static struct attribute *lightsensor_attributes[] = {
-	&dev_attr_delay.attr,
+	&dev_attr_poll_delay.attr,
 	&dev_attr_enable.attr,
 	&dev_attr_wake.attr,
 	&dev_attr_data.attr,
@@ -498,12 +520,11 @@ lightsensor_resume(struct platform_device *pdev)
 
 	data->light_count = 0;
 	data->light_buffer = 0;
-	data->light_first_level =true;
 
 	mutex_lock(&data->mutex);
 
 	if (data->enabled) {
-		rt = schedule_delayed_work(&data->work, 0);
+		rt = queue_delayed_work(light_workqueue,&data->work,0);
 		gprintk(": The timer is started.\n");
 	}
 
@@ -526,17 +547,38 @@ int lightsensor_get_adc(void)
 	int light_alpha;
 	int light_beta;
 	static int lx_prev=0;
+	int ret=0;
+	int d0_boundary = 93;
 
-	opt_i2c_read(0x0C, get_data, sizeof(get_data));
+#if defined(CONFIG_KOR_MODEL_SHV_E120K)
+	d0_boundary = 93;
+#elif defined(CONFIG_KOR_MODEL_SHV_E120S)
+	if(get_hw_rev() >= 0x09)
+		d0_boundary = 93;
+	else
+		d0_boundary = 90;		
+#else // defined(CONFIG_KOR_MODEL_SHV_E120L)
+	if(get_hw_rev() >= 0x03)
+		d0_boundary = 93;
+	else
+		d0_boundary = 90;
+#endif
+	ret = opt_i2c_read(0x0C, get_data, sizeof(get_data));
+	if(ret < 0)
+		return lx_prev;
 	D0_raw_data =(get_data[1] << 8) | get_data[0]; // clear
 	D1_raw_data =(get_data[3] << 8) | get_data[2]; // IR
 
 #if defined(CONFIG_KOR_MODEL_SHV_E120K)
 	if(lightsensor_mode) { // HIGH_MODE
-		if(100 * D1_raw_data <= 67 * D0_raw_data) {
+		if(100 * D1_raw_data <= 32 * D0_raw_data) {
+			light_alpha = 800;
+			light_beta = 0;
+		}
+		else if(100 * D1_raw_data <= 67 * D0_raw_data) {
 			light_alpha = 2015;
 			light_beta = 2925;
-		} else if (100 * D1_raw_data <= 90 * D0_raw_data) {
+		} else if (100 * D1_raw_data <= d0_boundary * D0_raw_data) {
 			light_alpha = 56;
 			light_beta = 12;
 		} else {
@@ -544,10 +586,14 @@ int lightsensor_get_adc(void)
 			light_beta = 0;
 		}
 	} else { // LOW_MODE
-		if(100 * D1_raw_data <= 63 * D0_raw_data) {
+		if(100 * D1_raw_data <= 32 * D0_raw_data) {
+			light_alpha = 800;
+			light_beta = 0;
+		}
+		else if(100 * D1_raw_data <= 67 * D0_raw_data) {
 			light_alpha = 2015;
 			light_beta = 2925;
-		} else if (100 * D1_raw_data <= 90 * D0_raw_data) {
+		} else if (100 * D1_raw_data <= d0_boundary * D0_raw_data) {
 			light_alpha = 547;
 			light_beta = 599;
 		} else {
@@ -558,10 +604,14 @@ int lightsensor_get_adc(void)
 #elif defined(CONFIG_KOR_MODEL_SHV_E120S)
 	if(get_hw_rev() >= 0x09) {
 		if(lightsensor_mode) { // HIGH_MODE
-			if(100 * D1_raw_data <= 67 * D0_raw_data) {
+			if(100 * D1_raw_data <= 32 * D0_raw_data) {
+				light_alpha = 800;
+				light_beta = 0;
+			}
+			else if(100 * D1_raw_data <= 67 * D0_raw_data) {
 				light_alpha = 2015;
 				light_beta = 2925;
-			} else if (100 * D1_raw_data <= 90 * D0_raw_data) {
+			} else if (100 * D1_raw_data <= d0_boundary * D0_raw_data) {
 				light_alpha = 56;
 				light_beta = 12;
 			} else {
@@ -569,10 +619,14 @@ int lightsensor_get_adc(void)
 				light_beta = 0;
 			}
 		} else { // LOW_MODE
-			if(100 * D1_raw_data <= 63 * D0_raw_data) {
+			if(100 * D1_raw_data <= 32 * D0_raw_data) {
+				light_alpha = 800;
+				light_beta = 0;
+			}
+			else if(100 * D1_raw_data <= 67 * D0_raw_data) {
 				light_alpha = 2015;
 				light_beta = 2925;
-			} else if (100 * D1_raw_data <= 90 * D0_raw_data) {
+			} else if (100 * D1_raw_data <= d0_boundary * D0_raw_data) {
 				light_alpha = 547;
 				light_beta = 599;
 			} else {
@@ -585,7 +639,7 @@ int lightsensor_get_adc(void)
 			if(100 * D1_raw_data <= 67 * D0_raw_data) {
 				light_alpha = 2015;
 				light_beta = 2925;
-			} else if (100 * D1_raw_data <= 90 * D0_raw_data) {
+			} else if (100 * D1_raw_data <= d0_boundary * D0_raw_data) {
 				light_alpha = 56;
 				light_beta = 12;
 			} else {
@@ -596,7 +650,7 @@ int lightsensor_get_adc(void)
 			if(100 * D1_raw_data <= 60 * D0_raw_data) {
 				light_alpha = 2015;
 				light_beta = 2925;
-			} else if (100 * D1_raw_data <= 90 * D0_raw_data) {
+			} else if (100 * D1_raw_data <= d0_boundary * D0_raw_data) {
 				light_alpha = 800;
 				light_beta = 876;
 			} else {
@@ -610,7 +664,7 @@ int lightsensor_get_adc(void)
 		if(100 * D1_raw_data <= 67 * D0_raw_data) {
 			light_alpha = 2015;
 			light_beta = 2925;
-		} else if (100 * D1_raw_data <= 90 * D0_raw_data) {
+		} else if (100 * D1_raw_data <= d0_boundary * D0_raw_data) {
 			light_alpha = 56;
 			light_beta = 12;
 		} else {
@@ -621,7 +675,7 @@ int lightsensor_get_adc(void)
 		if(100 * D1_raw_data <= 60 * D0_raw_data) {
 			light_alpha = 2015;
 			light_beta = 2925;
-		} else if (100 * D1_raw_data <= 90 * D0_raw_data) {
+		} else if (100 * D1_raw_data <= d0_boundary * D0_raw_data) {
 			light_alpha = 800;
 			light_beta = 876;
 		} else {
@@ -637,20 +691,29 @@ int lightsensor_get_adc(void)
 	} else { // LOW_MODE
 		D0_data = D0_raw_data;
 		D1_data = D1_raw_data;
-//		lx = (int)(D0_data - ((869*D1_data)/1000))*33/10;
 	}
-//	lx = (int)((((D0_data + D1_data)/2) - ((15*D1_data)/100))*495/100)*4;
 
-	if(D0_data == 0 || D1_data == 0)
+	if((D0_data == 0 || D1_data == 0) && (D0_data < 300 && D1_data < 300)) {
 		lx = 0;
-	else if((100 * D1_data > 90 * D0_data) || (100 * D1_data < 15 * D0_data))
+//		printk("%s: lx is 0 : D0=%d, D1=%d\n", __func__, D0_raw_data, D1_raw_data);
+	}
+	else if(lightsensor_mode==0 && (D0_raw_data >= 16000 || D1_raw_data >= 16000) && (D0_raw_data <= 16383 && D1_raw_data <= 16383)) {
+		printk("%s: need to changed HIGH_MODE D0=%d, D1=%d\n", __func__, D0_raw_data, D1_raw_data);
 		lx = lx_prev;
-	else
-		lx = (int)((light_alpha * D0_data) - (light_beta * D1_data))*33/10000;
+	}
+	else if((100 * D1_data > d0_boundary * D0_data) || (100 * D1_data < 15 * D0_data)) {
+		lx = lx_prev;
+//		printk("%s: Data range over so ues prev_lx value=%d D0=%d, D1=%d mode=%d\n",
+//			__func__, lx, D0_data, D1_data, lightsensor_mode);
+		return lx;
+	}
+	else {
+		lx = (int)((light_alpha / 10 * D0_data * 33) - (light_beta / 10 * D1_data * 33)) / 1000;
+//		printk("%s: D0=%d, D1=%d, lx=%d mode=%d a=%d, b=%d prev_lx=%d\n",__func__,
+//			D0_raw_data, D1_raw_data, lx, lightsensor_mode, light_alpha, light_beta, lx_prev);
+	}
 
 	lx_prev = lx;
-
-//	printk("%s: D0=%d, D1=%d, lx=%d mode=%d\n",__func__, D0_raw_data, D1_raw_data, lx, lightsensor_mode);
 
 	if(lightsensor_mode) { // HIGH MODE
 		if(D0_raw_data < 1000) {
@@ -693,7 +756,6 @@ int lightsensor_get_adc(void)
 			opt_i2c_write(COMMAND1,&value);
 		}
 	}
-
 
 	return lx;
 }
@@ -748,7 +810,7 @@ int lightsensor_get_adcvalue(void)
 static int lightsensor_onoff(u8 onoff)
 {
 	u8 value;
-    int i;
+        // int i;
 
 	printk("%s : light_sensor onoff = %d\n", __func__, onoff);
 
@@ -799,40 +861,22 @@ static void gp2a_work_func_light(struct work_struct *work)
 			break;
 
 	if (data->light_buffer == i) {
-		if(data->light_level_state <= i || data->light_first_level == true){
-			if (data->light_count++ == LIGHT_BUFFER_UP) {
-                if (LightSensor_Log_Cnt == 10) {
-                    printk("[LIGHT SENSOR] lux up 0x%0X (%d)\n", adc, adc);
-                    LightSensor_Log_Cnt = 0; 
-                }
-
-                LightSensor_Log_Cnt = LightSensor_Log_Cnt + 1;                
+		if (data->light_count++ == LIGHT_BUFFER_NUM) {
 				input_report_abs(this_data,	ABS_MISC, adc);
 				input_sync(this_data);
 				data->light_count = 0;
-				data->light_first_level = false;
-				data->light_level_state = data->light_buffer;
-			}
-		}else
-		{
-			if (data->light_count++ == LIGHT_BUFFER_DOWN) {
-                if (LightSensor_Log_Cnt == 10) {
-                    printk("[LIGHT SENSOR] lux down 0x%0X (%d)\n", adc, adc);
+			if(LightSensor_Log_Cnt++ == 10) {
+				gprintk("realmode : adc(%d)\n", adc);
                     LightSensor_Log_Cnt = 0; 
                 }
-
-                LightSensor_Log_Cnt = LightSensor_Log_Cnt + 1;                
-				input_report_abs(this_data,	ABS_MISC, adc);
-				input_sync(this_data);
-				data->light_count = 0;
-				data->light_level_state = data->light_buffer;
-			}
 		}
 	} else {
 		data->light_buffer = i;
 		data->light_count = 0;
     }
-	schedule_delayed_work(&data->work, msecs_to_jiffies(data->delay));
+
+	if(data->enabled)
+		queue_delayed_work(light_workqueue,&data->work, msecs_to_jiffies(data->delay));
 }
 
 
@@ -854,7 +898,13 @@ lightsensor_probe(struct platform_device *pdev)
 	data->enabled = 0;
 	data->delay = SENSOR_DEFAULT_DELAY;
 	data->testmode = 0;
-	data->light_level_state =0;
+
+	light_workqueue = create_singlethread_workqueue("klightd");
+	if (!light_workqueue) {
+		rt = -ENOMEM;
+		printk(KERN_ERR "%s: Failed to allocate work queue\n", __func__);
+		goto err;
+	}
 
 	INIT_DELAYED_WORK(&data->work, gp2a_work_func_light);
 
@@ -871,6 +921,9 @@ lightsensor_probe(struct platform_device *pdev)
 	input_set_capability(input_data, EV_ABS, ABS_MISC); 
 	input_set_capability(input_data, EV_ABS, ABS_WAKE); /* wake */
 	input_set_capability(input_data, EV_ABS, ABS_CONTROL_REPORT); /* enabled/delay */
+	input_set_abs_params(input_data, ABS_MISC, 0, 1, 0, 0);
+	input_set_abs_params(input_data, ABS_WAKE, 0, 163840, 0, 0);
+	input_set_abs_params(input_data, ABS_CONTROL_REPORT, 0, 98432, 0, 0);
 	input_data->name = SENSOR_NAME;
 
 	rt = input_register_device(input_data);
@@ -952,11 +1005,13 @@ lightsensor_remove(struct platform_device *pdev)
 	rt = 0;
 	if (this_data != NULL) {
 		data = input_get_drvdata(this_data);
+		data->enabled = 0;
 		sysfs_remove_group(&this_data->dev.kobj,
 				&lightsensor_attribute_group);
 		if (data != NULL) {
 			cancel_delayed_work(&data->work);
-			flush_scheduled_work();
+			flush_workqueue(light_workqueue);
+			destroy_workqueue(light_workqueue);
 			kfree(data);
 		}
 		input_unregister_device(this_data);
@@ -976,11 +1031,12 @@ lightsensor_shutdown(struct platform_device *pdev)
 	rt = 0;
 	if (this_data != NULL) {
 		data = input_get_drvdata(this_data);
+		data->enabled = 0;
 		sysfs_remove_group(&this_data->dev.kobj,
 				&lightsensor_attribute_group);
 		if (data != NULL) {
 			cancel_delayed_work(&data->work);
-			flush_scheduled_work();
+			flush_workqueue(light_workqueue);
 			kfree(data);
 		}
 		input_unregister_device(this_data);

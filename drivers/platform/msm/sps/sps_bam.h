@@ -195,6 +195,8 @@ struct sps_bam {
 	void *base; /* BAM virtual base address */
 	u32 version;
 	spinlock_t isr_lock;
+	spinlock_t connection_lock;
+	unsigned long irqsave_flags;
 
 	/* Pipe state */
 	u32 pipe_active_mask;

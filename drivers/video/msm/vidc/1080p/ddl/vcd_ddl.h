@@ -1,35 +1,20 @@
 /* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 
 #ifndef _VCD_DDL_H_
 #define _VCD_DDL_H_
 
+#include <mach/msm_subsystem_map.h>
 #include "vcd_ddl_api.h"
 #include "vcd_ddl_core.h"
 #include "vcd_ddl_utils.h"
@@ -99,12 +84,22 @@
 
 #define DDL_MAX_NUM_IN_INPUTFRAME_POOL          (DDL_MAX_NUM_OF_B_FRAME + 1)
 
+enum ddl_mem_area {
+	DDL_FW_MEM	= 0x0,
+	DDL_MM_MEM	= 0x1,
+	DDL_CMD_MEM	= 0x2
+};
+
 struct ddl_buf_addr{
 	u8  *virtual_base_addr;
 	u8  *physical_base_addr;
 	u8  *align_physical_addr;
 	u8  *align_virtual_addr;
+	phys_addr_t alloced_phys_addr;
+	struct msm_mapped_buffer *mapped_buffer;
+	struct ion_handle *alloc_handle;
 	u32 buffer_size;
+	enum ddl_mem_area mem_type;
 };
 enum ddl_cmd_state{
 	DDL_CMD_INVALID         = 0x0,
@@ -265,6 +260,7 @@ struct ddl_encoder_data{
 	u32  mb_info_enable;
 	u32  ext_enc_control_val;
 	u32  num_references_for_p_frame;
+	u32	 closed_gop;
 };
 struct ddl_decoder_data {
 	struct ddl_codec_data_hdr  hdr;
@@ -304,6 +300,8 @@ struct ddl_decoder_data {
 	u32  field_needed_for_prev_ip;
 	u32  prev_ip_frm_tag;
 	u32  cont_mode;
+	u32  reconfig_detected;
+	u32  dmx_disable;
 };
 union ddl_codec_data{
 	struct ddl_codec_data_hdr  hdr;
@@ -329,6 +327,7 @@ struct ddl_context{
 	struct ddl_buf_addr dram_base_a;
 	struct ddl_buf_addr dram_base_b;
 	struct ddl_hw_interface ddl_hw_response;
+	struct ion_client *video_ion_client;
 	void (*ddl_callback) (u32 event, u32 status, void *payload,
 		size_t sz, u32 *ddl_handle, void *const client_data);
 	void (*interrupt_clr) (void);
@@ -444,6 +443,7 @@ u32 ddl_insert_input_frame_to_pool(struct ddl_client_context *ddl,
 void ddl_decoder_chroma_dpb_change(struct ddl_client_context *ddl);
 u32  ddl_check_reconfig(struct ddl_client_context *ddl);
 void ddl_handle_reconfig(u32 res_change, struct ddl_client_context *ddl);
+void ddl_fill_dec_desc_buffer(struct ddl_client_context *ddl);
 
 #ifdef DDL_BUF_LOG
 void ddl_list_buffers(struct ddl_client_context *ddl);

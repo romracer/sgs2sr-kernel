@@ -18,16 +18,19 @@
 /**
  * struct pm8xxx_pwrkey_platform_data - platform data for pwrkey driver
  * @pull up:  power on register control for pull up/down configuration
- * @pwrkey_time_ms: time after which power key event should be generated, if
- *                  key is released before then end key is reported.
- *                  Supply zero for only power key reporting.
  * @kpd_trigger_delay_us: time delay for power key state change interrupt
  *                  trigger.
  * @wakeup: configure power key as wakeup source
  */
 struct pm8xxx_pwrkey_platform_data  {
 	bool pull_up;
-	u16  pwrkey_time_ms;
+	/* Time delay for pwr-key state change interrupt triggering in micro-
+	 * second. The actual delay can only be one of these eight levels:
+	 * 2 sec, 1 sec, 1/2 sec, 1/4 sec, 1/8 sec, 1/16 sec, 1/32 sec, and
+	 * 1/64 sec. The valid range of kpd_trigger_delay_us is 1/64 second to
+	 * 2 seconds. A value within the valid range will be rounded down to the
+	 * closest level. Any value outside the valid range will be rejected.
+	 */
 	u32  kpd_trigger_delay_us;
 	u32  wakeup;
 };

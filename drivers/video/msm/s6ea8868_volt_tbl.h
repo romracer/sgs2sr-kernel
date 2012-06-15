@@ -1,7 +1,7 @@
 #ifndef __REF_VOLT_TABLE_H__
 #define __REF_VOLT_TABLE_H__
 
-#include "smart_dimming.h"
+//#include "smart_dimming.h"
 
 #define V1_VOLTAGE_COUNT 256
 #define V15_VOLTAGE_COUNT 256

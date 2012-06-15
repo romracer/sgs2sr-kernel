@@ -77,7 +77,7 @@
 /*
  * This is the size at which it becomes more efficient to
  * clean the whole cache, rather than using the individual
- * cache line maintainence instructions.
+ * cache line maintenance instructions.
  */
 #define CACHE_DLIMIT	8192
 
@@ -143,6 +143,17 @@ ENTRY(cpu_arm925_do_idle)
 	mcr	p15, 0, r0, c7, c0, 4		@ Wait for interrupt
 	mcr	p15, 0, r1, c1, c0, 0		@ Restore ICache enable
 	mov	pc, lr
+
+/*
+ *	flush_icache_all()
+ *
+ *	Unconditionally clean and invalidate the entire icache.
+ */
+ENTRY(arm925_flush_icache_all)
+	mov	r0, #0
+	mcr	p15, 0, r0, c7, c5, 0		@ invalidate I cache
+	mov	pc, lr
+ENDPROC(arm925_flush_icache_all)
 
 /*
  *	flush_user_cache_all()
@@ -279,7 +290,7 @@ ENTRY(arm925_flush_kern_dcache_area)
  *
  * (same as v4wb)
  */
-ENTRY(arm925_dma_inv_range)
+arm925_dma_inv_range:
 #ifndef CONFIG_CPU_DCACHE_WRITETHROUGH
 	tst	r0, #CACHE_DLINESIZE - 1
 	mcrne	p15, 0, r0, c7, c10, 1		@ clean D entry
@@ -304,7 +315,7 @@ ENTRY(arm925_dma_inv_range)
  *
  * (same as v4wb)
  */
-ENTRY(arm925_dma_clean_range)
+arm925_dma_clean_range:
 #ifndef CONFIG_CPU_DCACHE_WRITETHROUGH
 	bic	r0, r0, #CACHE_DLINESIZE - 1
 1:	mcr	p15, 0, r0, c7, c10, 1		@ clean D entry
@@ -362,6 +373,7 @@ ENTRY(arm925_dma_unmap_area)
 ENDPROC(arm925_dma_unmap_area)
 
 ENTRY(arm925_cache_fns)
+	.long	arm925_flush_icache_all
 	.long	arm925_flush_kern_cache_all
 	.long	arm925_flush_user_cache_all
 	.long	arm925_flush_user_cache_range
@@ -370,8 +382,6 @@ ENTRY(arm925_cache_fns)
 	.long	arm925_flush_kern_dcache_area
 	.long	arm925_dma_map_area
 	.long	arm925_dma_unmap_area
-	.long	arm925_dma_inv_range
-	.long	arm925_dma_clean_range
 	.long	arm925_dma_flush_range
 
 ENTRY(cpu_arm925_dcache_clean_area)
@@ -430,7 +440,7 @@ ENTRY(cpu_arm925_set_pte_ext)
 #endif /* CONFIG_MMU */
 	mov	pc, lr
 
-	__INIT
+	__CPUINIT
 
 	.type	__arm925_setup, #function
 __arm925_setup:
@@ -493,6 +503,9 @@ arm925_processor_functions:
 	.word	cpu_arm925_dcache_clean_area
 	.word	cpu_arm925_switch_mm
 	.word	cpu_arm925_set_pte_ext
+	.word	0
+	.word	0
+	.word	0
 	.size	arm925_processor_functions, . - arm925_processor_functions
 
 	.section ".rodata"

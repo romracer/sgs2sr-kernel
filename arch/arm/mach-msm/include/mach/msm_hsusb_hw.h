@@ -25,10 +25,8 @@
 #define USB_HWRXBUF          (MSM_USB_BASE + 0x0014)
 #define USB_AHB_BURST        (MSM_USB_BASE + 0x0090)
 #define USB_AHB_MODE         (MSM_USB_BASE + 0x0098)
-// qc patch for tethering disconnect [
-#define USB_GEN_CONFIG       (MSM_USB_BASE + 0x009C) 
+#define USB_GEN_CONFIG       (MSM_USB_BASE + 0x009C)
 #define USB_BAM_DISABLE      (1 << 13)
-// ]
 #define USB_ROC_AHB_MODE     (MSM_USB_BASE + 0x0090)
 #define USB_SBUSCFG          (MSM_USB_BASE + 0x0090)
 
@@ -165,12 +163,13 @@ struct ept_queue_item {
 #define CTRL_RXT_EP_TYPE_SHIFT 2
 
 #define ULPI_CONFIG_REG		0x31
-#if defined(CONFIG_ARCH_MSM7X30) || defined(CONFIG_ARCH_MSM8X60)
-#define ULPI_DIGOUT_CTRL	0X36
-#define ULPI_CDR_AUTORESET	(1 << 1)
-#else
+#if (defined(CONFIG_ARCH_MSM7X27) && !defined(CONFIG_ARCH_MSM7X27A)) \
+					|| defined(CONFIG_ARCH_QSD8X50)
 #define ULPI_DIGOUT_CTRL	0X31
 #define ULPI_CDR_AUTORESET	(1 << 5)
+#else
+#define ULPI_DIGOUT_CTRL	0X36
+#define ULPI_CDR_AUTORESET	(1 << 1)
 #endif
 #define ULPI_SE1_GATE		(1 << 2)
 #define ULPI_CONFIG_REG1	0x30

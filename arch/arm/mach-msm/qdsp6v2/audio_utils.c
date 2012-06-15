@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
 */
 
 #include <linux/module.h>
@@ -26,8 +21,8 @@
 #include <linux/slab.h>
 #include <asm/atomic.h>
 #include <asm/ioctls.h>
-#include <mach/qdsp6v2/apr_audio.h>
-#include <mach/qdsp6v2/q6asm.h>
+#include <sound/q6asm.h>
+#include <sound/apr_audio.h>
 #include "audio_utils.h"
 
 static int audio_in_pause(struct q6audio_in  *audio)
@@ -47,19 +42,26 @@ static int audio_in_flush(struct q6audio_in  *audio)
 	int rc;
 
 	pr_debug("%s:session id %d: flush\n", __func__, audio->ac->session);
-	/* Implicitly issue a pause to the decoder before flushing */
-	rc = audio_in_pause(audio);
-	if (rc < 0) {
-		pr_err("%s:session id %d: pause cmd failed rc=%d\n", __func__,
-				audio->ac->session, rc);
-		return rc;
-	}
+	/* Flush if session running */
+	if (audio->enabled) {
+		/* Implicitly issue a pause to the encoder before flushing */
+		rc = audio_in_pause(audio);
+		if (rc < 0) {
+			pr_err("%s:session id %d: pause cmd failed rc=%d\n",
+				 __func__, audio->ac->session, rc);
+			return rc;
+		}
 
-	rc = q6asm_cmd(audio->ac, CMD_FLUSH);
-	if (rc < 0) {
-		pr_err("%s:session id %d: flush cmd failed rc=%d\n", __func__,
-				audio->ac->session, rc);
-		return rc;
+		rc = q6asm_cmd(audio->ac, CMD_FLUSH);
+		if (rc < 0) {
+			pr_err("%s:session id %d: flush cmd failed rc=%d\n",
+				__func__, audio->ac->session, rc);
+			return rc;
+		}
+		/* 2nd arg: 0 -> run immediately
+		   3rd arg: 0 -> msw_ts, 4th arg: 0 ->lsw_ts */
+		q6asm_run(audio->ac, 0x00, 0x00, 0x00);
+		pr_debug("Rerun the session\n");
 	}
 	audio->rflush = 1;
 	audio->wflush = 1;
@@ -80,6 +82,7 @@ static int audio_in_flush(struct q6audio_in  *audio)
 			audio->ac->session, atomic_read(&audio->in_samples));
 	atomic_set(&audio->in_bytes, 0);
 	atomic_set(&audio->in_samples, 0);
+	atomic_set(&audio->out_count, 0);
 	return 0;
 }
 
@@ -244,6 +247,12 @@ long audio_in_ioctl(struct file *file,
 		if (rc < 0)
 			pr_err("%s:session id %d: Flush Fail rc=%d\n",
 					__func__, audio->ac->session, rc);
+		else { /* Register back the flushed read buffer with DSP */
+			int cnt = 0;
+			while (cnt++ < audio->str_cfg.buffer_count)
+				q6asm_read(audio->ac); /* Push buffer to DSP */
+			pr_debug("register the read buffer\n");
+		}
 		break;
 	}
 	case AUDIO_PAUSE: {
@@ -560,6 +569,27 @@ ssize_t audio_in_write(struct file *file,
 			rc = -EBUSY;
 			break;
 		}
+		/* if no PCM data, might have only eos buffer
+		   such case do not hold cpu buffer */
+		if ((buf == start) && (count == mfield_size)) {
+			char eos_buf[sizeof(struct meta_in)];
+			/* Processing begining of user buffer */
+			if (copy_from_user(eos_buf, buf, mfield_size)) {
+				rc = -EFAULT;
+				break;
+			}
+			/* Check if EOS flag is set and buffer has
+			 * contains just meta field
+			 */
+			extract_meta_info(eos_buf, &msw_ts, &lsw_ts,
+						&nflags);
+			buf += mfield_size;
+			/* send the EOS and return */
+			pr_debug("%s:session id %d: send EOS\
+				0x%8x\n", __func__,
+				audio->ac->session, nflags);
+			break;
+		}
 		data = (unsigned char *)q6asm_is_cpu_buf_avail(IN, audio->ac,
 						&size, &idx);
 		if (!data) {
@@ -581,13 +611,6 @@ ssize_t audio_in_write(struct file *file,
 				extract_meta_info(cpy_ptr, &msw_ts, &lsw_ts,
 						&nflags);
 				buf += mfield_size;
-				if (count == mfield_size) {
-					/* send the EOS and return */
-					pr_debug("%s:session id %d: send EOS\
-						0x%8x\n", __func__,
-						audio->ac->session, nflags);
-					break;
-				}
 				count -= mfield_size;
 			} else {
 				pr_debug("%s:session id %d: continuous\
@@ -638,6 +661,7 @@ int audio_in_release(struct inode *inode, struct file *file)
 	q6asm_audio_client_free(audio->ac);
 	mutex_unlock(&audio->lock);
 	kfree(audio->enc_cfg);
+	kfree(audio->codec_cfg);
 	kfree(audio);
 	return 0;
 }

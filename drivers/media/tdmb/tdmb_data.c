@@ -1,11 +1,21 @@
-/* drivers/media/tdmb/tdmb.c
- *
- *  TDMB Driver for Linux
- *
- *  klaatu, Copyright (c) 2009 Samsung Electronics
- *      http://www.samsung.com/
- *
- */
+/*
+*
+* drivers/media/tdmb/tdmb_data.c
+*
+* tdmb driver
+*
+* Copyright (C) (2011, Samsung Electronics)
+*
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation version 2.
+*
+* This program is distributed "as is" WITHOUT ANY WARRANTY of any
+* kind, whether express or implied; without even the implied warranty
+* of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+*/
 
 #include <linux/kernel.h>
 #include <linux/fs.h>
@@ -44,19 +54,16 @@
 
 #define TS_PACKET_SIZE 188
 #define MSC_BUF_SIZE 1024
-#if 1
-static unsigned char *MSCBuff;
-static unsigned char *TSBuff;
-#else
-static unsigned char MSCBuff[1024];
-static unsigned char TSBuff[INTERRUPT_SIZE * 2];
-#endif
-static int gTSBuffSize = 0;
-static int bfirst = 1;
-static int TSBuffpos;
-static int MSCBuffpos;
-static int mp2len;
-static const int bitRateTable[2][16] = {
+
+static unsigned char *msc_buff;
+static unsigned char *ts_buff;
+
+static int ts_buff_size;
+static int first_packet = 1;
+static int ts_buff_pos;
+static int msc_buff_pos;
+static int mp2_len;
+static const int bitrate_table[2][16] = {
 	/* MPEG1 for id=1*/
 	{0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0},
 	/* MPEG2 for id=0 */
@@ -64,7 +71,7 @@ static const int bitRateTable[2][16] = {
 };
 
 static struct workqueue_struct *tdmb_workqueue;
-DECLARE_WORK(tdmb_work, tdmb_pull_data);
+static DECLARE_WORK(tdmb_work, tdmb_pull_data);
 
 irqreturn_t tdmb_irq_handler(int irq, void *dev_id)
 {
@@ -81,18 +88,18 @@ irqreturn_t tdmb_irq_handler(int irq, void *dev_id)
 
 bool tdmb_create_databuffer(unsigned long int_size)
 {
-	gTSBuffSize = int_size * 2;
+	ts_buff_size = int_size * 2;
 
-	MSCBuff = vmalloc(MSC_BUF_SIZE);
-	TSBuff = vmalloc(gTSBuffSize);
+	msc_buff = vmalloc(MSC_BUF_SIZE);
+	ts_buff = vmalloc(ts_buff_size);
 
-	if (MSCBuff && TSBuff) {
+	if (msc_buff && ts_buff) {
 		return true;
 	} else {
-		if (MSCBuff)
-			vfree(MSCBuff);
-		if (TSBuff)
-			vfree(TSBuff);
+		if (msc_buff)
+			vfree(msc_buff);
+		if (ts_buff)
+			vfree(ts_buff);
 
 		return false;
 	}
@@ -100,8 +107,8 @@ bool tdmb_create_databuffer(unsigned long int_size)
 
 void tdmb_destroy_databuffer(void)
 {
-	vfree(MSCBuff);
-	vfree(TSBuff);
+	vfree(msc_buff);
+	vfree(ts_buff);
 }
 
 bool tdmb_create_workqueue(void)
@@ -125,13 +132,13 @@ bool tdmb_destroy_workqueue(void)
 
 void tdmb_init_data(void)
 {
-    bfirst = 1;
-    TSBuffpos = 0;
-    MSCBuffpos = 0;
-    mp2len = 0;    
+	first_packet = 1;
+	ts_buff_pos = 0;
+	msc_buff_pos = 0;
+	mp2_len = 0;
 }
 
-static int __add_to_ringbuffer(unsigned char *pData, unsigned long dwDataSize)
+static int __add_to_ringbuffer(unsigned char *data, unsigned long data_size)
 {
 	int ret = 0;
 	unsigned int size;
@@ -139,15 +146,11 @@ static int __add_to_ringbuffer(unsigned char *pData, unsigned long dwDataSize)
 	unsigned int tail;
 	unsigned int dist;
 	unsigned int temp_size;
-	extern unsigned int *tdmb_ts_head;
-	extern unsigned int *tdmb_ts_tail;
-	extern char *tdmb_ts_buffer;
-	extern unsigned int tdmb_ts_size;
 
 	if (tdmb_ts_size == 0)
 		return 0;
 
-	size = dwDataSize;
+	size = data_size;
 	head = *tdmb_ts_head;
 	tail = *tdmb_ts_tail;
 
@@ -162,11 +165,16 @@ static int __add_to_ringbuffer(unsigned char *pData, unsigned long dwDataSize)
 		/* DPRINTK("dist: %x\n", dist); */
 
 		if ((tdmb_ts_size-dist) < size) {
-			DPRINTK("too small space is left in Ring Buffer(ts len:%d/free:%d)\n", size, (tdmb_ts_size-dist));
-			DPRINTK("tdmb_ts_head:0x%x,tdmb_ts_tail:0x%x/head:%d,tail:%d \n", tdmb_ts_head, tdmb_ts_tail, head, tail);
+			DPRINTK("small space is left in ring(len:%d/free:%d)\n",
+				size, (tdmb_ts_size-dist));
+			DPRINTK("ts_head:0x%x, ts_tail:0x%x/head:%d,tail:%d\n",
+				(unsigned int)tdmb_ts_head,
+				(unsigned int)tdmb_ts_tail,
+				(unsigned int)head, tail);
 		} else {
 			if (head+size <= tdmb_ts_size) {
-				memcpy((tdmb_ts_buffer+head), (char *)pData, size);
+				memcpy((tdmb_ts_buffer+head),
+					(char *)data, size);
 
 				head += size;
 				if (head == tdmb_ts_size)
@@ -176,9 +184,12 @@ static int __add_to_ringbuffer(unsigned char *pData, unsigned long dwDataSize)
 				temp_size = (temp_size/DMB_TS_SIZE)*DMB_TS_SIZE;
 
 				if (temp_size > 0)
-					memcpy((tdmb_ts_buffer+head), (char *)pData, temp_size);
+					memcpy((tdmb_ts_buffer+head),
+						(char *)data, temp_size);
 
-				memcpy(tdmb_ts_buffer, (char *)(pData+temp_size), size-temp_size);
+				memcpy(tdmb_ts_buffer,
+					(char *)(data+temp_size),
+					size-temp_size);
 				head = size-temp_size;
 			}
 
@@ -200,58 +211,64 @@ static int __add_to_ringbuffer(unsigned char *pData, unsigned long dwDataSize)
 }
 
 
-static int __add_ts_data(unsigned char *pData, unsigned long dwDataSize)
+static int __add_ts_data(unsigned char *data, unsigned long data_size)
 {
 	int j = 0;
 	int maxi = 0;
-	if (bfirst) {
-		DPRINTK("!!!!! first sync dwDataSize = %ld !!!!!\n", dwDataSize);
+	if (first_packet) {
+		DPRINTK("! first sync Size = %ld !\n", data_size);
 
-		for (j = 0; j < dwDataSize; j++) {
-			if (pData[j] == 0x47) {
+		for (j = 0; j < data_size; j++) {
+			if (data[j] == 0x47) {
 				DPRINTK("!!!!! first sync j = %d !!!!!\n", j);
-				tdmb_make_result(DMB_TS_PACKET_RESYNC, sizeof(int), (unsigned char *)&j);
-				maxi = (dwDataSize - j) / TS_PACKET_SIZE;
-				TSBuffpos = (dwDataSize - j) % TS_PACKET_SIZE;
-				__add_to_ringbuffer(&pData[j], maxi * TS_PACKET_SIZE);
-				if (TSBuffpos > 0)
-					memcpy(TSBuff, &pData[j + maxi * TS_PACKET_SIZE], TSBuffpos);
-				bfirst = 0;
+				maxi = (data_size - j) / TS_PACKET_SIZE;
+				ts_buff_pos = (data_size - j) % TS_PACKET_SIZE;
+				__add_to_ringbuffer(&data[j],
+					maxi * TS_PACKET_SIZE);
+				if (ts_buff_pos > 0)
+					memcpy(ts_buff,
+						&data[j+maxi*TS_PACKET_SIZE],
+						ts_buff_pos);
+				first_packet = 0;
 				return 0;
 			}
 		}
 	} else {
-		maxi = (dwDataSize) / TS_PACKET_SIZE;
+		maxi = (data_size) / TS_PACKET_SIZE;
 
-		if (TSBuffpos > 0) {
-			if (pData[TS_PACKET_SIZE - TSBuffpos] != 0x47) {
-				DPRINTK("!!!!!!!!!!!!! error 0x%x,0x%x!!!!!!!!!!!!\n",
-							pData[TS_PACKET_SIZE - TSBuffpos],
-							pData[TS_PACKET_SIZE - TSBuffpos + 1]);
+		if (ts_buff_pos > 0) {
+			if (data[TS_PACKET_SIZE - ts_buff_pos] != 0x47) {
+				DPRINTK("! error 0x%x,0x%x !\n",
+					data[TS_PACKET_SIZE - ts_buff_pos],
+					data[TS_PACKET_SIZE - ts_buff_pos + 1]);
 
-				memset(TSBuff, 0, gTSBuffSize);
-				TSBuffpos = 0;
-				bfirst = 1;
-				return -1;
+				memset(ts_buff, 0, ts_buff_size);
+				ts_buff_pos = 0;
+				first_packet = 1;
+				return -EPERM;
 			}
 
-			memcpy(&TSBuff[TSBuffpos], pData, TS_PACKET_SIZE-TSBuffpos);
-			__add_to_ringbuffer(TSBuff, TS_PACKET_SIZE);
-			__add_to_ringbuffer(&pData[TS_PACKET_SIZE - TSBuffpos], dwDataSize - TS_PACKET_SIZE);
-			memcpy(TSBuff, &pData[dwDataSize-TSBuffpos], TSBuffpos);
+			memcpy(&ts_buff[ts_buff_pos],
+				data, TS_PACKET_SIZE-ts_buff_pos);
+			__add_to_ringbuffer(ts_buff, TS_PACKET_SIZE);
+			__add_to_ringbuffer(&data[TS_PACKET_SIZE - ts_buff_pos],
+				data_size - TS_PACKET_SIZE);
+			memcpy(ts_buff,
+				&data[data_size-ts_buff_pos],
+				ts_buff_pos);
 		} else {
-			if (pData[0] != 0x47) {
-				DPRINTK("!!!!!!!!!!!!! error 0x%x,0x%x!!!!!!!!!!!!\n",
-								pData[0],
-								pData[1]);
+			if (data[0] != 0x47) {
+				DPRINTK("!! error 0x%x,0x%x!!\n",
+								data[0],
+								data[1]);
 
-				memset(TSBuff, 0, gTSBuffSize);
-				TSBuffpos = 0;
-				bfirst = 1;
-				return -1;
+				memset(ts_buff, 0, ts_buff_size);
+				ts_buff_pos = 0;
+				first_packet = 1;
+				return -EPERM;
 			}
 
-			__add_to_ringbuffer(pData, dwDataSize);
+			__add_to_ringbuffer(data, data_size);
 		}
 	}
 	return 0;
@@ -284,22 +301,24 @@ static int __get_mp2_len(unsigned char *pkt)
 		if ((bitrate_index > 0 && bitrate_index < 15)
 				&& (layer_index == 2) && (fs_index == 1)) {
 
-			if (id == 1 && layer_index == 2) { /* Fs==48 KHz*/
-				bitrate = 1000*bitRateTable[0][bitrate_index];
+			if (id == 1 && layer_index == 2) {
+				/* Fs==48 KHz*/
+				bitrate = 1000*bitrate_table[0][bitrate_index];
 				samplerate = 48000;
-			} else if (id == 0 && layer_index == 2) { /* Fs=24 KHz */
-				bitrate = 1000*bitRateTable[1][bitrate_index];
+			} else if (id == 0 && layer_index == 2) {
+				/* Fs=24 KHz */
+				bitrate = 1000*bitrate_table[1][bitrate_index];
 				samplerate = 24000;
 			} else
-				return -1;
+				return -EPERM;
 
 		} else
-			return -1;
+			return -EPERM;
 	} else
-		return -1;
+		return -EPERM;
 
 	if ((pkt[2]&0x02) != 0) { /* padding bit */
-		return -1;
+		return -EPERM;
 	}
 
 	length = (144*bitrate)/(samplerate);
@@ -307,7 +326,8 @@ static int __get_mp2_len(unsigned char *pkt)
 	return length;
 }
 
-static int __add_msc_data(unsigned char *pData, unsigned long dwDataSize, int SubChID)
+static int
+__add_msc_data(unsigned char *data, unsigned long data_size, int sub_ch_id)
 {
 	int j;
 	int readpos = 0;
@@ -315,92 +335,107 @@ static int __add_msc_data(unsigned char *pData, unsigned long dwDataSize, int Su
 	int remainbyte = 0;
 	static int first = 1;
 
-	if (bfirst) {
-		for (j = 0; j < dwDataSize-4; j++) {
-			if (pData[j] == 0xFF && ((pData[j+1]>>4) == 0xF)) {
-				mp2len = __get_mp2_len(&pData[j]);
-				DPRINTK("!!!! first sync mp2len= %d !!!!\n", mp2len);
-				if (mp2len <= 0 || mp2len > MSC_BUF_SIZE)
-					return -1;
+	if (first_packet) {
+		for (j = 0; j < data_size-4; j++) {
+			if (data[j] == 0xFF && ((data[j+1]>>4) == 0xF)) {
+				mp2_len = __get_mp2_len(&data[j]);
+				DPRINTK("first sync mp2_len= %d\n", mp2_len);
+				if (mp2_len <= 0 || mp2_len > MSC_BUF_SIZE)
+					return -EPERM;
 
-				memcpy(MSCBuff, &pData[j], dwDataSize-j);
-				MSCBuffpos = dwDataSize-j;
-				bfirst = 0;
+				memcpy(msc_buff, &data[j], data_size-j);
+				msc_buff_pos = data_size-j;
+				first_packet = 0;
 				first = 1;
 				return 0;
 			}
 		}
 	} else {
-		if (mp2len <= 0 || mp2len > MSC_BUF_SIZE) {
-			MSCBuffpos = 0;
-			bfirst = 1;
-			return -1;
+		if (mp2_len <= 0 || mp2_len > MSC_BUF_SIZE) {
+			msc_buff_pos = 0;
+			first_packet = 1;
+			return -EPERM;
 		}
 
-		remainbyte = dwDataSize;
-		if ((mp2len-MSCBuffpos) >= dwDataSize) {
-			memcpy(MSCBuff+MSCBuffpos, pData, dwDataSize);
-			MSCBuffpos += dwDataSize;
+		remainbyte = data_size;
+		if ((mp2_len-msc_buff_pos) >= data_size) {
+			memcpy(msc_buff+msc_buff_pos, data, data_size);
+			msc_buff_pos += data_size;
 			remainbyte = 0;
-		} else if (mp2len-MSCBuffpos > 0) {
-			memcpy(MSCBuff+MSCBuffpos, pData, (mp2len - MSCBuffpos));
-			remainbyte = dwDataSize - (mp2len - MSCBuffpos);
-			MSCBuffpos = mp2len;
+		} else if (mp2_len-msc_buff_pos > 0) {
+			memcpy(msc_buff+msc_buff_pos,
+				data, (mp2_len - msc_buff_pos));
+			remainbyte = data_size - (mp2_len - msc_buff_pos);
+			msc_buff_pos = mp2_len;
 		}
 
-		if (MSCBuffpos == mp2len) {
-			while (MSCBuffpos > readpos) {
+		if (msc_buff_pos == mp2_len) {
+			while (msc_buff_pos > readpos) {
 				if (first) {
 					pOutAddr[0] = 0xDF;
 					pOutAddr[1] = 0xDF;
-					pOutAddr[2] = (SubChID<<2);
-					pOutAddr[2] |= (((MSCBuffpos>>3)>>8)&0x03);
-					pOutAddr[3] = (MSCBuffpos>>3)&0xFF;
+					pOutAddr[2] = (sub_ch_id<<2);
+					pOutAddr[2] |=
+						(((msc_buff_pos>>3)>>8)&0x03);
+					pOutAddr[3] = (msc_buff_pos>>3)&0xFF;
 
-					if (!(MSCBuff[0] == 0xFF && ((MSCBuff[1]>>4) == 0xF))) {
-						DPRINTK("!!!! error 0x%x,0x%x!!!!\n", MSCBuff[0], MSCBuff[1]);
-						memset(MSCBuff, 0, MSC_BUF_SIZE);
-						MSCBuffpos = 0;
-						bfirst = 1;
-						return -1;
+					if (!(msc_buff[0] == 0xFF
+						&& ((msc_buff[1]>>4) == 0xF))) {
+						DPRINTK("!!error 0x%x,0x%x!!\n",
+							msc_buff[0],
+							msc_buff[1]);
+						memset(msc_buff,
+							0,
+							MSC_BUF_SIZE);
+						msc_buff_pos = 0;
+						first_packet = 1;
+						return -EPERM;
 					}
 
-					memcpy(pOutAddr+4, MSCBuff, 184);
+					memcpy(pOutAddr+4, msc_buff, 184);
 					readpos = 184;
 					first = 0;
 				} else {
 					pOutAddr[0] = 0xDF;
 					pOutAddr[1] = 0xD0;
-					if (MSCBuffpos-readpos >= 184) {
-						memcpy(pOutAddr+4, MSCBuff+readpos, 184);
+					if (msc_buff_pos-readpos >= 184) {
+						memcpy(pOutAddr+4,
+							msc_buff+readpos,
+							184);
 						readpos += 184;
 					} else {
-						memcpy(pOutAddr+4, MSCBuff+readpos, MSCBuffpos-readpos);
-						readpos += (MSCBuffpos-readpos);
+						memcpy(pOutAddr+4,
+							msc_buff+readpos,
+							msc_buff_pos-readpos);
+						readpos
+						+= (msc_buff_pos-readpos);
 					}
 				}
 				__add_to_ringbuffer(pOutAddr, TS_PACKET_SIZE);
 			}
 
 			first = 1;
-			MSCBuffpos = 0;
+			msc_buff_pos = 0;
 			if (remainbyte > 0) {
-				memcpy(MSCBuff, pData+dwDataSize-remainbyte, remainbyte);
-				MSCBuffpos = remainbyte;
+				memcpy(msc_buff
+					, data+data_size-remainbyte
+					, remainbyte);
+				msc_buff_pos = remainbyte;
 			}
-		} else if (MSCBuffpos > mp2len) {
-			DPRINTK("!!!! Error MSCBuffpos=%d, mp2len =%d!!!!\n", MSCBuffpos, mp2len);
-			memset(MSCBuff, 0, MSC_BUF_SIZE);
-			MSCBuffpos = 0;
-			bfirst = 1;
-			return -1;
+		} else if (msc_buff_pos > mp2_len) {
+			DPRINTK("! Error msc_buff_pos=%d, mp2_len =%d!\n",
+				msc_buff_pos, mp2_len);
+			memset(msc_buff, 0, MSC_BUF_SIZE);
+			msc_buff_pos = 0;
+			first_packet = 1;
+			return -EPERM;
 		}
 	}
 
 	return 0;
 }
 
-bool tdmb_store_data(unsigned char *pData, unsigned long len)
+bool tdmb_store_data(unsigned char *data, unsigned long len)
 {
 	unsigned long i;
 	unsigned long maxi;
@@ -412,13 +447,16 @@ bool tdmb_store_data(unsigned char *pData, unsigned long len)
 		subch_id = subch_id % 1000;
 
 		if (subch_id >= 64) {
-			__add_ts_data(pData, len);
+			__add_ts_data(data, len);
 		} else {
 			maxi = len/TS_PACKET_SIZE;
 			for (i = 0 ; i < maxi ; i++) {
-				__add_msc_data(pData, TS_PACKET_SIZE, subch_id);
-				pData += TS_PACKET_SIZE;
+				__add_msc_data(data, TS_PACKET_SIZE, subch_id);
+				data += TS_PACKET_SIZE;
 			}
+			if (len - maxi * TS_PACKET_SIZE)
+				__add_msc_data(data,\
+					 len - maxi * TS_PACKET_SIZE, subch_id);
 		}
 		return true;
 	}

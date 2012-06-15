@@ -32,9 +32,9 @@
 #include <sound/pcm.h>
 #include <sound/initval.h>
 #include <sound/control.h>
+#include <sound/q6asm.h>
+#include <sound/apr_audio.h>
 #include <mach/msm_rpcrouter.h>
-#include <mach/qdsp6v2/apr_audio.h>
-#include <mach/qdsp6v2/q6asm.h>
 #include <mach/qdsp6v2/q6voice.h>
 #include <mach/qdsp6v2/audio_dev_ctl.h>
 #include "msm_audio_mvs.h"
@@ -450,7 +450,7 @@ static snd_pcm_uframes_t msm_pcm_pointer(struct snd_pcm_substream *substream)
 	return ret;
 }
 
-static struct snd_pcm_ops msm_voip_pcm_ops = {
+static struct snd_pcm_ops msm_mvs_pcm_ops = {
 	.open = msm_pcm_open,
 	.copy = msm_pcm_copy,
 	.close = msm_pcm_close,
@@ -460,21 +460,14 @@ static struct snd_pcm_ops msm_voip_pcm_ops = {
 	.pointer = msm_pcm_pointer,
 
 };
-static int msm_pcm_remove(struct platform_device *devptr)
-{
-	struct snd_soc_device *socdev = platform_get_drvdata(devptr);
-	snd_soc_free_pcms(socdev);
-	kfree(socdev->card->codec);
-	return 0;
-}
 
-static int msm_pcm_new(struct snd_card *card,
-			struct snd_soc_dai *codec_dai,
-			struct snd_pcm *pcm)
+static int msm_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
 	int   i, ret, offset = 0;
 	struct snd_pcm_substream *substream = NULL;
 	struct snd_dma_buffer *dma_buffer = NULL;
+	struct snd_card *card = rtd->card->snd_card;
+	struct snd_pcm *pcm = rtd->pcm;
 
 	ret = snd_pcm_new_stream(pcm, SNDRV_PCM_STREAM_PLAYBACK, 1);
 	if (ret)
@@ -482,8 +475,8 @@ static int msm_pcm_new(struct snd_card *card,
 	ret = snd_pcm_new_stream(pcm, SNDRV_PCM_STREAM_CAPTURE, 1);
 	if (ret)
 		return ret;
-	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &msm_voip_pcm_ops);
-	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &msm_voip_pcm_ops);
+	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &msm_mvs_pcm_ops);
+	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &msm_mvs_pcm_ops);
 
 	if (!card->dev->coherent_dma_mask)
 		card->dev->coherent_dma_mask = DMA_BIT_MASK(32);
@@ -563,16 +556,36 @@ static void msm_pcm_free_buffers(struct snd_pcm *pcm)
 	}
 }
 
-struct snd_soc_platform msm_voip_soc_platform = {
-	.name		= "msm-voip",
-	.remove		= msm_pcm_remove,
-	.pcm_ops	= &msm_voip_pcm_ops,
+struct snd_soc_platform_driver msm_mvs_soc_platform = {
+	.ops		= &msm_mvs_pcm_ops,
 	.pcm_new	= msm_pcm_new,
 	.pcm_free	= msm_pcm_free_buffers,
 };
-EXPORT_SYMBOL(msm_voip_soc_platform);
+EXPORT_SYMBOL(msm_mvs_soc_platform);
 
-static int __init msm_voip_soc_platform_init(void)
+static __devinit int msm_pcm_probe(struct platform_device *pdev)
+{
+	dev_info(&pdev->dev, "%s: dev name %s\n", __func__, dev_name(&pdev->dev));
+	return snd_soc_register_platform(&pdev->dev,
+				&msm_mvs_soc_platform);
+}
+
+static int msm_pcm_remove(struct platform_device *pdev)
+{
+	snd_soc_unregister_platform(&pdev->dev);
+	return 0;
+}
+
+static struct platform_driver msm_pcm_driver = {
+	.driver = {
+		.name = "msm-mvs-audio",
+		.owner = THIS_MODULE,
+	},
+	.probe = msm_pcm_probe,
+	.remove = __devexit_p(msm_pcm_remove),
+};
+
+static int __init msm_mvs_soc_platform_init(void)
 {
 	memset(&audio_voip_info, 0, sizeof(audio_voip_info));
 	mutex_init(&audio_voip_info.lock);
@@ -583,15 +596,15 @@ static int __init msm_voip_soc_platform_init(void)
 				"audio_mvs_suspend");
 	wake_lock_init(&audio_voip_info.idle_lock, WAKE_LOCK_IDLE,
 				"audio_mvs_idle");
-	return snd_soc_register_platform(&msm_voip_soc_platform);
+	return platform_driver_register(&msm_pcm_driver);
 }
-module_init(msm_voip_soc_platform_init);
+module_init(msm_mvs_soc_platform_init);
 
-static void __exit msm_voip_soc_platform_exit(void)
+static void __exit msm_mvs_soc_platform_exit(void)
 {
-	snd_soc_unregister_platform(&msm_voip_soc_platform);
+	 platform_driver_unregister(&msm_pcm_driver);
 }
-module_exit(msm_voip_soc_platform_exit);
+module_exit(msm_mvs_soc_platform_exit);
 
 MODULE_DESCRIPTION("MVS PCM module platform driver");
 MODULE_LICENSE("GPL v2");

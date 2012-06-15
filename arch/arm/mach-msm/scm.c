@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/slab.h>
@@ -44,7 +39,7 @@ static DEFINE_MUTEX(scm_lock);
  * @id: command to be executed
  * @buf: buffer returned from scm_get_command_buffer()
  *
- * An SCM command is layed out in memory as follows:
+ * An SCM command is laid out in memory as follows:
  *
  *	------------------- <--- struct scm_command
  *	| command header  |
@@ -271,6 +266,73 @@ out:
 }
 EXPORT_SYMBOL(scm_call);
 
+#define SCM_CLASS_REGISTER	(0x2 << 8)
+#define SCM_MASK_IRQS		BIT(5)
+#define SCM_ATOMIC(svc, cmd, n) (((((svc) << 10)|((cmd) & 0x3ff)) << 12) | \
+				SCM_CLASS_REGISTER | \
+				SCM_MASK_IRQS | \
+				(n & 0xf))
+
+/**
+ * scm_call_atomic1() - Send an atomic SCM command with one argument
+ * @svc_id: service identifier
+ * @cmd_id: command identifier
+ * @arg1: first argument
+ *
+ * This shall only be used with commands that are guaranteed to be
+ * uninterruptable, atomic and SMP safe.
+ */
+s32 scm_call_atomic1(u32 svc, u32 cmd, u32 arg1)
+{
+	int context_id;
+	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 1);
+	register u32 r1 asm("r1") = (u32)&context_id;
+	register u32 r2 asm("r2") = arg1;
+
+	asm volatile(
+		__asmeq("%0", "r0")
+		__asmeq("%1", "r0")
+		__asmeq("%2", "r1")
+		__asmeq("%3", "r2")
+		"smc	#0	@ switch to secure world\n"
+		: "=r" (r0)
+		: "r" (r0), "r" (r1), "r" (r2)
+		: "r3");
+	return r0;
+}
+EXPORT_SYMBOL(scm_call_atomic1);
+
+/**
+ * scm_call_atomic2() - Send an atomic SCM command with two arguments
+ * @svc_id: service identifier
+ * @cmd_id: command identifier
+ * @arg1: first argument
+ * @arg2: second argument
+ *
+ * This shall only be used with commands that are guaranteed to be
+ * uninterruptable, atomic and SMP safe.
+ */
+s32 scm_call_atomic2(u32 svc, u32 cmd, u32 arg1, u32 arg2)
+{
+	int context_id;
+	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 2);
+	register u32 r1 asm("r1") = (u32)&context_id;
+	register u32 r2 asm("r2") = arg1;
+	register u32 r3 asm("r3") = arg2;
+
+	asm volatile(
+		__asmeq("%0", "r0")
+		__asmeq("%1", "r0")
+		__asmeq("%2", "r1")
+		__asmeq("%3", "r2")
+		__asmeq("%4", "r3")
+		"smc	#0	@ switch to secure world\n"
+		: "=r" (r0)
+		: "r" (r0), "r" (r1), "r" (r2), "r" (r3));
+	return r0;
+}
+EXPORT_SYMBOL(scm_call_atomic2);
+
 u32 scm_get_version(void)
 {
 	int context_id;
@@ -303,6 +365,22 @@ u32 scm_get_version(void)
 	return version;
 }
 EXPORT_SYMBOL(scm_get_version);
+
+#define IS_CALL_AVAIL_CMD	1
+int scm_is_call_available(u32 svc_id, u32 cmd_id)
+{
+	int ret;
+	u32 svc_cmd = (svc_id << 10) | cmd_id;
+	u32 ret_val = 0;
+
+	ret = scm_call(SCM_SVC_INFO, IS_CALL_AVAIL_CMD, &svc_cmd,
+			sizeof(svc_cmd), &ret_val, sizeof(ret_val));
+	if (ret)
+		return ret;
+
+	return ret_val;
+}
+EXPORT_SYMBOL(scm_is_call_available);
 
 static int scm_init(void)
 {

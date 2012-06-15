@@ -1,29 +1,13 @@
 /* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above
- *       copyright notice, this list of conditions and the following
- *       disclaimer in the documentation and/or other materials provided
- *       with the distribution.
- *     * Neither the name of Code Aurora Forum, Inc. nor the names of its
- *       contributors may be used to endorse or promote products derived
- *       from this software without specific prior written permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * THIS SOFTWARE IS PROVIDED "AS IS" AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
- * BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
- * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
- * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  */
 
@@ -102,6 +86,7 @@
 #define VFE_CLEAR_ALL_IRQS   0xffffffff
 
 #define VFE_IRQ_STATUS0_CAMIF_SOF_MASK            0x00000001
+#define VFE_IRQ_STATUS0_CAMIF_EOF_MASK            0x00000004
 #define VFE_IRQ_STATUS0_REG_UPDATE_MASK           0x00000020
 #define VFE_IRQ_STATUS0_IMAGE_COMPOSIT_DONE0_MASK 0x00200000
 #define VFE_IRQ_STATUS0_IMAGE_COMPOSIT_DONE1_MASK 0x00400000
@@ -160,7 +145,7 @@
 #define RS_ENABLE_MASK 0x00000100      /* bit 8  */
 #define CS_ENABLE_MASK 0x00000200      /* bit 9  */
 #define RS_CS_ENABLE_MASK 0x00000300   /* bit 8,9  */
-
+#define STATS_ENABLE_MASK 0x000483E0   /* bit 18,15,9,8,7,6,5*/
 
 #define VFE_REG_UPDATE_TRIGGER           1
 #define VFE_PM_BUF_MAX_CNT_MASK          0xFF
@@ -310,6 +295,9 @@ enum  vfe_recording_state {
 #define V31_LIVESHOT              106
 #define V31_ZSL                   107
 #define V31_STEREOCAM             108
+#define V31_LA_SETUP              109
+#define V31_XBAR_CFG              110
+#define V31_EZTUNE_CFG            111
 
 #define V31_CAMIF_OFF             0x000001E4
 #define V31_CAMIF_LEN             32
@@ -336,7 +324,9 @@ enum  vfe_recording_state {
 #define V31_OPERATION_CFG_LEN     32
 
 #define V31_AXI_OUT_OFF           0x00000038
-#define V31_AXI_OUT_LEN           188
+#define V31_AXI_OUT_LEN           212
+#define V31_AXI_CH_INF_LEN        24
+#define V31_AXI_CFG_LEN           47
 
 #define V31_FRAME_SKIP_OFF        0x00000504
 #define V31_FRAME_SKIP_LEN        32
@@ -411,6 +401,11 @@ enum  vfe_recording_state {
 #define V31_STATS_CS_OFF 0x00000574
 #define V31_STATS_CS_LEN 8
 
+#define V31_XBAR_CFG_OFF 0x00000040
+#define V31_XBAR_CFG_LEN 8
+
+#define V31_EZTUNE_CFG_OFF 0x00000010
+#define V31_EZTUNE_CFG_LEN 4
 
 #define V31_ASF_OFF 0x000004A0
 #define V31_ASF_LEN 48
@@ -802,6 +797,7 @@ enum VFE31_MESSAGE_ID {
 };
 
 struct stats_buffer {
+	uint8_t awb_ymin;
 	uint32_t aec;
 	uint32_t awb;
 	uint32_t af;
@@ -949,36 +945,41 @@ struct vfe31_frame_extra {
 	uint32_t  frameCounter;
 };
 
-#define VFE_DISABLE_ALL_IRQS            0
-#define VFE_CLEAR_ALL_IRQS              0xffffffff
+#define VFE_DISABLE_ALL_IRQS             0
+#define VFE_CLEAR_ALL_IRQS               0xffffffff
 
-#define VFE_GLOBAL_RESET                0x00000004
-#define VFE_CGC_OVERRIDE                0x0000000C
-#define VFE_MODULE_CFG                  0x00000010
-#define VFE_CFG_OFF                     0x00000014
-#define VFE_IRQ_CMD                     0x00000018
-#define VFE_IRQ_MASK_0                  0x0000001C
-#define VFE_IRQ_MASK_1                  0x00000020
-#define VFE_IRQ_CLEAR_0                 0x00000024
-#define VFE_IRQ_CLEAR_1                 0x00000028
-#define VFE_IRQ_STATUS_0                0x0000002C
-#define VFE_IRQ_STATUS_1                0x00000030
-#define VFE_IRQ_COMP_MASK               0x00000034
-#define VFE_BUS_CMD                     0x00000038
-#define VFE_BUS_PING_PONG_STATUS        0x00000180
-#define VFE_AXI_CMD                     0x000001D8
-#define VFE_AXI_STATUS        0x000001DC
-#define VFE_BUS_STATS_PING_PONG_BASE    0x000000F4
+#define VFE_GLOBAL_RESET                 0x00000004
+#define VFE_CGC_OVERRIDE                 0x0000000C
+#define VFE_MODULE_CFG                   0x00000010
+#define VFE_CFG_OFF                      0x00000014
+#define VFE_IRQ_CMD                      0x00000018
+#define VFE_IRQ_MASK_0                   0x0000001C
+#define VFE_IRQ_MASK_1                   0x00000020
+#define VFE_IRQ_CLEAR_0                  0x00000024
+#define VFE_IRQ_CLEAR_1                  0x00000028
+#define VFE_IRQ_STATUS_0                 0x0000002C
+#define VFE_IRQ_STATUS_1                 0x00000030
+#define VFE_IRQ_COMP_MASK                0x00000034
+#define VFE_BUS_CMD                      0x00000038
+#define VFE_BUS_PING_PONG_STATUS         0x00000180
+#define VFE_BUS_OPERATION_STATUS         0x00000184
 
-#define VFE_BUS_STATS_AEC_WR_PING_ADDR    0x000000F4
-#define VFE_BUS_STATS_AEC_WR_PONG_ADDR    0x000000F8
-#define VFE_BUS_STATS_AEC_UB_CFG          0x000000FC
-#define VFE_BUS_STATS_AF_WR_PING_ADDR     0x00000100
-#define VFE_BUS_STATS_AF_WR_PONG_ADDR     0x00000104
-#define VFE_BUS_STATS_AF_UB_CFG           0x00000108
-#define VFE_BUS_STATS_AWB_WR_PING_ADDR    0x0000010C
-#define VFE_BUS_STATS_AWB_WR_PONG_ADDR    0x00000110
-#define VFE_BUS_STATS_AWB_UB_CFG          0x00000114
+#define VFE_BUS_IMAGE_MASTER_0_WR_PM_STATS_0        0x00000190
+#define VFE_BUS_IMAGE_MASTER_0_WR_PM_STATS_1        0x00000194
+
+#define VFE_AXI_CMD                      0x000001D8
+#define VFE_AXI_STATUS                   0x000001DC
+#define VFE_BUS_STATS_PING_PONG_BASE     0x000000F4
+
+#define VFE_BUS_STATS_AEC_WR_PING_ADDR   0x000000F4
+#define VFE_BUS_STATS_AEC_WR_PONG_ADDR   0x000000F8
+#define VFE_BUS_STATS_AEC_UB_CFG         0x000000FC
+#define VFE_BUS_STATS_AF_WR_PING_ADDR    0x00000100
+#define VFE_BUS_STATS_AF_WR_PONG_ADDR    0x00000104
+#define VFE_BUS_STATS_AF_UB_CFG          0x00000108
+#define VFE_BUS_STATS_AWB_WR_PING_ADDR   0x0000010C
+#define VFE_BUS_STATS_AWB_WR_PONG_ADDR   0x00000110
+#define VFE_BUS_STATS_AWB_UB_CFG         0x00000114
 #define VFE_BUS_STATS_RS_WR_PING_ADDR    0x00000118
 #define VFE_BUS_STATS_RS_WR_PONG_ADDR    0x0000011C
 #define VFE_BUS_STATS_RS_UB_CFG          0x00000120
@@ -986,33 +987,37 @@ struct vfe31_frame_extra {
 #define VFE_BUS_STATS_CS_WR_PING_ADDR    0x00000124
 #define VFE_BUS_STATS_CS_WR_PONG_ADDR    0x00000128
 #define VFE_BUS_STATS_CS_UB_CFG          0x0000012C
-#define VFE_BUS_STATS_HIST_WR_PING_ADDR   0x00000130
-#define VFE_BUS_STATS_HIST_WR_PONG_ADDR   0x00000134
-#define VFE_BUS_STATS_HIST_UB_CFG          0x00000138
-#define VFE_BUS_STATS_SKIN_WR_PING_ADDR    0x0000013C
-#define VFE_BUS_STATS_SKIN_WR_PONG_ADDR    0x00000140
-#define VFE_BUS_STATS_SKIN_UB_CFG          0x00000144
-#define VFE_CAMIF_COMMAND               0x000001E0
-#define VFE_CAMIF_STATUS                0x00000204
-#define VFE_REG_UPDATE_CMD              0x00000260
-#define VFE_DEMUX_GAIN_0                0x00000288
-#define VFE_DEMUX_GAIN_1                0x0000028C
-#define VFE_CHROMA_UP                   0x0000035C
-#define VFE_FRAMEDROP_ENC_Y_CFG         0x00000504
-#define VFE_FRAMEDROP_ENC_CBCR_CFG      0x00000508
-#define VFE_FRAMEDROP_ENC_Y_PATTERN     0x0000050C
-#define VFE_FRAMEDROP_ENC_CBCR_PATTERN  0x00000510
-#define VFE_FRAMEDROP_VIEW_Y            0x00000514
-#define VFE_FRAMEDROP_VIEW_CBCR         0x00000518
-#define VFE_FRAMEDROP_VIEW_Y_PATTERN    0x0000051C
-#define VFE_FRAMEDROP_VIEW_CBCR_PATTERN 0x00000520
-#define VFE_CLAMP_MAX                   0x00000524
-#define VFE_CLAMP_MIN                   0x00000528
-#define VFE_REALIGN_BUF                 0x0000052C
-#define VFE_STATS_CFG                   0x00000530
-#define VFE_DMI_CFG                     0x00000598
-#define VFE_DMI_ADDR                    0x0000059C
-#define VFE_DMI_DATA_LO                 0x000005A4
+#define VFE_BUS_STATS_HIST_WR_PING_ADDR  0x00000130
+#define VFE_BUS_STATS_HIST_WR_PONG_ADDR  0x00000134
+#define VFE_BUS_STATS_HIST_UB_CFG        0x00000138
+#define VFE_BUS_STATS_SKIN_WR_PING_ADDR  0x0000013C
+#define VFE_BUS_STATS_SKIN_WR_PONG_ADDR  0x00000140
+#define VFE_BUS_STATS_SKIN_UB_CFG        0x00000144
+#define VFE_BUS_PM_CMD                   0x00000188
+#define VFE_BUS_PM_CFG                   0x0000018C
+#define VFE_CAMIF_COMMAND                0x000001E0
+#define VFE_CAMIF_STATUS                 0x00000204
+#define VFE_REG_UPDATE_CMD               0x00000260
+#define VFE_DEMUX_GAIN_0                 0x00000288
+#define VFE_DEMUX_GAIN_1                 0x0000028C
+#define VFE_CHROMA_UP                    0x0000035C
+#define VFE_FRAMEDROP_ENC_Y_CFG          0x00000504
+#define VFE_FRAMEDROP_ENC_CBCR_CFG       0x00000508
+#define VFE_FRAMEDROP_ENC_Y_PATTERN      0x0000050C
+#define VFE_FRAMEDROP_ENC_CBCR_PATTERN   0x00000510
+#define VFE_FRAMEDROP_VIEW_Y             0x00000514
+#define VFE_FRAMEDROP_VIEW_CBCR          0x00000518
+#define VFE_FRAMEDROP_VIEW_Y_PATTERN     0x0000051C
+#define VFE_FRAMEDROP_VIEW_CBCR_PATTERN  0x00000520
+#define VFE_CLAMP_MAX                    0x00000524
+#define VFE_CLAMP_MIN                    0x00000528
+#define VFE_REALIGN_BUF                  0x0000052C
+#define VFE_STATS_CFG                    0x00000530
+#define VFE_STATS_AWB_SGW_CFG            0x00000554
+#define VFE_DMI_CFG                      0x00000598
+#define VFE_DMI_ADDR                     0x0000059C
+#define VFE_DMI_DATA_LO                  0x000005A4
+#define VFE_AXI_CFG                      0x00000600
 
 struct vfe_stats_control {
 	uint8_t  ackPending;
@@ -1074,7 +1079,6 @@ struct vfe31_ctrl_type {
 	uint32_t output2Period;
 	uint32_t vfeFrameSkipCount;
 	uint32_t vfeFrameSkipPeriod;
-	uint32_t rolloff_update;
 	uint32_t status_bits;
 	struct vfe_stats_control afStatsControl;
 	struct vfe_stats_control awbStatsControl;

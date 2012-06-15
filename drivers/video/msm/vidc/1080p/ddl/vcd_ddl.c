@@ -9,15 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
-
+#include <mach/msm_memtypes.h>
 #include "vcd_ddl.h"
 #include "vcd_ddl_metadata.h"
+#include "vcd_res_tracker_api.h"
 
 static unsigned int first_time;
 
@@ -26,7 +22,7 @@ u32 ddl_device_init(struct ddl_init_config *ddl_init_config,
 {
 	struct ddl_context *ddl_context;
 	u32 status = VCD_S_SUCCESS;
-	void *ptr;
+	void *ptr = NULL;
 	DDL_MSG_HIGH("ddl_device_init");
 
 	if ((!ddl_init_config) || (!ddl_init_config->ddl_callback) ||
@@ -45,6 +41,15 @@ u32 ddl_device_init(struct ddl_init_config *ddl_init_config,
 	}
 	memset(ddl_context, 0, sizeof(struct ddl_context));
 	DDL_BUSY(ddl_context);
+	if (res_trk_get_enable_ion()) {
+		DDL_MSG_LOW("ddl_dev_init:ION framework enabled");
+		ddl_context->video_ion_client  =
+			res_trk_get_ion_client();
+		if (!ddl_context->video_ion_client) {
+			DDL_MSG_ERROR("ION client create failed");
+			return VCD_ERR_ILLEGAL_OP;
+		}
+	}
 	ddl_context->ddl_callback = ddl_init_config->ddl_callback;
 	if (ddl_init_config->interrupt_clr)
 		ddl_context->interrupt_clr =
@@ -64,8 +69,12 @@ u32 ddl_device_init(struct ddl_init_config *ddl_init_config,
 	ddl_client_transact(DDL_INIT_CLIENTS, NULL);
 	ddl_context->fw_memory_size =
 		DDL_FW_INST_GLOBAL_CONTEXT_SPACE_SIZE;
-	ptr = ddl_pmem_alloc(&ddl_context->dram_base_a,
-		ddl_context->fw_memory_size, DDL_KILO_BYTE(128));
+	if (res_trk_get_firmware_addr(&ddl_context->dram_base_a)) {
+		DDL_MSG_ERROR("firmware allocation failed");
+		ptr = NULL;
+	} else {
+		ptr = (void *)ddl_context->dram_base_a.virtual_base_addr;
+	}
 	if (!ptr) {
 		DDL_MSG_ERROR("Memory Aocation Failed for FW Base");
 		status = VCD_ERR_ALLOC_FAIL;
@@ -79,6 +88,7 @@ u32 ddl_device_init(struct ddl_init_config *ddl_init_config,
 			ddl_context->dram_base_a.align_virtual_addr;
 	}
 	if (!status) {
+		ddl_context->metadata_shared_input.mem_type = DDL_MM_MEM;
 		ptr = ddl_pmem_alloc(&ddl_context->metadata_shared_input,
 			DDL_METADATA_TOTAL_INPUTBUFSIZE,
 			DDL_LINEAR_BUFFER_ALIGN_BYTES);
@@ -127,6 +137,7 @@ u32 ddl_device_release(void *client_data)
 	DDL_MSG_LOW("FW_ENDDONE");
 	ddl_context->core_virtual_base_addr = NULL;
 	ddl_release_context_buffers(ddl_context);
+	ddl_context->video_ion_client = NULL;
 	DDL_IDLE(ddl_context);
 	return VCD_S_SUCCESS;
 }
@@ -153,14 +164,16 @@ u32 ddl_open(u32 **ddl_handle, u32 decoding)
 		DDL_MSG_ERROR("ddl_open:Client_trasac_failed");
 		return status;
 	}
+	ddl->shared_mem[0].mem_type = DDL_CMD_MEM;
 	ptr = ddl_pmem_alloc(&ddl->shared_mem[0],
-			DDL_FW_AUX_HOST_CMD_SPACE_SIZE, sizeof(u32));
+			DDL_FW_AUX_HOST_CMD_SPACE_SIZE, 0);
 	if (!ptr)
 		status = VCD_ERR_ALLOC_FAIL;
 	if (!status && ddl_context->frame_channel_depth
 		== VCD_DUAL_FRAME_COMMAND_CHANNEL) {
+		ddl->shared_mem[1].mem_type = DDL_CMD_MEM;
 		ptr = ddl_pmem_alloc(&ddl->shared_mem[1],
-				DDL_FW_AUX_HOST_CMD_SPACE_SIZE, sizeof(u32));
+				DDL_FW_AUX_HOST_CMD_SPACE_SIZE, 0);
 		if (!ptr) {
 			ddl_pmem_free(&ddl->shared_mem[0]);
 			status = VCD_ERR_ALLOC_FAIL;
@@ -268,34 +281,13 @@ u32 ddl_encode_start(u32 *ddl_handle, void *client_data)
 #ifdef DDL_BUF_LOG
 	ddl_list_buffers(ddl);
 #endif
-#if 0 //ksnr   QC Patch for H263-Non-PlusType Encoding
-
-
-	if ((encoder->codec.codec == VCD_CODEC_MPEG4 &&
-		!encoder->short_header.short_header) ||
-		encoder->codec.codec == VCD_CODEC_H264) {
-		ptr = ddl_pmem_alloc(&encoder->seq_header,
-			DDL_ENC_SEQHEADER_SIZE, DDL_LINEAR_BUFFER_ALIGN_BYTES);
-		if (!ptr) {
-			ddl_free_enc_hw_buffers(ddl);
-			DDL_MSG_ERROR("ddl_enc_start:Seq_hdr_alloc_failed");
-			return VCD_ERR_ALLOC_FAIL;
-		}
-	} else {
-		encoder->seq_header.buffer_size = 0;
-		encoder->seq_header.virtual_base_addr = 0;
-		encoder->seq_header.align_physical_addr = 0;
-		encoder->seq_header.align_virtual_addr = 0;
-#else
-
+	encoder->seq_header.mem_type = DDL_MM_MEM;
 	ptr = ddl_pmem_alloc(&encoder->seq_header,
 		DDL_ENC_SEQHEADER_SIZE, DDL_LINEAR_BUFFER_ALIGN_BYTES);
 	if (!ptr) {
 		ddl_free_enc_hw_buffers(ddl);
 		DDL_MSG_ERROR("ddl_enc_start:Seq_hdr_alloc_failed");
 		return VCD_ERR_ALLOC_FAIL;
-#endif
-
 	}
 	if (!ddl_take_command_channel(ddl_context, ddl, client_data))
 		return VCD_ERR_BUSY;

@@ -27,6 +27,7 @@
 #include <asm/byteorder.h>
 #include <asm/memory.h>
 #include <asm/system.h>
+#include <mach/msm_rtb.h>
 
 /*
  * ISA I/O bus memory addresses are 1:1 with the physical address.
@@ -58,13 +59,85 @@ extern void __raw_readsl(const void __iomem *addr, void *data, int longlen);
 #define __raw_readw(a)		(__chk_io_ptr(a), (volatile unsigned short __force)sec_debug_reg_read(a, sizeof(short)))
 #define __raw_readl(a)		(__chk_io_ptr(a), (volatile unsigned int __force)sec_debug_reg_read(a, sizeof(int)))
 #else
-#define __raw_writeb(v,a)	(__chk_io_ptr(a), *(volatile unsigned char __force  *)(a) = (v))
-#define __raw_writew(v,a)	(__chk_io_ptr(a), *(volatile unsigned short __force *)(a) = (v))
-#define __raw_writel(v,a)	(__chk_io_ptr(a), *(volatile unsigned int __force   *)(a) = (v))
+/*
+ * There may be cases when clients don't want to support or can't support the
+ * logging. The appropriate functions can be used but clients should carefully
+ * consider why they can't support the logging.
+ */
 
-#define __raw_readb(a)		(__chk_io_ptr(a), *(volatile unsigned char __force  *)(a))
-#define __raw_readw(a)		(__chk_io_ptr(a), *(volatile unsigned short __force *)(a))
-#define __raw_readl(a)		(__chk_io_ptr(a), *(volatile unsigned int __force   *)(a))
+#define __raw_writeb_no_log(v, a)	(__chk_io_ptr(a), *(volatile unsigned char __force  *)(a) = (v))
+#define __raw_writew_no_log(v, a)	(__chk_io_ptr(a), *(volatile unsigned short __force *)(a) = (v))
+#define __raw_writel_no_log(v, a)	(__chk_io_ptr(a), *(volatile unsigned int __force *)(a) = (v))
+
+#define __raw_writeb(v, a)	({ \
+	int _ret; \
+	void *_addr = (void *)(a); \
+	_ret = uncached_logk(LOGK_WRITEL, _addr); \
+	ETB_WAYPOINT; \
+	__raw_writeb_no_log(v, _addr); \
+	if (_ret) \
+		LOG_BARRIER; \
+	})
+
+#define __raw_writew(v, a)	({ \
+	int _ret; \
+	void *_addr = (void *)(a); \
+	_ret = uncached_logk(LOGK_WRITEL, _addr); \
+	ETB_WAYPOINT; \
+	__raw_writew_no_log(v, _addr); \
+	if (_ret) \
+		LOG_BARRIER; \
+	})
+
+#define __raw_writel(v, a)	({ \
+	int _ret; \
+	void *_addr = (void *)(a); \
+	_ret = uncached_logk(LOGK_WRITEL, _addr); \
+	ETB_WAYPOINT; \
+	__raw_writel_no_log(v, _addr); \
+	if (_ret) \
+		LOG_BARRIER; \
+	})
+
+#define __raw_readb_no_log(a)		(__chk_io_ptr(a), *(volatile unsigned char __force  *)(a))
+#define __raw_readw_no_log(a)		(__chk_io_ptr(a), *(volatile unsigned short __force *)(a))
+#define __raw_readl_no_log(a)		(__chk_io_ptr(a), *(volatile unsigned int __force *)(a))
+
+#define __raw_readb(a)		({ \
+	unsigned char __a; \
+	void *_addr = (void *)(a); \
+	int _ret; \
+	_ret = uncached_logk(LOGK_READL, _addr); \
+	ETB_WAYPOINT; \
+	__a = __raw_readb_no_log(_addr);\
+	if (_ret) \
+		LOG_BARRIER; \
+	__a; \
+	})
+
+#define __raw_readw(a)		({ \
+	unsigned short __a; \
+	void *_addr = (void *)(a); \
+	int _ret; \
+	_ret = uncached_logk(LOGK_READL, _addr); \
+	ETB_WAYPOINT; \
+	__a = __raw_readw_no_log(_addr);\
+	if (_ret) \
+		LOG_BARRIER; \
+	__a; \
+	})
+
+#define __raw_readl(a)		({ \
+	unsigned int __a; \
+	void *_addr = (void *)(a); \
+	int _ret; \
+	_ret = uncached_logk(LOGK_READL, _addr); \
+	ETB_WAYPOINT; \
+	__a = __raw_readl_no_log(_addr);\
+	if (_ret) \
+		LOG_BARRIER; \
+	__a; \
+	})
 #endif
 
 /*
@@ -107,6 +180,15 @@ static inline void __iomem *__typesafe_io(unsigned long addr)
 	return (void __iomem *)addr;
 }
 
+/* IO barriers */
+#ifdef CONFIG_ARM_DMA_MEM_BUFFERABLE
+#define __iormb()		rmb()
+#define __iowmb()		wmb()
+#else
+#define __iormb()		do { } while (0)
+#define __iowmb()		do { } while (0)
+#endif
+
 /*
  * Now, pick up the machine-defined IO definitions
  */
@@ -137,17 +219,17 @@ static inline void __iomem *__typesafe_io(unsigned long addr)
  * The {in,out}[bwl] macros are for emulating x86-style PCI/ISA IO space.
  */
 #ifdef __io
-#define outb(v,p)		__raw_writeb(v,__io(p))
-#define outw(v,p)		__raw_writew((__force __u16) \
-					cpu_to_le16(v),__io(p))
-#define outl(v,p)		__raw_writel((__force __u32) \
-					cpu_to_le32(v),__io(p))
+#define outb(v,p)	({ __iowmb(); __raw_writeb(v,__io(p)); })
+#define outw(v,p)	({ __iowmb(); __raw_writew((__force __u16) \
+					cpu_to_le16(v),__io(p)); })
+#define outl(v,p)	({ __iowmb(); __raw_writel((__force __u32) \
+					cpu_to_le32(v),__io(p)); })
 
-#define inb(p)	({ __u8 __v = __raw_readb(__io(p)); __v; })
+#define inb(p)	({ __u8 __v = __raw_readb(__io(p)); __iormb(); __v; })
 #define inw(p)	({ __u16 __v = le16_to_cpu((__force __le16) \
-			__raw_readw(__io(p))); __v; })
+			__raw_readw(__io(p))); __iormb(); __v; })
 #define inl(p)	({ __u32 __v = le32_to_cpu((__force __le32) \
-			__raw_readl(__io(p))); __v; })
+			__raw_readl(__io(p))); __iormb(); __v; })
 
 #define outsb(p,d,l)		__raw_writesb(__io(p),d,l)
 #define outsw(p,d,l)		__raw_writesw(__io(p),d,l)
@@ -204,14 +286,6 @@ extern void _memset_io(volatile void __iomem *, int, size_t);
 #define writel_relaxed(v,c)	((void)__raw_writel((__force u32) \
 					cpu_to_le32(v),__mem_pci(c)))
 
-#ifdef CONFIG_ARM_DMA_MEM_BUFFERABLE
-#define __iormb()		rmb()
-#define __iowmb()		wmb()
-#else
-#define __iormb()		do { } while (0)
-#define __iowmb()		do { } while (0)
-#endif
-
 #define readb(c)		({ u8  __v = readb_relaxed(c); __iormb(); __v; })
 #define readw(c)		({ u16 __v = readw_relaxed(c); __iormb(); __v; })
 #define readl(c)		({ u32 __v = readl_relaxed(c); __iormb(); __v; })
@@ -253,23 +327,17 @@ extern void _memset_io(volatile void __iomem *, int, size_t);
  *
  */
 #ifndef __arch_ioremap
-#define ioremap(cookie,size)		__arm_ioremap(cookie, size, MT_DEVICE)
-#define ioremap_nocache(cookie,size)	__arm_ioremap(cookie, size, MT_DEVICE)
-#define ioremap_strongly_ordered(cookie, size)  __arm_ioremap(cookie, size, \
-						MT_DEVICE_STRONGLY_ORDERED)
-#define ioremap_cached(cookie,size)	__arm_ioremap(cookie, size, MT_DEVICE_CACHED)
-#define ioremap_wc(cookie,size)		__arm_ioremap(cookie, size, MT_DEVICE_WC)
-#define iounmap(cookie)			__iounmap(cookie)
-#else
+#define __arch_ioremap			__arm_ioremap
+#define __arch_iounmap			__iounmap
+#endif
+
 #define ioremap(cookie,size)		__arch_ioremap((cookie), (size), MT_DEVICE)
 #define ioremap_nocache(cookie,size)	__arch_ioremap((cookie), (size), MT_DEVICE)
-#define ioremap_strongly_ordered(cookie, size)  __arch_ioremap((cookie), \
-						(size), \
+#define ioremap_strongly_ordered(cookie, size)  __arch_ioremap(cookie, size, \
 						MT_DEVICE_STRONGLY_ORDERED)
 #define ioremap_cached(cookie,size)	__arch_ioremap((cookie), (size), MT_DEVICE_CACHED)
 #define ioremap_wc(cookie,size)		__arch_ioremap((cookie), (size), MT_DEVICE_WC)
-#define iounmap(cookie)			__arch_iounmap(cookie)
-#endif
+#define iounmap				__arch_iounmap
 
 /*
  * io{read,write}{8,16,32} macros
@@ -311,6 +379,7 @@ extern void pci_iounmap(struct pci_dev *dev, void __iomem *addr);
 #define ARCH_HAS_VALID_PHYS_ADDR_RANGE
 extern int valid_phys_addr_range(unsigned long addr, size_t size);
 extern int valid_mmap_phys_addr_range(unsigned long pfn, size_t size);
+extern int devmem_is_allowed(unsigned long pfn);
 #endif
 
 /*

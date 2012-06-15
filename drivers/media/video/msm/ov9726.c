@@ -3,16 +3,11 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
  * only version 2 as published by the Free Software Foundation.
-
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
-
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/delay.h>
@@ -101,6 +96,7 @@ struct ov9726_ctrl_t {
 	unsigned short imgaddr;
 };
 static struct ov9726_ctrl_t *ov9726_ctrl;
+static int8_t config_not_set = 1;
 static DECLARE_WAIT_QUEUE_HEAD(ov9726_wait_queue);
 DEFINE_MUTEX(ov9726_mut);
 
@@ -425,7 +421,6 @@ static int32_t initialize_ov9726_registers(void)
 static int32_t ov9726_video_config(int mode)
 {
 	int32_t rc = 0;
-	static int8_t config_not_set = 1;
 
 	ov9726_ctrl->sensormode = mode;
 
@@ -444,6 +439,7 @@ static int32_t ov9726_video_config(int mode)
 
 		rc = msm_camio_csi_config(&ov9726_csi_params);
 		rc = initialize_ov9726_registers();
+		config_not_set = 0;
 	}
 	return rc;
 }
@@ -487,13 +483,16 @@ static int ov9726_probe_init_sensor(const struct msm_camera_sensor_info *data)
 {
 	int32_t rc = 0;
 	uint16_t  chipidl, chipidh;
-	rc = gpio_request(data->sensor_reset, "ov9726");
-	if (!rc) {
-		gpio_direction_output(data->sensor_reset, 0);
-		gpio_set_value_cansleep(data->sensor_reset, 1);
-	} else
-		goto init_probe_done;
-	msleep(20);
+
+	if (data->sensor_reset_enable) {
+		rc = gpio_request(data->sensor_reset, "ov9726");
+		if (!rc) {
+			gpio_direction_output(data->sensor_reset, 0);
+			gpio_set_value_cansleep(data->sensor_reset, 1);
+			msleep(20);
+		} else
+			goto init_probe_done;
+	}
 	/* 3. Read sensor Model ID: */
 	rc = ov9726_i2c_read(OV9726_PIDH_REG, &chipidh, 1);
 	if (rc < 0)
@@ -514,8 +513,10 @@ static int ov9726_probe_init_sensor(const struct msm_camera_sensor_info *data)
 	goto init_probe_done;
 
 init_probe_fail:
-	gpio_direction_output(data->sensor_reset, 0);
-	gpio_free(data->sensor_reset);
+	if (data->sensor_reset_enable) {
+		gpio_direction_output(data->sensor_reset, 0);
+		gpio_free(data->sensor_reset);
+	}
 init_probe_done:
 	printk(KERN_INFO " ov9726_probe_init_sensor finishes\n");
 	return rc;
@@ -539,6 +540,7 @@ int ov9726_sensor_open_init(const struct msm_camera_sensor_info *data)
 	ov9726_ctrl->prev_res = FULL_SIZE;
 	ov9726_ctrl->pict_res = FULL_SIZE;
 	ov9726_ctrl->curr_res = INVALID_SIZE;
+	config_not_set = 1;
 	if (data)
 		ov9726_ctrl->sensordata = data;
 	/* enable mclk first */
@@ -710,8 +712,10 @@ int ov9726_sensor_config(void __user *argp)
 
 static int ov9726_probe_init_done(const struct msm_camera_sensor_info *data)
 {
-	gpio_direction_output(data->sensor_reset, 0);
-	gpio_free(data->sensor_reset);
+	if (data->sensor_reset_enable) {
+		gpio_direction_output(data->sensor_reset, 0);
+		gpio_free(data->sensor_reset);
+	}
 	return 0;
 }
 
@@ -719,9 +723,11 @@ static int ov9726_sensor_release(void)
 {
 	int rc = -EBADF;
 	mutex_lock(&ov9726_mut);
-	gpio_direction_output(ov9726_ctrl->sensordata->sensor_reset,
-		0);
-	gpio_free(ov9726_ctrl->sensordata->sensor_reset);
+	if (ov9726_ctrl->sensordata->sensor_reset_enable) {
+		gpio_direction_output(
+			ov9726_ctrl->sensordata->sensor_reset, 0);
+		gpio_free(ov9726_ctrl->sensordata->sensor_reset);
+	}
 	kfree(ov9726_ctrl);
 	ov9726_ctrl = NULL;
 	CDBG("ov9726_release completed\n");

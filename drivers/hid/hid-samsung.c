@@ -57,14 +57,14 @@
 static inline void samsung_irda_dev_trace(struct hid_device *hdev,
 		unsigned int rsize)
 {
-	dev_info(&hdev->dev, "fixing up Samsung IrDA %d byte report "
-			"descriptor\n", rsize);
+	hid_info(hdev, "fixing up Samsung IrDA %d byte report descriptor\n",
+		 rsize);
 }
 
-static void samsung_irda_report_fixup(struct hid_device *hdev, __u8 *rdesc,
-		unsigned int rsize)
+static __u8 *samsung_irda_report_fixup(struct hid_device *hdev, __u8 *rdesc,
+		unsigned int *rsize)
 {
-	if (rsize == 184 && rdesc[175] == 0x25 && rdesc[176] == 0x40 &&
+	if (*rsize == 184 && rdesc[175] == 0x25 && rdesc[176] == 0x40 &&
 			rdesc[177] == 0x75 && rdesc[178] == 0x30 &&
 			rdesc[179] == 0x95 && rdesc[180] == 0x01 &&
 			rdesc[182] == 0x40) {
@@ -74,24 +74,25 @@ static void samsung_irda_report_fixup(struct hid_device *hdev, __u8 *rdesc,
 		rdesc[180] = 0x06;
 		rdesc[182] = 0x42;
 	} else
-	if (rsize == 203 && rdesc[192] == 0x15 && rdesc[193] == 0x0 &&
+	if (*rsize == 203 && rdesc[192] == 0x15 && rdesc[193] == 0x0 &&
 			rdesc[194] == 0x25 && rdesc[195] == 0x12) {
 		samsung_irda_dev_trace(hdev, 203);
 		rdesc[193] = 0x1;
 		rdesc[195] = 0xf;
 	} else
-	if (rsize == 135 && rdesc[124] == 0x15 && rdesc[125] == 0x0 &&
+	if (*rsize == 135 && rdesc[124] == 0x15 && rdesc[125] == 0x0 &&
 			rdesc[126] == 0x25 && rdesc[127] == 0x11) {
 		samsung_irda_dev_trace(hdev, 135);
 		rdesc[125] = 0x1;
 		rdesc[127] = 0xe;
 	} else
-	if (rsize == 171 && rdesc[160] == 0x15 && rdesc[161] == 0x0 &&
+	if (*rsize == 171 && rdesc[160] == 0x15 && rdesc[161] == 0x0 &&
 			rdesc[162] == 0x25 && rdesc[163] == 0x01) {
 		samsung_irda_dev_trace(hdev, 171);
 		rdesc[161] = 0x1;
 		rdesc[163] = 0x3;
 	}
+	return rdesc;
 }
 
 #define samsung_kbd_mouse_map_key_clear(c) \
@@ -134,7 +135,8 @@ static int samsung_kbd_input_mapping(struct hid_device *hdev,
 	struct hid_input *hi, struct hid_field *field, struct hid_usage *usage,
 	unsigned long **bit, int *max)
 {
-	if (!(HID_UP_CONSUMER == (usage->hid & HID_USAGE_PAGE) || HID_UP_KEYBOARD == (usage->hid & HID_USAGE_PAGE)))
+	if (!(HID_UP_CONSUMER == (usage->hid & HID_USAGE_PAGE) ||
+			HID_UP_KEYBOARD == (usage->hid & HID_USAGE_PAGE)))
 		return 0;
 
 	dbg_hid("samsung wireless keyboard input mapping event [0x%x]\n",
@@ -143,8 +145,9 @@ static int samsung_kbd_input_mapping(struct hid_device *hdev,
 	if (HID_UP_KEYBOARD == (usage->hid & HID_USAGE_PAGE)) {
 		switch (usage->hid & HID_USAGE) {
 		set_bit(EV_REP, hi->input->evbit);
-		//Only for UK keyboard
-		case 0x32: samsung_kbd_mouse_map_key_clear(KEY_KBDILLUMTOGGLE); break; // key pound
+		/* Only for UK keyboard */
+		/* key found */
+		case 0x32: samsung_kbd_mouse_map_key_clear(KEY_KBDILLUMTOGGLE); break;
 		case 0x64: samsung_kbd_mouse_map_key_clear(KEY_BACKSLASH); break;
 		default:
 			return 0;
@@ -154,21 +157,27 @@ static int samsung_kbd_input_mapping(struct hid_device *hdev,
 	if (HID_UP_CONSUMER == (usage->hid & HID_USAGE_PAGE)) {
 		switch (usage->hid & HID_USAGE) {
 		/* report 2 */
-		case 0x040: samsung_kbd_mouse_map_key_clear(KEY_MENU);		break; // MENU
-		case 0x18a: samsung_kbd_mouse_map_key_clear(KEY_MAIL);		break;
-		case 0x196: samsung_kbd_mouse_map_key_clear(KEY_WWW);	break;
-		case 0x19e: samsung_kbd_mouse_map_key_clear(KEY_SCREENLOCK);		break; // LOCK
-		case 0x221: samsung_kbd_mouse_map_key_clear(KEY_SEARCH);		break;
-		case 0x223: samsung_kbd_mouse_map_key_clear(KEY_HOMEPAGE);	break;
-		case 0x301: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY1);	break; // RECENTAPPS
-		case 0x302: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY2);		break; // APPLICATION
-		case 0x305: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY4);		break; // Voice search
-		case 0x306: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY5);		break; // QPANEL on/off
-		case 0x307: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY3);		break; // SIP on/off	
-		case 0x308: samsung_kbd_mouse_map_key_clear(KEY_LANGUAGE);		break; // LANG
-		case 0x30a: samsung_kbd_mouse_map_key_clear(KEY_BRIGHTNESSDOWN);		break;
-		case 0x30b: samsung_kbd_mouse_map_key_clear(KEY_BRIGHTNESSUP);		break;
-
+		/* MENU */
+		case 0x040: samsung_kbd_mouse_map_key_clear(KEY_MENU); break;
+		case 0x18a: samsung_kbd_mouse_map_key_clear(KEY_MAIL); break;
+		case 0x196: samsung_kbd_mouse_map_key_clear(KEY_WWW); break;
+		case 0x19e: samsung_kbd_mouse_map_key_clear(KEY_SCREENLOCK); break;
+		case 0x221: samsung_kbd_mouse_map_key_clear(KEY_SEARCH); break;
+		case 0x223: samsung_kbd_mouse_map_key_clear(KEY_HOMEPAGE); break;
+		/* RECENTAPPS */
+		case 0x301: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY1); break;
+		/* APPLICATION */
+		case 0x302: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY2); break;
+		/* Voice search */
+		case 0x305: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY4); break;
+		/* QPANEL on/off */
+		case 0x306: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY5); break;
+		/* SIP on/off */
+		case 0x307: samsung_kbd_mouse_map_key_clear(BTN_TRIGGER_HAPPY3); break;
+		/* LANG */
+		case 0x308: samsung_kbd_mouse_map_key_clear(KEY_LANGUAGE); break;
+		case 0x30a: samsung_kbd_mouse_map_key_clear(KEY_BRIGHTNESSDOWN); break;
+		case 0x30b: samsung_kbd_mouse_map_key_clear(KEY_BRIGHTNESSUP); break;
 		default:
 			return 0;
 		}
@@ -177,11 +186,12 @@ static int samsung_kbd_input_mapping(struct hid_device *hdev,
 	return 1;
 }
 
-static void samsung_report_fixup(struct hid_device *hdev, __u8 *rdesc,
-	unsigned int rsize)
+static __u8 *samsung_report_fixup(struct hid_device *hdev, __u8 *rdesc,
+	unsigned int *rsize)
 {
 	if (USB_DEVICE_ID_SAMSUNG_IR_REMOTE == hdev->product)
-		samsung_irda_report_fixup(hdev, rdesc, rsize);
+		rdesc = samsung_irda_report_fixup(hdev, rdesc, rsize);
+	return rdesc;
 }
 
 static int samsung_input_mapping(struct hid_device *hdev, struct hid_input *hi,
@@ -208,7 +218,7 @@ static int samsung_probe(struct hid_device *hdev,
 
 	ret = hid_parse(hdev);
 	if (ret) {
-		dev_err(&hdev->dev, "parse failed\n");
+		hid_err(hdev, "parse failed\n");
 		goto err_free;
 	}
 
@@ -222,7 +232,7 @@ static int samsung_probe(struct hid_device *hdev,
 
 	ret = hid_hw_start(hdev, cmask);
 	if (ret) {
-		dev_err(&hdev->dev, "hw start failed\n");
+		hid_err(hdev, "hw start failed\n");
 		goto err_free;
 	}
 

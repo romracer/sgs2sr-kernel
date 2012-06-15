@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include "vcd_ddl.h"
@@ -32,6 +27,7 @@ static void ddl_release_prev_field(
 	struct ddl_client_context *ddl);
 static u32 ddl_handle_dec_seq_hdr_fail_error(struct ddl_client_context *ddl);
 static void print_core_errors(u32 error_code);
+static void print_core_recoverable_errors(u32 error_code);
 
 void ddl_hw_fatal_cb(struct ddl_client_context *ddl)
 {
@@ -244,15 +240,12 @@ static u32 ddl_handle_core_recoverable_errors(
 	case VIDC_1080P_ERROR_NALU_HEADER_ERROR:
 	case VIDC_1080P_ERROR_SPS_PARSE_ERROR:
 	case VIDC_1080P_ERROR_PPS_PARSE_ERROR:
-/* qualcomm modification start. */
 	case VIDC_1080P_ERROR_HEADER_NOT_FOUND:
-/* qualcomm modification end. */
 	case VIDC_1080P_ERROR_SLICE_PARSE_ERROR:
 	case VIDC_1080P_ERROR_NON_PAIRED_FIELD_NOT_SUPPORTED:
 		vcd_status = VCD_ERR_BITSTREAM_ERR;
 		DDL_MSG_ERROR("VIDC_BIT_STREAM_ERR");
 		break;
-/* qualcomm modification start. */
 	case VIDC_1080P_ERROR_B_FRAME_NOT_SUPPORTED:
 	case VIDC_1080P_ERROR_UNSUPPORTED_FEATURE_IN_PROFILE:
 	case VIDC_1080P_ERROR_RESOLUTION_NOT_SUPPORTED:
@@ -261,7 +254,6 @@ static u32 ddl_handle_core_recoverable_errors(
 			DDL_MSG_ERROR("VIDC_BIT_STREAM_ERR");
 		}
 		break;
-/* qualcomm modification end. */
 	default:
 		break;
 	}
@@ -358,8 +350,10 @@ u32 ddl_handle_core_errors(struct ddl_context *ddl_context)
 		DDL_MSG_ERROR("VIDC_SPURIOUS_INTERRUPT_ERROR");
 		return true;
 	}
-	if (ddl_context->cmd_err_status)
+	if (ddl_context->cmd_err_status) {
 		print_core_errors(ddl_context->cmd_err_status);
+		print_core_recoverable_errors(ddl_context->cmd_err_status);
+	}
 	if (ddl_context->disp_pic_err_status)
 		print_core_errors(ddl_context->disp_pic_err_status);
 	status = ddl_handle_core_warnings(ddl_context->cmd_err_status);
@@ -590,78 +584,6 @@ void print_core_errors(u32 error_code)
 	case VIDC_1080P_ERROR_NON_PAIRED_FIELD_NOT_SUPPORTED:
 		string = "VIDC_1080P_ERROR_NON_PAIRED_FIELD_NOT_SUPPORTED";
 	break;
-	case VIDC_1080P_ERROR_SYNC_POINT_NOT_RECEIVED:
-		string = "VIDC_1080P_ERROR_SYNC_POINT_NOT_RECEIVED";
-	break;
-	case VIDC_1080P_ERROR_NO_BUFFER_RELEASED_FROM_HOST:
-		string = "VIDC_1080P_ERROR_NO_BUFFER_RELEASED_FROM_HOST";
-	break;
-	case VIDC_1080P_ERROR_BIT_STREAM_BUF_EXHAUST:
-		string = "VIDC_1080P_ERROR_BIT_STREAM_BUF_EXHAUST";
-	break;
-	case VIDC_1080P_ERROR_DESCRIPTOR_TABLE_ENTRY_INVALID:
-		string = "VIDC_1080P_ERROR_DESCRIPTOR_TABLE_ENTRY_INVALID";
-	break;
-	case VIDC_1080P_ERROR_MB_COEFF_NOT_DONE:
-		string = "VIDC_1080P_ERROR_MB_COEFF_NOT_DONE";
-	break;
-	case VIDC_1080P_ERROR_CODEC_SLICE_NOT_DONE:
-		string = "VIDC_1080P_ERROR_CODEC_SLICE_NOT_DONE";
-	break;
-	case VIDC_1080P_ERROR_VIDC_CORE_TIME_OUT:
-		string = "VIDC_1080P_ERROR_VIDC_CORE_TIME_OUT";
-	break;
-	case VIDC_1080P_ERROR_VC1_BITPLANE_DECODE_ERR:
-		string = "VIDC_1080P_ERROR_VC1_BITPLANE_DECODE_ERR";
-	break;
-	case VIDC_1080P_ERROR_RESOLUTION_MISMATCH:
-		string = "VIDC_1080P_ERROR_RESOLUTION_MISMATCH";
-	break;
-	case VIDC_1080P_ERROR_NV_QUANT_ERR:
-		string = "VIDC_1080P_ERROR_NV_QUANT_ERR";
-	break;
-	case VIDC_1080P_ERROR_SYNC_MARKER_ERR:
-		string = "VIDC_1080P_ERROR_SYNC_MARKER_ERR";
-	break;
-	case VIDC_1080P_ERROR_FEATURE_NOT_SUPPORTED:
-		string = "VIDC_1080P_ERROR_FEATURE_NOT_SUPPORTED";
-	break;
-	case VIDC_1080P_ERROR_MEM_CORRUPTION:
-		string = "VIDC_1080P_ERROR_MEM_CORRUPTION";
-	break;
-	case VIDC_1080P_ERROR_INVALID_REFERENCE_FRAME:
-		string = "VIDC_1080P_ERROR_INVALID_REFERENCE_FRAME";
-	break;
-	case VIDC_1080P_ERROR_PICTURE_CODING_TYPE_ERR:
-		string = "VIDC_1080P_ERROR_PICTURE_CODING_TYPE_ERR";
-	break;
-	case VIDC_1080P_ERROR_MV_RANGE_ERR:
-		string = "VIDC_1080P_ERROR_MV_RANGE_ERR";
-	break;
-	case VIDC_1080P_ERROR_PICTURE_STRUCTURE_ERR:
-		string = "VIDC_1080P_ERROR_PICTURE_STRUCTURE_ERR";
-	break;
-	case VIDC_1080P_ERROR_SLICE_ADDR_INVALID:
-		string = "VIDC_1080P_ERROR_SLICE_ADDR_INVALID";
-	break;
-	case VIDC_1080P_ERROR_NON_FRAME_DATA_RECEIVED:
-		string = "VIDC_1080P_ERROR_NON_FRAME_DATA_RECEIVED";
-	break;
-	case VIDC_1080P_ERROR_INCOMPLETE_FRAME:
-		string = "VIDC_1080P_ERROR_INCOMPLETE_FRAME";
-	break;
-	case VIDC_1080P_ERROR_NALU_HEADER_ERROR:
-		string = "VIDC_1080P_ERROR_NALU_HEADER_ERROR";
-	break;
-	case VIDC_1080P_ERROR_SPS_PARSE_ERROR:
-		string = "VIDC_1080P_ERROR_SPS_PARSE_ERROR";
-	break;
-	case VIDC_1080P_ERROR_PPS_PARSE_ERROR:
-		string = "VIDC_1080P_ERROR_PPS_PARSE_ERROR";
-	break;
-	case VIDC_1080P_ERROR_SLICE_PARSE_ERROR:
-		string = "VIDC_1080P_ERROR_SLICE_PARSE_ERROR";
-	break;
 	case VIDC_1080P_WARN_COMMAND_FLUSHED:
 		string = "VIDC_1080P_WARN_COMMAND_FLUSHED";
 	break;
@@ -747,4 +669,87 @@ void print_core_errors(u32 error_code)
 	}
 	if (string)
 		DDL_MSG_ERROR("Error code = 0x%x : %s", error_code, string);
+}
+
+void print_core_recoverable_errors(u32 error_code)
+{
+	s8 *string = NULL;
+
+	switch (error_code) {
+	case VIDC_1080P_ERROR_SYNC_POINT_NOT_RECEIVED:
+		string = "VIDC_1080P_ERROR_SYNC_POINT_NOT_RECEIVED";
+	break;
+	case VIDC_1080P_ERROR_NO_BUFFER_RELEASED_FROM_HOST:
+		string = "VIDC_1080P_ERROR_NO_BUFFER_RELEASED_FROM_HOST";
+	break;
+	case VIDC_1080P_ERROR_BIT_STREAM_BUF_EXHAUST:
+		string = "VIDC_1080P_ERROR_BIT_STREAM_BUF_EXHAUST";
+	break;
+	case VIDC_1080P_ERROR_DESCRIPTOR_TABLE_ENTRY_INVALID:
+		string = "VIDC_1080P_ERROR_DESCRIPTOR_TABLE_ENTRY_INVALID";
+	break;
+	case VIDC_1080P_ERROR_MB_COEFF_NOT_DONE:
+		string = "VIDC_1080P_ERROR_MB_COEFF_NOT_DONE";
+	break;
+	case VIDC_1080P_ERROR_CODEC_SLICE_NOT_DONE:
+		string = "VIDC_1080P_ERROR_CODEC_SLICE_NOT_DONE";
+	break;
+	case VIDC_1080P_ERROR_VIDC_CORE_TIME_OUT:
+		string = "VIDC_1080P_ERROR_VIDC_CORE_TIME_OUT";
+	break;
+	case VIDC_1080P_ERROR_VC1_BITPLANE_DECODE_ERR:
+		string = "VIDC_1080P_ERROR_VC1_BITPLANE_DECODE_ERR";
+	break;
+	case VIDC_1080P_ERROR_RESOLUTION_MISMATCH:
+		string = "VIDC_1080P_ERROR_RESOLUTION_MISMATCH";
+	break;
+	case VIDC_1080P_ERROR_NV_QUANT_ERR:
+		string = "VIDC_1080P_ERROR_NV_QUANT_ERR";
+	break;
+	case VIDC_1080P_ERROR_SYNC_MARKER_ERR:
+		string = "VIDC_1080P_ERROR_SYNC_MARKER_ERR";
+	break;
+	case VIDC_1080P_ERROR_FEATURE_NOT_SUPPORTED:
+		string = "VIDC_1080P_ERROR_FEATURE_NOT_SUPPORTED";
+	break;
+	case VIDC_1080P_ERROR_MEM_CORRUPTION:
+		string = "VIDC_1080P_ERROR_MEM_CORRUPTION";
+	break;
+	case VIDC_1080P_ERROR_INVALID_REFERENCE_FRAME:
+		string = "VIDC_1080P_ERROR_INVALID_REFERENCE_FRAME";
+	break;
+	case VIDC_1080P_ERROR_PICTURE_CODING_TYPE_ERR:
+		string = "VIDC_1080P_ERROR_PICTURE_CODING_TYPE_ERR";
+	break;
+	case VIDC_1080P_ERROR_MV_RANGE_ERR:
+		string = "VIDC_1080P_ERROR_MV_RANGE_ERR";
+	break;
+	case VIDC_1080P_ERROR_PICTURE_STRUCTURE_ERR:
+		string = "VIDC_1080P_ERROR_PICTURE_STRUCTURE_ERR";
+	break;
+	case VIDC_1080P_ERROR_SLICE_ADDR_INVALID:
+		string = "VIDC_1080P_ERROR_SLICE_ADDR_INVALID";
+	break;
+	case VIDC_1080P_ERROR_NON_FRAME_DATA_RECEIVED:
+		string = "VIDC_1080P_ERROR_NON_FRAME_DATA_RECEIVED";
+	break;
+	case VIDC_1080P_ERROR_INCOMPLETE_FRAME:
+		string = "VIDC_1080P_ERROR_INCOMPLETE_FRAME";
+	break;
+	case VIDC_1080P_ERROR_NALU_HEADER_ERROR:
+		string = "VIDC_1080P_ERROR_NALU_HEADER_ERROR";
+	break;
+	case VIDC_1080P_ERROR_SPS_PARSE_ERROR:
+		string = "VIDC_1080P_ERROR_SPS_PARSE_ERROR";
+	break;
+	case VIDC_1080P_ERROR_PPS_PARSE_ERROR:
+		string = "VIDC_1080P_ERROR_PPS_PARSE_ERROR";
+	break;
+	case VIDC_1080P_ERROR_SLICE_PARSE_ERROR:
+		string = "VIDC_1080P_ERROR_SLICE_PARSE_ERROR";
+	break;
+	}
+	if (string)
+		DDL_MSG_ERROR("Recoverable Error code = 0x%x : %s",
+					  error_code, string);
 }

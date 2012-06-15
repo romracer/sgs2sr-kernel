@@ -289,7 +289,8 @@ static int __devinit pm_gpio_probe(struct platform_device *pdev)
 					GFP_KERNEL);
 	if (!pm_gpio_chip->bank1) {
 		pr_err("Cannot allocate pm_gpio_chip->bank1\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto free_chip;
 	}
 
 	spin_lock_init(&pm_gpio_chip->pm_lock);
@@ -322,6 +323,9 @@ static int __devinit pm_gpio_probe(struct platform_device *pdev)
 		goto remove_chip;
 	}
 
+	pr_info("OK: base=%d, ngpio=%d\n", pm_gpio_chip->gpio_chip.base,
+		pm_gpio_chip->gpio_chip.ngpio);
+
 	return 0;
 
 remove_chip:
@@ -329,6 +333,8 @@ remove_chip:
 		pr_err("failed to remove gpio chip\n");
 reset_drvdata:
 	platform_set_drvdata(pdev, NULL);
+	kfree(pm_gpio_chip->bank1);
+free_chip:
 	kfree(pm_gpio_chip);
 	return ret;
 }
@@ -351,7 +357,7 @@ static int __devexit pm_gpio_remove(struct platform_device *pdev)
 
 int pm8xxx_gpio_config(int gpio, struct pm_gpio *param)
 {
-	int	rc, pm_gpio = 0;
+	int	rc, pm_gpio = -EINVAL;
 	u8	bank[8];
 	unsigned long flags;
 	struct pm_gpio_chip *pm_gpio_chip;
@@ -370,7 +376,7 @@ int pm8xxx_gpio_config(int gpio, struct pm_gpio *param)
 		}
 	}
 	mutex_unlock(&pm_gpio_chips_lock);
-	if (!pm_gpio) {
+	if (pm_gpio < 0) {
 		pr_err("called on gpio %d not handled by any pmic\n", gpio);
 		return -EINVAL;
 	}
@@ -426,7 +432,7 @@ int pm8xxx_gpio_config(int gpio, struct pm_gpio *param)
 
 	return rc;
 }
-EXPORT_SYMBOL_GPL(pm8xxx_gpio_config);
+EXPORT_SYMBOL(pm8xxx_gpio_config);
 
 static struct platform_driver pm_gpio_driver = {
 	.probe		= pm_gpio_probe,
@@ -441,7 +447,7 @@ static int __init pm_gpio_init(void)
 {
 	return platform_driver_register(&pm_gpio_driver);
 }
-subsys_initcall(pm_gpio_init);
+postcore_initcall(pm_gpio_init);
 
 static void __exit pm_gpio_exit(void)
 {

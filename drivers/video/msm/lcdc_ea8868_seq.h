@@ -38,7 +38,7 @@
 //};
 
 // Gamma Code //////////////////////////////////////////////
-
+#if 0
 // For Magna EA8868 4.5"
 static struct setting_table EA8868_GAMMA_19_30_dimming[] = {
  {0xF9, 24, {
@@ -201,6 +201,7 @@ static struct setting_table EA8868_GAMMA_19_250[] = {
 	0x00, 0xD9, 0xC2, 0xAB, 0xD5, 0xC7, 0xDA, 0x55,
   }, 0},
   };
+#if !defined(MAPPING_TBL_AUTO_BRIGHTNESS)
 static struct setting_table EA8868_GAMMA_19_260[] = {
 {0xF9, 24, {
 	0x00, 0xB7, 0xC3, 0xAE, 0xD4, 0xC8, 0xDA, 0x55,
@@ -229,6 +230,7 @@ static struct setting_table EA8868_GAMMA_19_290[] = {
 	0x00, 0xE4, 0xC0, 0xAC, 0xD2, 0xC6, 0xD9, 0x55,
  }, 0},
  };
+#endif 
 static struct setting_table EA8868_GAMMA_19_300[] = {
 {0xF9, 24, {
 	0x00, 0xC0, 0xC1, 0xAD, 0xD3, 0xC6, 0xD9, 0x55,
@@ -237,6 +239,34 @@ static struct setting_table EA8868_GAMMA_19_300[] = {
  }, 0},
 };
 
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct setting_table *lcd_ea8868_table_19gamma[] =  {
+	EA8868_GAMMA_22_30_dimming,
+	EA8868_GAMMA_22_40,
+	EA8868_GAMMA_22_50,
+	EA8868_GAMMA_22_60,
+	EA8868_GAMMA_22_70,
+	EA8868_GAMMA_22_80,
+	EA8868_GAMMA_22_90,
+	EA8868_GAMMA_22_100,
+	EA8868_GAMMA_22_110,
+	EA8868_GAMMA_22_120,
+	EA8868_GAMMA_22_130,
+	EA8868_GAMMA_22_140,
+	EA8868_GAMMA_22_150,
+	EA8868_GAMMA_22_160,
+	EA8868_GAMMA_22_170,
+	EA8868_GAMMA_22_180,
+	EA8868_GAMMA_22_190,
+	EA8868_GAMMA_22_200,
+	EA8868_GAMMA_22_210,
+	EA8868_GAMMA_22_220,
+	EA8868_GAMMA_22_230,
+	EA8868_GAMMA_22_240,
+	EA8868_GAMMA_22_250,
+	EA8868_GAMMA_22_300,
+};
+#else
 static struct setting_table *lcd_ea8868_table_19gamma[] =  {
 	EA8868_GAMMA_19_30_dimming,
 	EA8868_GAMMA_19_40,
@@ -264,7 +294,8 @@ static struct setting_table *lcd_ea8868_table_19gamma[] =  {
 	EA8868_GAMMA_19_290,
 	EA8868_GAMMA_19_300,
 };
-
+#endif
+#endif
 
 // For 4.5"
 static struct setting_table EA8868_GAMMA_22_30_dimming[] = {
@@ -281,6 +312,7 @@ static struct setting_table EA8868_GAMMA_22_40[] = {
 	0x00, 0x84, 0xCA, 0xB1, 0xD2, 0xC2, 0xDF, 0x55,
  } , 0},
  };
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
 static struct setting_table EA8868_GAMMA_22_50[] = {
  {0xF9, 24, {
 	0x00, 0x74, 0xCC, 0xB1, 0xD3, 0xBB, 0x7C, 0x55,
@@ -295,6 +327,7 @@ static struct setting_table EA8868_GAMMA_22_60[] = {
 	0x00, 0x92, 0xC8, 0xAE, 0xD2, 0xC3, 0xD7, 0x55,
  }, 0},
  };
+#endif
 static struct setting_table EA8868_GAMMA_22_70[] = {
 {0xF9, 24, {
 	0x00, 0x7F, 0xC9, 0xB0, 0xD2, 0xBE, 0x98, 0x55,
@@ -302,6 +335,7 @@ static struct setting_table EA8868_GAMMA_22_70[] = {
 	0x00, 0x98, 0xC7, 0xAE, 0xD1, 0xC1, 0xDA, 0x55,
   }, 0},
   };
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
 static struct setting_table EA8868_GAMMA_22_80[] = {
 {0xF9, 24, {
 	0x00, 0x83, 0xC8, 0xAF, 0xD2, 0xC0, 0xA3, 0x55,
@@ -309,6 +343,7 @@ static struct setting_table EA8868_GAMMA_22_80[] = {
 	0x00, 0x9D, 0xC6, 0xAD, 0xD1, 0xC2, 0xDA, 0x55,
   }, 0},
   };
+#endif
 static struct setting_table EA8868_GAMMA_22_90[] = {
 {0xF9, 24, {
 	0x00, 0x87, 0xC8, 0xAF, 0xD1, 0xC2, 0xA5, 0x55,
@@ -428,6 +463,7 @@ static struct setting_table EA8868_GAMMA_22_250[] = {
 	0x00, 0xD9, 0xBB, 0xA5, 0xCE, 0xBF, 0xD3, 0x55,
   }, 0},
   };
+#if !defined(MAPPING_TBL_AUTO_BRIGHTNESS)
 static struct setting_table EA8868_GAMMA_22_260[] = {
 {0xF9, 24, {
 	0x00, 0xB7, 0xBC, 0xA6, 0xD0, 0xC1, 0xC7, 0x55,
@@ -456,6 +492,7 @@ static struct setting_table EA8868_GAMMA_22_290[] = {
 	0x00, 0xE4, 0xB9, 0xA2, 0xCE, 0xBF, 0xD1, 0x55,
  }, 0},
  };
+#endif
 static struct setting_table EA8868_GAMMA_22_300[] = {
 {0xF9, 24, {
 	0x00, 0xC0, 0xBA, 0xA5, 0xCF, 0xC0, 0xC8, 0x55,
@@ -464,6 +501,34 @@ static struct setting_table EA8868_GAMMA_22_300[] = {
  }, 0},
 };
 
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct setting_table *lcd_ea8868_table_22gamma[] =  {
+	EA8868_GAMMA_22_30_dimming,
+	EA8868_GAMMA_22_40,
+	EA8868_GAMMA_22_50,
+	EA8868_GAMMA_22_60,
+	EA8868_GAMMA_22_70,
+	EA8868_GAMMA_22_80,
+	EA8868_GAMMA_22_90,
+	EA8868_GAMMA_22_100,
+	EA8868_GAMMA_22_110,
+	EA8868_GAMMA_22_120,
+	EA8868_GAMMA_22_130,
+	EA8868_GAMMA_22_140,
+	EA8868_GAMMA_22_150,
+	EA8868_GAMMA_22_160,
+	EA8868_GAMMA_22_170,
+	EA8868_GAMMA_22_180,
+	EA8868_GAMMA_22_190,
+	EA8868_GAMMA_22_200,
+	EA8868_GAMMA_22_210,
+	EA8868_GAMMA_22_220,
+	EA8868_GAMMA_22_230,
+	EA8868_GAMMA_22_240,
+	EA8868_GAMMA_22_250,
+	EA8868_GAMMA_22_300,
+};
+#else
 static struct setting_table *lcd_ea8868_table_22gamma[] =  {
 	EA8868_GAMMA_22_30_dimming,
 	EA8868_GAMMA_22_40,
@@ -491,7 +556,7 @@ static struct setting_table *lcd_ea8868_table_22gamma[] =  {
 	EA8868_GAMMA_22_290,
 	EA8868_GAMMA_22_300,
 };
-
+#endif
 
 /////////////////   M3 2.2 Gamma
 
@@ -501,6 +566,7 @@ static struct setting_table EA8868_M3_GAMMA_22_300[] = {
  }, 0},
 };
 
+#if !defined(MAPPING_TBL_AUTO_BRIGHTNESS)
 static struct setting_table EA8868_M3_GAMMA_22_290[] = {
 {0xF9, 24, {
 	0x00, 0xB6, 0xBB, 0xA7, 0xCB, 0xC5, 0xC4, 0x55, 0x00, 0xBD, 0xB9, 0xA0, 0xC5, 0xBA, 0x9D, 0x55, 0x00, 0xE3, 0xB7, 0xA0, 0xC8, 0xC7, 0xDD, 0x55,
@@ -524,7 +590,7 @@ static struct setting_table EA8868_M3_GAMMA_22_260[] = {
 	0x00, 0xAF, 0xBD, 0xA7, 0xCF, 0xC3, 0xC6, 0x55, 0x00, 0xB6, 0xBA, 0xA1, 0xC8, 0xB7, 0x9D, 0x55, 0x00, 0xDB, 0xB8, 0xA1, 0xCC, 0xC4, 0xDF, 0x55,
  }, 0},
 };
-
+#endif
 static struct setting_table EA8868_M3_GAMMA_22_250[] = {
 {0xF9, 24, {
 	0x00, 0xAD, 0xBD, 0xA7, 0xCF, 0xC4, 0xC4, 0x55, 0x00, 0xB4, 0xBA, 0xA1, 0xC8, 0xB7, 0x9A, 0x55, 0x00, 0xD8, 0xB8, 0xA2, 0xCB, 0xC6, 0xDE, 0x55,
@@ -626,19 +692,19 @@ static struct setting_table EA8868_M3_GAMMA_22_90[] = {
 	0x00, 0x82, 0xC6, 0xAF, 0xD2, 0xC1, 0xB3, 0x55, 0x00, 0x85, 0xC3, 0xA5, 0xC8, 0xAD, 0x12, 0x55, 0x00, 0x9F, 0xC3, 0xAB, 0xD2, 0xCD, 0xDD, 0x55,
  }, 0},
 };
-
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
 static struct setting_table EA8868_M3_GAMMA_22_80[] = {
 {0xF9, 24, {
 	0x00, 0x7E, 0xC8, 0xAF, 0xD2, 0xC1, 0xAD, 0x55, 0x00, 0x81, 0xC4, 0xA5, 0xC8, 0xAD, 0x00, 0x55, 0x00, 0x9A, 0xC5, 0xAB, 0xD3, 0xCE, 0xDE, 0x55,
  }, 0},
 };
-
+#endif
 static struct setting_table EA8868_M3_GAMMA_22_70[] = {
 {0xF9, 24, {
 	0x00, 0x7A, 0xC9, 0xAE, 0xD1, 0xBF, 0xB2, 0x55, 0x00, 0x7C, 0xC5, 0xA5, 0xC6, 0xA7, 0x00, 0x55, 0x00, 0x95, 0xC5, 0xAB, 0xD4, 0xCD, 0xE4, 0x55,
  }, 0},
 };
-
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
 static struct setting_table EA8868_M3_GAMMA_22_60[] = {
 {0xF9, 24, {
 	0x00, 0x76, 0xC7, 0xB2, 0xD1, 0xBB, 0xB8, 0x55, 0x00, 0x78, 0xC3, 0xA6, 0xC6, 0xA1, 0x00, 0x55, 0x00, 0x90, 0xC3, 0xAF, 0xD4, 0xCD, 0xE9, 0x55,
@@ -650,7 +716,7 @@ static struct setting_table EA8868_M3_GAMMA_22_50[] = {
 	0x00, 0x70, 0xC7, 0xB4, 0xD1, 0xBC, 0xC1, 0x55, 0x00, 0x72, 0xC3, 0xA6, 0xC6, 0x9C, 0x00, 0x55, 0x00, 0x89, 0xC3, 0xB1, 0xD7, 0xCE, 0xEF, 0x55,
  }, 0},
 };
-
+#endif
 static struct setting_table EA8868_M3_GAMMA_22_40[] = {
 {0xF9, 24, {
 	0x00, 0x6B, 0xCA, 0xB3, 0xD1, 0xB8, 0xCE, 0x55, 0x00, 0x6C, 0xC5, 0xA6, 0xC3, 0x91, 0x00, 0x55, 0x00, 0x82, 0xC6, 0xB3, 0xD7, 0xCD, 0xF8, 0x55,
@@ -664,6 +730,34 @@ static struct setting_table EA8868_M3_GAMMA_22_30_dimming[] = {
 };
 
 
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct setting_table *lcd_ea8868_m3_table_22gamma[] =  {
+	EA8868_M3_GAMMA_22_30_dimming,
+	EA8868_M3_GAMMA_22_40,
+	EA8868_M3_GAMMA_22_50,
+	EA8868_M3_GAMMA_22_60,
+	EA8868_M3_GAMMA_22_70,
+	EA8868_M3_GAMMA_22_80,
+	EA8868_M3_GAMMA_22_90,
+	EA8868_M3_GAMMA_22_100,
+	EA8868_M3_GAMMA_22_110,
+	EA8868_M3_GAMMA_22_120,
+	EA8868_M3_GAMMA_22_130,
+	EA8868_M3_GAMMA_22_140,
+	EA8868_M3_GAMMA_22_150,
+	EA8868_M3_GAMMA_22_160,
+	EA8868_M3_GAMMA_22_170,
+	EA8868_M3_GAMMA_22_180,
+	EA8868_M3_GAMMA_22_190,
+	EA8868_M3_GAMMA_22_200,
+	EA8868_M3_GAMMA_22_210,
+	EA8868_M3_GAMMA_22_220,
+	EA8868_M3_GAMMA_22_230,
+	EA8868_M3_GAMMA_22_240,
+	EA8868_M3_GAMMA_22_250,
+	EA8868_M3_GAMMA_22_300,
+};
+#else
 static struct setting_table *lcd_ea8868_m3_table_22gamma[] =  {
 	EA8868_M3_GAMMA_22_30_dimming, // 0,
 	EA8868_M3_GAMMA_22_40,  // 1,
@@ -691,7 +785,9 @@ static struct setting_table *lcd_ea8868_m3_table_22gamma[] =  {
 	EA8868_M3_GAMMA_22_290, // 23,
 	EA8868_M3_GAMMA_22_300, // 24
 };
+#endif 
 
+#if 0
 ///////////////// M3 1.9 Gamma
 static struct setting_table EA8868_M3_GAMMA_19_300[] = {
 {0xF9, 24, {
@@ -699,6 +795,7 @@ static struct setting_table EA8868_M3_GAMMA_19_300[] = {
  }, 0},
 };
 
+#if !defined(MAPPING_TBL_AUTO_BRIGHTNESS)
 static struct setting_table EA8868_M3_GAMMA_19_290[] = {
 {0xF9, 24, {
 	0x00, 0xB6, 0xC2, 0xAE, 0xD5, 0xCA, 0xD7, 0x55, 0x00, 0xBD, 0xC0, 0xAA, 0xD0, 0xC1, 0xC1, 0x55, 0x00, 0xE3, 0xBE, 0xA9, 0xD1, 0xC7, 0xE2, 0x55,
@@ -722,6 +819,7 @@ static struct setting_table EA8868_M3_GAMMA_19_260[] = {
 	0x00, 0xB0, 0xC3, 0xB0, 0xD5, 0xCA, 0xD9, 0x55, 0x00, 0xB6, 0xC1, 0xAC, 0xD0, 0xC0, 0xC1, 0x55, 0x00, 0xDB, 0xBF, 0xAB, 0xD1, 0xC8, 0xE4, 0x55,
  }, 0},
 };
+#endif
 
 static struct setting_table EA8868_M3_GAMMA_19_250[] = {
 {0xF9, 24, {
@@ -862,6 +960,34 @@ static struct setting_table EA8868_M3_GAMMA_19_30_dimming[] = {
 };
 
 
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct setting_table *lcd_ea8868_m3_table_19gamma[] =  {
+	EA8868_M3_GAMMA_19_30_dimming,
+	EA8868_M3_GAMMA_19_40,
+	EA8868_M3_GAMMA_19_50,
+	EA8868_M3_GAMMA_19_60,
+	EA8868_M3_GAMMA_19_70,
+	EA8868_M3_GAMMA_19_80,
+	EA8868_M3_GAMMA_19_90,
+	EA8868_M3_GAMMA_19_100,
+	EA8868_M3_GAMMA_19_110,
+	EA8868_M3_GAMMA_19_120,
+	EA8868_M3_GAMMA_19_130,
+	EA8868_M3_GAMMA_19_140,
+	EA8868_M3_GAMMA_19_150,
+	EA8868_M3_GAMMA_19_160,
+	EA8868_M3_GAMMA_19_170,
+	EA8868_M3_GAMMA_19_180,
+	EA8868_M3_GAMMA_19_190,
+	EA8868_M3_GAMMA_19_200,
+	EA8868_M3_GAMMA_19_210,
+	EA8868_M3_GAMMA_19_220,
+	EA8868_M3_GAMMA_19_230,
+	EA8868_M3_GAMMA_19_240,
+	EA8868_M3_GAMMA_19_250,
+	EA8868_M3_GAMMA_19_300,
+};
+#else
 static struct setting_table *lcd_ea8868_m3_table_19gamma[] =  {
 	EA8868_M3_GAMMA_19_30_dimming, // 0,
 	EA8868_M3_GAMMA_19_40,  // 1,
@@ -889,6 +1015,8 @@ static struct setting_table *lcd_ea8868_m3_table_19gamma[] =  {
 	EA8868_M3_GAMMA_19_290, // 23,
 	EA8868_M3_GAMMA_19_300, // 24
 };
+#endif
+#endif
 
 #define SEQ_INDIVIDUAL_ELVSS_UPDATE_BEGIN (0)
 #define SEQ_INDIVIDUAL_ELVSS_UPDATE_FINISH (3)

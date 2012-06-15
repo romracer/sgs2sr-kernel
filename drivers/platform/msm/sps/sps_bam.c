@@ -23,7 +23,7 @@
 #include "spsi.h"
 
 /* All BAM global IRQ sources */
-#define BAM_IRQ_ALL (BAM_DEV_IRQ_HRESP_ERROR | BAM_DEV_IRQ_RDY_TO_SLEEP)
+#define BAM_IRQ_ALL (BAM_DEV_IRQ_HRESP_ERROR | BAM_DEV_IRQ_ERROR)
 
 /* BAM device state flags */
 #define BAM_STATE_INIT     (1UL << 1)
@@ -32,9 +32,6 @@
 #define BAM_STATE_BAM2BAM  (1UL << 4)
 #define BAM_STATE_MTI      (1UL << 5)
 #define BAM_STATE_REMOTE   (1UL << 6)
-
-/* BAM identifier used in log messages */
-#define BAM_ID(dev)       ((dev)->props.phys_addr)
 
 /* Mask for valid hardware descriptor flags */
 #define BAM_IOVEC_FLAG_MASK   \
@@ -103,7 +100,8 @@ int sps_bam_driver_init(u32 options)
 	 * to the client in the SPS_EVENT_IRQ.
 	 */
 	for (n = 0; n < ARRAY_SIZE(opt_event_table); n++) {
-		if (opt_event_table[n].option != opt_event_table[n].pipe_irq) {
+		if ((u32)opt_event_table[n].option !=
+			(u32)opt_event_table[n].pipe_irq) {
 			SPS_ERR("SPS_O 0x%x != HAL IRQ 0x%x",
 				opt_event_table[n].option,
 				opt_event_table[n].pipe_irq);
@@ -130,16 +128,18 @@ static irqreturn_t bam_isr(int irq, void *ctxt)
 	u32 source;
 	unsigned long flags = 0;
 
+
 	spin_lock_irqsave(&dev->isr_lock, flags);
 
 	/* Get BAM interrupt source(s) */
 	if ((dev->state & BAM_STATE_MTI) == 0) {
 		u32 mask = dev->pipe_active_mask;
-		source = bam_get_and_clear_irq_status(dev->base,
+		source = bam_check_irq_source(dev->base,
 							  dev->props.ee,
 							  mask);
 
-		SPS_DBG("sps:bam_isr:source=0x%x.mask=0x%x.", source, mask);
+		SPS_DBG("sps:bam_isr:bam=0x%x;source=0x%x;mask=0x%x.",
+				BAM_ID(dev), source, mask);
 
 		/* Mask any non-local source */
 		source &= dev->pipe_active_mask;
@@ -183,6 +183,7 @@ int sps_bam_enable(struct sps_bam *dev)
 	u32 irq_mask;
 	int result;
 	int rc;
+	int MTIenabled;
 
 	/* Is this BAM enabled? */
 	if ((dev->state & BAM_STATE_ENABLED))
@@ -216,6 +217,18 @@ int sps_bam_enable(struct sps_bam *dev)
 		/* Enable the BAM interrupt */
 		irq_mask = BAM_IRQ_ALL;
 		dev->state |= BAM_STATE_IRQ;
+
+		/* Register BAM IRQ for apps wakeup */
+		if (dev->props.options & SPS_BAM_OPT_IRQ_WAKEUP) {
+			result = enable_irq_wake(dev->props.irq);
+
+			if (result) {
+				SPS_ERR("Failed to enable wakeup irq "
+					"BAM 0x%x IRQ %d",
+					BAM_ID(dev), dev->props.irq);
+				return SPS_ERROR;
+			}
+		}
 	}
 
 	/* Is global BAM control managed by the local processor? */
@@ -237,14 +250,32 @@ int sps_bam_enable(struct sps_bam *dev)
 		return SPS_ERROR;
 	}
 
+	/* Check if this BAM supports MTIs (Message Triggered Interrupts) or
+	 * multiple EEs (Execution Environments).
+	 * MTI and EE support are mutually exclusive.
+	 */
+	MTIenabled = BAM_VERSION_MTI_SUPPORT(dev->version);
+
+	if ((dev->props.manage & SPS_BAM_MGR_DEVICE_REMOTE) != 0 &&
+			(dev->props.manage & SPS_BAM_MGR_MULTI_EE) != 0 &&
+			dev->props.ee == 0 && MTIenabled) {
+		/*
+		 * BAM global is owned by remote processor and local processor
+		 * must use MTI. Thus, force EE index to a non-zero value to
+		 * insure that EE zero globals can't be modified.
+		 */
+		SPS_ERR("sps: EE for satellite BAM must be set to non-zero");
+		return SPS_ERROR;
+	}
+
 	/*
 	 * Enable MTI use (message triggered interrupt)
 	 * if local processor does not control the global BAM config
 	 * and this BAM supports MTIs.
 	 */
 	if ((dev->state & BAM_STATE_IRQ) != 0 &&
-	    (dev->props.manage & SPS_BAM_MGR_DEVICE_REMOTE) != 0 &&
-	    BAM_VERSION_MTI_SUPPORT(dev->version)) {
+		(dev->props.manage & SPS_BAM_MGR_DEVICE_REMOTE) != 0 &&
+		MTIenabled) {
 		if (dev->props.irq_gen_addr == 0 ||
 		    dev->props.irq_gen_addr == SPS_ADDR_INVALID) {
 			SPS_ERR("MTI destination address not specified "
@@ -260,11 +291,81 @@ int sps_bam_enable(struct sps_bam *dev)
 				 BAM_ID(dev), dev->props.num_pipes);
 	}
 
+	/* Check EE index */
+	if (!MTIenabled && dev->props.ee >= SPS_BAM_NUM_EES) {
+		SPS_ERR("Invalid EE BAM 0x%x: %d", BAM_ID(dev), dev->props.ee);
+		return SPS_ERROR;
+	}
+
 	/*
-	 * If local processor controls the BAM global configuration,
-	 * set all restricted pipes to MTI mode
+	 * Process EE configuration parameters,
+	 * if specified in the properties
 	 */
-	if ((dev->props.manage & SPS_BAM_MGR_DEVICE_REMOTE) == 0) {
+	if (!MTIenabled && dev->props.sec_config == SPS_BAM_SEC_DO_CONFIG) {
+		struct sps_bam_sec_config_props *p_sec =
+						dev->props.p_sec_config_props;
+		if (p_sec == NULL) {
+			SPS_ERR("EE config table is not specified for "
+				"BAM 0x%x", BAM_ID(dev));
+			return SPS_ERROR;
+		}
+
+		/*
+		 * Set restricted pipes based on the pipes assigned to local EE
+		 */
+		dev->props.restricted_pipes =
+					~p_sec->ees[dev->props.ee].pipe_mask;
+
+		/*
+		 * If local processor manages the BAM, perform the EE
+		 * configuration
+		 */
+		if ((dev->props.manage & SPS_BAM_MGR_DEVICE_REMOTE) == 0) {
+			u32 ee;
+			u32 pipe_mask;
+			int n, i;
+
+			/*
+			 * Verify that there are no overlapping pipe
+			 * assignments
+			 */
+			for (n = 0; n < SPS_BAM_NUM_EES - 1; n++) {
+				for (i = n + 1; i < SPS_BAM_NUM_EES; i++) {
+					if ((p_sec->ees[n].pipe_mask &
+						p_sec->ees[i].pipe_mask) != 0) {
+						SPS_ERR("Overlapping pipe "
+							"assignments for BAM "
+							"0x%x: EEs %d and %d",
+							BAM_ID(dev), n, i);
+						return SPS_ERROR;
+					}
+				}
+			}
+
+			for (ee = 0; ee < SPS_BAM_NUM_EES; ee++) {
+				/*
+				 * MSbit specifies EE for the global (top-level)
+				 * BAM interrupt
+				 */
+				pipe_mask = p_sec->ees[ee].pipe_mask;
+				if (ee == dev->props.ee)
+					pipe_mask |= (1UL << 31);
+				else
+					pipe_mask &= ~(1UL << 31);
+
+				bam_security_init(dev->base, ee,
+						p_sec->ees[ee].vmid, pipe_mask);
+			}
+		}
+	}
+
+	/*
+	 * If local processor manages the BAM and the BAM supports MTIs
+	 * but does not support multiple EEs, set all restricted pipes
+	 * to MTI mode.
+	 */
+	if ((dev->props.manage & SPS_BAM_MGR_DEVICE_REMOTE) == 0
+			&& MTIenabled) {
 		u32 pipe_index;
 		u32 pipe_mask;
 		for (pipe_index = 0, pipe_mask = 1;
@@ -354,6 +455,8 @@ int sps_bam_device_init(struct sps_bam *dev)
 	INIT_LIST_HEAD(&dev->pipes_q);
 
 	spin_lock_init(&dev->isr_lock);
+
+	spin_lock_init(&dev->connection_lock);
 
 	if ((dev->props.options & SPS_BAM_OPT_ENABLE_AT_BOOT))
 		if (sps_bam_enable(dev))
@@ -531,9 +634,16 @@ void sps_bam_pipe_free(struct sps_bam *dev, u32 pipe_index)
 		SPS_ERR("Disconnect BAM 0x%x pipe %d with events pending",
 			BAM_ID(dev), pipe_index);
 
-		list_for_each_entry(sps_event, &pipe->sys.events_q, list) {
+		sps_event = list_entry((&pipe->sys.events_q)->next,
+				typeof(*sps_event), list);
+
+		while (&sps_event->list != (&pipe->sys.events_q)) {
+			struct sps_q_event *sps_event_delete = sps_event;
+
 			list_del(&sps_event->list);
-			kfree(sps_event);
+			sps_event = list_entry(sps_event->list.next,
+					typeof(*sps_event), list);
+			kfree(sps_event_delete);
 		}
 	}
 
@@ -674,7 +784,7 @@ int sps_bam_pipe_connect(struct sps_pipe *bam_pipe,
 	/* Insure that the BAM is enabled */
 	if ((dev->state & BAM_STATE_ENABLED) == 0)
 		if (sps_bam_enable(dev))
-			goto exit_err;
+			goto exit_init_err;
 
 	/* Check pipe allocation */
 	if (dev->pipes[pipe_index] != BAM_PIPE_UNASSIGNED) {
@@ -689,7 +799,7 @@ int sps_bam_pipe_connect(struct sps_pipe *bam_pipe,
 		goto exit_err;
 	}
 
-	if (bam_pipe_init(dev->base, pipe_index, &hw_params)) {
+	if (bam_pipe_init(dev->base, pipe_index, &hw_params, dev->props.ee)) {
 		SPS_ERR("BAM 0x%x pipe %d init error",
 			BAM_ID(dev), pipe_index);
 		goto exit_err;
@@ -739,9 +849,10 @@ int sps_bam_pipe_connect(struct sps_pipe *bam_pipe,
 	bam_pipe->state |= BAM_STATE_INIT;
 	result = 0;
 exit_err:
-	if (result) {
+	if (result)
 		bam_pipe_exit(dev->base, pipe_index, dev->props.ee);
-
+exit_init_err:
+	if (result) {
 		/* Clear the client pipe state */
 		pipe_clear(bam_pipe);
 	}
@@ -982,11 +1093,17 @@ int sps_bam_pipe_reg_event(struct sps_bam *dev,
 			continue;	/* No */
 
 		index = SPS_EVENT_INDEX(opt_event_table[n].event_id);
-		event_reg = &pipe->sys.event_regs[index];
-		event_reg->xfer_done = reg->xfer_done;
-		event_reg->callback = reg->callback;
-		event_reg->mode = reg->mode;
-		event_reg->user = reg->user;
+		if (index < 0)
+			SPS_ERR("Negative event index: "
+			"BAM 0x%x pipe %d mode %d",
+			BAM_ID(dev), pipe_index, reg->mode);
+		else {
+			event_reg = &pipe->sys.event_regs[index];
+			event_reg->xfer_done = reg->xfer_done;
+			event_reg->callback = reg->callback;
+			event_reg->mode = reg->mode;
+			event_reg->user = reg->user;
+		}
 	}
 
 	return 0;
@@ -1480,7 +1597,8 @@ static void pipe_handler(struct sps_bam *dev, struct sps_pipe *pipe)
 	pipe_index = pipe->pipe_index;
 	status = bam_pipe_get_and_clear_irq_status(dev->base, pipe_index);
 
-	SPS_DBG("sps:pipe_handler.pipe %d.status=0x%x.", pipe_index, status);
+	SPS_DBG("sps:pipe_handler.bam 0x%x.pipe %d.status=0x%x.",
+			BAM_ID(dev), pipe_index, status);
 
 	/* Check for enabled interrupt sources */
 	status &= pipe->irq_mask;
@@ -1565,9 +1683,9 @@ int sps_bam_pipe_get_event(struct sps_bam *dev,
 	/* Pull an event off the synchronous event queue */
 	if (list_empty(&pipe->sys.events_q)) {
 		event_queue = NULL;
-		SPS_DBG("sps:events_q is empty.");
+		SPS_DBG("sps:events_q of bam 0x%x is empty.", BAM_ID(dev));
 	} else {
-		SPS_DBG("sps:events_q is not empty.");
+		SPS_DBG("sps:events_q of bam 0x%x is not empty.", BAM_ID(dev));
 		event_queue =
 		list_first_entry(&pipe->sys.events_q, struct sps_q_event,
 				 list);

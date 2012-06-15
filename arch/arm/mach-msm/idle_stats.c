@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/init.h>
@@ -28,10 +23,11 @@
 #include <linux/mutex.h>
 #include <linux/slab.h>
 #include <linux/version.h>
+#include <linux/sched.h>
 #include <asm/uaccess.h>
 
 #include "idle_stats.h"
-#include "cpuidle.h"
+#include <mach/cpuidle.h>
 
 /******************************************************************************
  * Debug Definitions
@@ -220,8 +216,8 @@ static int msm_idle_stats_notified(struct notifier_block *nb,
 	return 0;
 }
 
-static int msm_idle_stats_collect(struct inode *inode,
-	struct file *filp, unsigned int cmd, unsigned long arg)
+static int msm_idle_stats_collect(struct file *filp,
+				  unsigned int cmd, unsigned long arg)
 {
 	struct msm_idle_stats_device *stats_dev;
 	struct msm_idle_stats *stats;
@@ -413,8 +409,8 @@ static int msm_idle_stats_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-static int msm_idle_stats_ioctl(struct inode *inode,
-	struct file *filp, unsigned int cmd, unsigned long arg)
+static long msm_idle_stats_ioctl(struct file *filp, unsigned int cmd,
+				unsigned long arg)
 {
 	int rc;
 
@@ -423,7 +419,7 @@ static int msm_idle_stats_ioctl(struct inode *inode,
 
 	switch (cmd) {
 	case MSM_IDLE_STATS_IOC_COLLECT:
-		rc = msm_idle_stats_collect(inode, filp, cmd, arg);
+		rc = msm_idle_stats_collect(filp, cmd, arg);
 		break;
 
 	default:
@@ -444,7 +440,7 @@ static const struct file_operations msm_idle_stats_fops = {
 	.owner   = THIS_MODULE,
 	.open    = msm_idle_stats_open,
 	.release = msm_idle_stats_release,
-	.ioctl   = msm_idle_stats_ioctl,
+	.unlocked_ioctl   = msm_idle_stats_ioctl,
 };
 
 static int __init msm_idle_stats_init(void)

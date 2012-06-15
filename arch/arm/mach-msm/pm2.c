@@ -3,7 +3,7 @@
  * MSM Power Management Routines
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2008-2011 Code Aurora Forum. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -61,6 +61,7 @@
 #include "pm.h"
 #include "spm.h"
 #include "sirc.h"
+#include "pm-boot.h"
 
 /******************************************************************************
  * Debug Definitions
@@ -135,11 +136,20 @@ module_param_named(
 	int, S_IRUGO | S_IWUSR | S_IWGRP
 );
 
-#define MSM_PM_MODE_ATTR_SUSPEND_ENABLED "suspend_enabled"
-#define MSM_PM_MODE_ATTR_IDLE_ENABLED "idle_enabled"
-#define MSM_PM_MODE_ATTR_LATENCY "latency"
-#define MSM_PM_MODE_ATTR_RESIDENCY "residency"
-#define MSM_PM_MODE_ATTR_NR (4)
+enum {
+	MSM_PM_MODE_ATTR_SUSPEND,
+	MSM_PM_MODE_ATTR_IDLE,
+	MSM_PM_MODE_ATTR_LATENCY,
+	MSM_PM_MODE_ATTR_RESIDENCY,
+	MSM_PM_MODE_ATTR_NR,
+};
+
+static char *msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_NR] = {
+	[MSM_PM_MODE_ATTR_SUSPEND] = "suspend_enabled",
+	[MSM_PM_MODE_ATTR_IDLE] = "idle_enabled",
+	[MSM_PM_MODE_ATTR_LATENCY] = "latency",
+	[MSM_PM_MODE_ATTR_RESIDENCY] = "residency",
+};
 
 static char *msm_pm_sleep_mode_labels[MSM_PM_SLEEP_MODE_NR] = {
 	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_SUSPEND] = " ",
@@ -180,21 +190,21 @@ static ssize_t msm_pm_mode_attr_show(
 			continue;
 
 		if (!strcmp(attr->attr.name,
-			MSM_PM_MODE_ATTR_SUSPEND_ENABLED)) {
+			msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_SUSPEND])) {
 			u32 arg = msm_pm_modes[i].suspend_enabled;
 			kp.arg = &arg;
 			ret = param_get_ulong(buf, &kp);
 		} else if (!strcmp(attr->attr.name,
-			MSM_PM_MODE_ATTR_IDLE_ENABLED)) {
+			msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_IDLE])) {
 			u32 arg = msm_pm_modes[i].idle_enabled;
 			kp.arg = &arg;
 			ret = param_get_ulong(buf, &kp);
 		} else if (!strcmp(attr->attr.name,
-			MSM_PM_MODE_ATTR_LATENCY)) {
+			msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_LATENCY])) {
 			kp.arg = &msm_pm_modes[i].latency;
 			ret = param_get_ulong(buf, &kp);
 		} else if (!strcmp(attr->attr.name,
-			MSM_PM_MODE_ATTR_RESIDENCY)) {
+			msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_RESIDENCY])) {
 			kp.arg = &msm_pm_modes[i].residency;
 			ret = param_get_ulong(buf, &kp);
 		}
@@ -229,19 +239,19 @@ static ssize_t msm_pm_mode_attr_store(struct kobject *kobj,
 			continue;
 
 		if (!strcmp(attr->attr.name,
-			MSM_PM_MODE_ATTR_SUSPEND_ENABLED)) {
+			msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_SUSPEND])) {
 			kp.arg = &msm_pm_modes[i].suspend_enabled;
 			ret = param_set_byte(buf, &kp);
 		} else if (!strcmp(attr->attr.name,
-			MSM_PM_MODE_ATTR_IDLE_ENABLED)) {
+			msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_IDLE])) {
 			kp.arg = &msm_pm_modes[i].idle_enabled;
 			ret = param_set_byte(buf, &kp);
 		} else if (!strcmp(attr->attr.name,
-			MSM_PM_MODE_ATTR_LATENCY)) {
+			msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_LATENCY])) {
 			kp.arg = &msm_pm_modes[i].latency;
 			ret = param_set_ulong(buf, &kp);
 		} else if (!strcmp(attr->attr.name,
-			MSM_PM_MODE_ATTR_RESIDENCY)) {
+			msm_pm_mode_attr_labels[MSM_PM_MODE_ATTR_RESIDENCY])) {
 			kp.arg = &msm_pm_modes[i].residency;
 			ret = param_set_ulong(buf, &kp);
 		}
@@ -265,7 +275,7 @@ static int __init msm_pm_mode_sysfs_add(void)
 	struct attribute **attrs;
 	struct kobj_attribute *kobj_attrs;
 
-	int i, k;
+	int i, j, k;
 	int ret;
 
 	module_kobj = kset_find_obj(module_kset, KBUILD_MODNAME);
@@ -284,7 +294,8 @@ static int __init msm_pm_mode_sysfs_add(void)
 	}
 
 	for (i = 0; i < ARRAY_SIZE(msm_pm_mode_kobjs); i++) {
-		if (!msm_pm_modes[i].supported)
+		if (!msm_pm_modes[i].suspend_supported &&
+				!msm_pm_modes[i].idle_supported)
 			continue;
 
 		kobj = kobject_create_and_add(
@@ -303,19 +314,22 @@ static int __init msm_pm_mode_sysfs_add(void)
 			goto mode_sysfs_add_abort;
 		}
 
-		kobj_attrs[0].attr.name = MSM_PM_MODE_ATTR_SUSPEND_ENABLED;
-		kobj_attrs[1].attr.name = MSM_PM_MODE_ATTR_IDLE_ENABLED;
-		kobj_attrs[2].attr.name = MSM_PM_MODE_ATTR_LATENCY;
-		kobj_attrs[3].attr.name = MSM_PM_MODE_ATTR_RESIDENCY;
+		for (k = 0, j = 0; k < MSM_PM_MODE_ATTR_NR; k++) {
+			if ((k == MSM_PM_MODE_ATTR_SUSPEND) &&
+				(!msm_pm_modes[i].suspend_supported))
+				continue;
+			if ((k == MSM_PM_MODE_ATTR_IDLE) &&
+				(!msm_pm_modes[i].idle_supported))
+				continue;
 
-		for (k = 0; k < MSM_PM_MODE_ATTR_NR; k++) {
-			kobj_attrs[k].attr.mode = 0644;
-			kobj_attrs[k].show = msm_pm_mode_attr_show;
-			kobj_attrs[k].store = msm_pm_mode_attr_store;
-
-			attrs[k] = &kobj_attrs[k].attr;
+			kobj_attrs[j].attr.mode = 0644;
+			kobj_attrs[j].show = msm_pm_mode_attr_show;
+			kobj_attrs[j].store = msm_pm_mode_attr_store;
+			kobj_attrs[j].attr.name = msm_pm_mode_attr_labels[k];
+			attrs[j] = &kobj_attrs[j].attr;
+			j++;
 		}
-		attrs[MSM_PM_MODE_ATTR_NR] = NULL;
+		attrs[j] = NULL;
 
 		attr_group->attrs = attrs;
 		ret = sysfs_create_group(kobj, attr_group);
@@ -403,20 +417,27 @@ static void msm_pm_config_hw_before_power_down(void)
 {
 #if defined(CONFIG_ARCH_MSM7X30)
 	__raw_writel(1, APPS_PWRDOWN);
-	dsb();
+	mb();
 	__raw_writel(4, APPS_SECOP);
+	mb();
 #elif defined(CONFIG_ARCH_MSM7X27)
 	__raw_writel(0x1f, APPS_CLK_SLEEP_EN);
-	dsb();
+	mb();
 	__raw_writel(1, APPS_PWRDOWN);
+	mb();
+#elif defined(CONFIG_ARCH_MSM7x27A)
+	__raw_writel(0x7, APPS_CLK_SLEEP_EN);
+	mb();
+	__raw_writel(1, APPS_PWRDOWN);
+	mb();
 #else
 	__raw_writel(0x1f, APPS_CLK_SLEEP_EN);
-	dsb();
+	mb();
 	__raw_writel(1, APPS_PWRDOWN);
-	dsb();
+	mb();
 	__raw_writel(0, APPS_STANDBY_CTL);
+	mb();
 #endif
-	dsb();
 }
 
 /*
@@ -426,15 +447,20 @@ static void msm_pm_config_hw_after_power_up(void)
 {
 #if defined(CONFIG_ARCH_MSM7X30)
 	__raw_writel(0, APPS_SECOP);
-	dsb();
+	mb();
 	__raw_writel(0, APPS_PWRDOWN);
-	dsb();
+	mb();
 	msm_spm_reinit();
+#elif defined(CONFIG_ARCH_MSM7x27A)
+	__raw_writel(0, APPS_PWRDOWN);
+	mb();
+	__raw_writel(0, APPS_CLK_SLEEP_EN);
+	mb();
 #else
 	__raw_writel(0, APPS_PWRDOWN);
-	dsb();
+	mb();
 	__raw_writel(0, APPS_CLK_SLEEP_EN);
-	dsb();
+	mb();
 #endif
 }
 
@@ -445,10 +471,14 @@ static void msm_pm_config_hw_before_swfi(void)
 {
 #if defined(CONFIG_ARCH_QSD8X50)
 	__raw_writel(0x1f, APPS_CLK_SLEEP_EN);
+	mb();
 #elif defined(CONFIG_ARCH_MSM7X27)
 	__raw_writel(0x0f, APPS_CLK_SLEEP_EN);
+	mb();
+#elif defined(CONFIG_ARCH_MSM7X27A)
+	__raw_writel(0x7, APPS_CLK_SLEEP_EN);
+	mb();
 #endif
-	dsb();
 }
 
 /*
@@ -933,7 +963,6 @@ struct msm_pm_smem_t {
  *
  *****************************************************************************/
 static struct msm_pm_smem_t *msm_pm_smem_data;
-static uint32_t *msm_pm_reset_vector;
 static atomic_t msm_pm_init_done = ATOMIC_INIT(0);
 
 static int msm_pm_modem_busy(void)
@@ -962,7 +991,6 @@ static int msm_pm_power_collapse
 {
 	struct msm_pm_polled_group state_grps[2];
 	unsigned long saved_acpuclk_rate;
-	uint32_t saved_vector[2];
 	int collapsed = 0;
 	int ret;
 
@@ -1049,15 +1077,8 @@ static int msm_pm_power_collapse
 		goto power_collapse_early_exit;
 	}
 
-	saved_vector[0] = msm_pm_reset_vector[0];
-	saved_vector[1] = msm_pm_reset_vector[1];
-	msm_pm_reset_vector[0] = 0xE51FF004; /* ldr pc, 4 */
-	msm_pm_reset_vector[1] = virt_to_phys(msm_pm_collapse_exit);
-
-	MSM_PM_DPRINTK(MSM_PM_DEBUG_RESET_VECTOR, KERN_INFO,
-		"%s(): vector %x %x -> %x %x\n", __func__,
-		saved_vector[0], saved_vector[1],
-		msm_pm_reset_vector[0], msm_pm_reset_vector[1]);
+	msm_pm_boot_config_before_pc(smp_processor_id(),
+			virt_to_phys(msm_pm_collapse_exit));
 
 #ifdef CONFIG_VFP
 	if (from_idle)
@@ -1074,8 +1095,7 @@ static int msm_pm_power_collapse
 	l2x0_resume(collapsed);
 #endif
 
-	msm_pm_reset_vector[0] = saved_vector[0];
-	msm_pm_reset_vector[1] = saved_vector[1];
+	msm_pm_boot_config_after_pc(smp_processor_id());
 
 	if (collapsed) {
 #ifdef CONFIG_VFP
@@ -1254,7 +1274,6 @@ power_collapse_bail:
  */
 static int msm_pm_power_collapse_standalone(void)
 {
-	uint32_t saved_vector[2];
 	int collapsed = 0;
 	int ret;
 
@@ -1264,15 +1283,8 @@ static int msm_pm_power_collapse_standalone(void)
 	ret = msm_spm_set_low_power_mode(MSM_SPM_MODE_POWER_COLLAPSE, false);
 	WARN_ON(ret);
 
-	saved_vector[0] = msm_pm_reset_vector[0];
-	saved_vector[1] = msm_pm_reset_vector[1];
-	msm_pm_reset_vector[0] = 0xE51FF004; /* ldr pc, 4 */
-	msm_pm_reset_vector[1] = virt_to_phys(msm_pm_collapse_exit);
-
-	MSM_PM_DPRINTK(MSM_PM_DEBUG_RESET_VECTOR, KERN_INFO,
-		"%s(): vector %x %x -> %x %x\n", __func__,
-		saved_vector[0], saved_vector[1],
-		msm_pm_reset_vector[0], msm_pm_reset_vector[1]);
+	msm_pm_boot_config_before_pc(smp_processor_id(),
+			virt_to_phys(msm_pm_collapse_exit));
 
 #ifdef CONFIG_VFP
 	vfp_flush_context();
@@ -1288,8 +1300,7 @@ static int msm_pm_power_collapse_standalone(void)
 	l2x0_resume(collapsed);
 #endif
 
-	msm_pm_reset_vector[0] = saved_vector[0];
-	msm_pm_reset_vector[1] = saved_vector[1];
+	msm_pm_boot_config_after_pc(smp_processor_id());
 
 	if (collapsed) {
 #ifdef CONFIG_VFP
@@ -1440,7 +1451,7 @@ void arch_idle(void)
 
 	for (i = 0; i < ARRAY_SIZE(allow); i++) {
 		struct msm_pm_platform_data *mode = &msm_pm_modes[i];
-		if (!mode->supported || !mode->idle_enabled ||
+		if (!mode->idle_supported || !mode->idle_enabled ||
 			mode->latency >= latency_qos ||
 			mode->residency * 1000ULL >= timer_expiration)
 			allow[i] = false;
@@ -1619,7 +1630,7 @@ static int msm_pm_enter(suspend_state_t state)
 
 	for (i = 0; i < ARRAY_SIZE(allow); i++) {
 		struct msm_pm_platform_data *mode = &msm_pm_modes[i];
-		if (!mode->supported || !mode->suspend_enabled)
+		if (!mode->suspend_supported || !mode->suspend_enabled)
 			allow[i] = false;
 	}
 
@@ -1807,22 +1818,6 @@ static int __init msm_pm_init(void)
 		printk(KERN_ERR "%s: failed to get smsm_data\n", __func__);
 		return -ENODEV;
 	}
-
-#ifdef CONFIG_ARCH_MSM_SCORPION
-	/* The bootloader is responsible for initializing many of Scorpion's
-	 * coprocessor registers for things like cache timing. The state of
-	 * these coprocessor registers is lost on reset, so part of the
-	 * bootloader must be re-executed. Do not overwrite the reset vector
-	 * or bootloader area.
-	 */
-	msm_pm_reset_vector = (uint32_t *) PAGE_OFFSET;
-#else
-	msm_pm_reset_vector = ioremap(0, PAGE_SIZE);
-	if (msm_pm_reset_vector == NULL) {
-		printk(KERN_ERR "%s: failed to map reset vector\n", __func__);
-		return -ENODEV;
-	}
-#endif /* CONFIG_ARCH_MSM_SCORPION */
 
 	ret = msm_timer_init_time_sync(msm_pm_timeout);
 	if (ret)

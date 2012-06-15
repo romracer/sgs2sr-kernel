@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011 Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,16 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 #include <linux/bitops.h>
 #include <linux/kernel.h>
 #include <linux/io.h>
-#include "gpiomux.h"
+#include <mach/gpiomux.h>
 #include "proc_comm.h"
 #include "gpio.h"
 
@@ -37,13 +32,13 @@ void __msm_gpiomux_write(unsigned gpio, struct gpiomux_setting val)
 	if (val.func == GPIOMUX_FUNC_GPIO) {
 		tlmm_config |= (val.dir > GPIOMUX_IN ? BIT(14) : 0);
 		msm_gpio_find_out(gpio, &out_reg, &offset);
-		bits = readl(out_reg);
+		bits = __raw_readl(out_reg);
 		if (val.dir == GPIOMUX_OUT_HIGH)
-			writel(bits | BIT(offset), out_reg);
+			__raw_writel(bits | BIT(offset), out_reg);
 		else
-			writel(bits & ~BIT(offset), out_reg);
+			__raw_writel(bits & ~BIT(offset), out_reg);
 	}
-	dsb();
+	mb();
 	rc = msm_proc_comm(PCOM_RPC_GPIO_TLMM_CONFIG_EX,
 			   &tlmm_config, &tlmm_disable);
 	if (rc)

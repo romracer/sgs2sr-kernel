@@ -12,11 +12,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/module.h>
@@ -445,17 +440,6 @@ static void battery_status_poller(struct work_struct *work)
 				BQ27520_POLLING_STATUS);
 }
 
-static irqreturn_t soc_irqhandler(int irq, void *dev_id)
-{
-	int status = 0, temp = 0;
-
-	temp = if_notify_msm_charger(&status);
-	update_current_battery_status(status);
-	if (temp)
-		msm_charger_notify_event(NULL, CHG_BATT_STATUS_CHANGE);
-	return IRQ_HANDLED;
-}
-
 static void bq27520_hw_config(struct work_struct *work)
 {
 	int ret = 0, flags = 0, type = 0, fw_ver = 0, status = 0;
@@ -469,24 +453,15 @@ static void bq27520_hw_config(struct work_struct *work)
 		dev_err(di->dev, "Failed to config Bq27520 ret = %d\n", ret);
 		return;
 	}
-
-	msm_battery_gauge_register(&bq27520_batt_gauge);
 	/* bq27520 is ready for access, update current_battery_status by reading
 	 * from hardware
 	 */
 	if_notify_msm_charger(&status);
 	update_current_battery_status(status);
+	msm_battery_gauge_register(&bq27520_batt_gauge);
 	msm_charger_notify_event(NULL, CHG_BATT_STATUS_CHANGE);
 
-	ret = request_threaded_irq(di->irq, NULL, soc_irqhandler,
-			IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING,
-			"BQ27520_IRQ", di);
-	if (ret) {
-		dev_err(di->dev, "%s: fail to request irq %d (%d)\n",
-			__func__, di->pdata->soc_int, ret);
-		msm_battery_gauge_unregister(&bq27520_batt_gauge);
-		return;
-	}
+	enable_irq(di->irq);
 
 	/* poll battery status every 3 seconds, if charging status changes,
 	 * notify msm_charger
@@ -655,6 +630,17 @@ static struct platform_device this_device = {
 };
 #endif
 
+static irqreturn_t soc_irqhandler(int irq, void *dev_id)
+{
+	int status = 0, temp = 0;
+
+	temp = if_notify_msm_charger(&status);
+	update_current_battery_status(status);
+	if (temp)
+		msm_charger_notify_event(NULL, CHG_BATT_STATUS_CHANGE);
+	return IRQ_HANDLED;
+}
+
 static struct regulator *vreg_bq27520;
 static int bq27520_power(bool enable, struct bq27520_device_info *di)
 {
@@ -689,8 +675,18 @@ static int bq27520_power(bool enable, struct bq27520_device_info *di)
 		}
 		gpio_direction_input(platdata->soc_int);
 		di->irq = gpio_to_irq(platdata->soc_int);
-
+		rc = request_threaded_irq(di->irq, NULL, soc_irqhandler,
+				IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING,
+				"BQ27520_IRQ", di);
+		if (rc) {
+			dev_err(di->dev, "%s: fail to request irq %d (%d)\n",
+				__func__, platdata->soc_int, rc);
+			goto irqreq_fail;
+		} else {
+			disable_irq_nosync(di->irq);
+		}
 	} else {
+		free_irq(di->irq, di);
 		gpio_free(platdata->soc_int);
 		/* switch off on-chip 2.5V LDO and disable Battery gauge */
 		gpio_set_value(platdata->chip_en, 0);
@@ -705,6 +701,8 @@ static int bq27520_power(bool enable, struct bq27520_device_info *di)
 	}
 	return rc;
 
+irqreq_fail:
+	gpio_free(platdata->soc_int);
 gpio_fail:
 	gpio_set_value(platdata->chip_en, 0);
 	gpio_free(platdata->chip_en);
@@ -865,14 +863,12 @@ static int bq27520_battery_remove(struct i2c_client *client)
 	bq27520_dev_setup(false, di);
 	bq27520_power(false, di);
 
-	free_irq(di->irq, di);
 	kfree(di->bus);
 
 	mutex_lock(&battery_mutex);
 	idr_remove(&battery_id, di->id);
 	mutex_unlock(&battery_mutex);
 
-	msm_battery_gauge_unregister(&bq27520_batt_gauge);
 	kfree(di);
 	return 0;
 }
@@ -955,6 +951,7 @@ module_init(bq27520_battery_init);
 static void __exit bq27520_battery_exit(void)
 {
 	i2c_del_driver(&bq27520_battery_driver);
+	msm_battery_gauge_unregister(&bq27520_batt_gauge);
 }
 module_exit(bq27520_battery_exit);
 

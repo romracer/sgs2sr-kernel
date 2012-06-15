@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  *
  */
+
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/init.h>
@@ -33,7 +34,6 @@
 //#include <mach/regs-clock.h>
 //#include <mach/regs-gpio.h>
 //#include <plat/gpio-cfg.h>
-#include <linux/fs.h>
 #ifdef CONFIG_SEC_MISC
 #include <linux/sec_param.h>
 #endif
@@ -46,7 +46,6 @@
 struct sec_switch_struct {
 	struct sec_switch_platform_data *pdata;
 	int switch_sel;
-	int is_manualset;
 };
 
 struct sec_switch_wq {
@@ -67,14 +66,8 @@ extern struct device *switch_dev;
 extern int cp_boot_ok;
 
 extern bool charging_mode_get(void);
-extern ssize_t UsbMenuSel_switch_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size);
 static void usb_switch_mode(struct sec_switch_struct *secsw, int mode)
 {
-// for qc usb driver change ]
-	char buf='5';
-	int retval = 0;
-// ]
-
 	if (mode == SWITCH_PDA)	{
 		if (secsw->pdata && secsw->pdata->set_vbus_status)
 			secsw->pdata->set_vbus_status((u8)USB_VBUS_AP_ON);
@@ -83,8 +76,7 @@ static void usb_switch_mode(struct sec_switch_struct *secsw, int mode)
 		gpio_set_value(USB_SEL_SW,0);
 		gpio_set_value(USB_MDM_EN,0);
 #else
-		fsa9480_manual_switching(SWITCH_PORT_AUTO); 
-		buf='5';	
+		fsa9480_manual_switching(SWITCH_PORT_AUTO);
 #endif		
 	} else {
 		if (secsw->pdata && secsw->pdata->set_vbus_status)
@@ -94,16 +86,9 @@ static void usb_switch_mode(struct sec_switch_struct *secsw, int mode)
 		gpio_set_value(USB_SEL_SW,1);
 		gpio_set_value(USB_MDM_EN,1);
 #else
-		fsa9480_manual_switching(SWITCH_PORT_AUTO); 
-		secsw->is_manualset=0;
+		fsa9480_manual_switching(SWITCH_PORT_AUTO);
 #endif
 	}
-// for qc , samsung usb driver switch [
-	if (secsw->is_manualset)
-	{
-		UsbMenuSel_switch_store(NULL,NULL,&buf,1);	
-	}
-// ]
 }
 
 #if 1
@@ -126,6 +111,7 @@ static void uart_switch_mode(struct sec_switch_struct *secsw, int mode)
 	}
 }
 #endif
+
 
 static ssize_t uart_sel_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -178,7 +164,6 @@ static ssize_t usb_sel_store(struct device *dev, struct device_attribute *attr,
 #ifdef CONFIG_SEC_MISC
 	sec_get_param(param_index_uartsel, &secsw->switch_sel);
 #endif
-	secsw->is_manualset=1;
 	if (strncmp(buf, "PDA", 3) == 0 || strncmp(buf, "pda", 3) == 0) {
 		if (usb_sel!=SWITCH_PDA)
 		{
@@ -186,7 +171,6 @@ static ssize_t usb_sel_store(struct device *dev, struct device_attribute *attr,
 			secsw->switch_sel |= USB_SEL_MASK;
 		}
 	}
-
 	if (strncmp(buf, "MODEM", 5) == 0 || strncmp(buf, "modem", 5) == 0) {
 		if (usb_sel!=SWITCH_MODEM)
 		{		
@@ -353,7 +337,6 @@ static void sec_switch_init_work(struct work_struct *work)
 	struct sec_switch_struct *secsw = wq->sdata;
 	int usb_sel = 0;
 	int uart_sel = 0;
-	
 #if 0	
 	if (sec_get_param_value &&
 	    secsw->pdata &&
@@ -392,6 +375,7 @@ static void sec_switch_init_work(struct work_struct *work)
 	usb_sel = secsw->switch_sel & USB_SEL_MASK;
 	uart_sel = secsw->switch_sel & UART_SEL_MASK;
 
+
 // USB switch not use LTE
 
 	if (usb_sel)
@@ -428,15 +412,12 @@ static int sec_switch_probe(struct platform_device *pdev)
 	}
 
 	secsw->pdata = pdata;
-#if defined (CONFIG_TARGET_LOCALE_US_ATT_REV01) // || defined (CONFIG_KOR_MODEL_SHV_E120L)// || defined (CONFIG_JPN_MODEL_SC_03D)
-	secsw->switch_sel = 3;
-#elif defined(CONFIG_USA_MODEL_SGH_I717)
+	
+#if defined (CONFIG_TARGET_LOCALE_US_ATT_REV01) || defined(CONFIG_KOR_MODEL_SHV_E160S)|| defined (CONFIG_KOR_MODEL_SHV_E160K) || defined (CONFIG_KOR_MODEL_SHV_E160L)
 	secsw->switch_sel = 3;
 #else
 	secsw->switch_sel = 1;
 #endif
-
-	secsw->is_manualset= 0;
 
 	dev_set_drvdata(switch_dev, secsw);
 

@@ -37,6 +37,10 @@ struct akm8975_data {
 	struct mutex lock;
 	struct miscdevice akmd_device;
 	struct completion data_ready;
+#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_USA_MODEL_SGH_I757) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined(CONFIG_CAN_MODEL_SGH_I757M)
+	struct class *akm8975_class;
+	struct device *akm8975_dev;
+#endif		
 	wait_queue_head_t state_wq;
 	int irq;
 	void	(*power_on) (void);
@@ -63,7 +67,7 @@ static s32 akm8975_ecs_set_mode_power_down(struct akm8975_data *akm)
 static int akm8975_ecs_set_mode(struct akm8975_data *akm, char mode)
 {
 	s32 ret;
-
+	
 	switch (mode) {
 	case AK8975_MODE_SNG_MEASURE:
 		ret = i2c_smbus_write_byte_data(akm->this_client,
@@ -180,11 +184,68 @@ static int akm8975_wait_for_data_ready(struct akm8975_data *akm)
 	return err;
 }
 
+#if defined (CONFIG_EUR_MODEL_GT_I9210)
+extern unsigned int get_hw_rev(void);
+#endif
+
 static ssize_t akmd_read(struct file *file, char __user *buf,
 					size_t count, loff_t *pos)
 {
 	struct akm8975_data *akm = container_of(file->private_data,
 			struct akm8975_data, akmd_device);
+	short x = 0, y = 0, z = 0;
+#if defined (CONFIG_EUR_MODEL_GT_I9210)
+	short tmp = 0;
+#endif
+	int ret;
+	u8 data[8];
+
+	mutex_lock(&akm->lock);
+	ret = akm8975_ecs_set_mode(akm, AK8975_MODE_SNG_MEASURE);
+	if (ret) {
+		mutex_unlock(&akm->lock);
+		goto done;
+	}
+	ret = akm8975_wait_for_data_ready(akm);
+	if (ret) {
+		mutex_unlock(&akm->lock);
+		goto done;
+	}
+	ret = i2c_smbus_read_i2c_block_data(akm->this_client, AK8975_REG_ST1,
+						sizeof(data), data);
+	mutex_unlock(&akm->lock);
+
+	if (ret != sizeof(data)) {
+		pr_err("%s: failed to read %d bytes of mag data\n",
+		       __func__, sizeof(data));
+		goto done;
+	}
+
+	if (data[0] & 0x01) {
+		x = (data[2] << 8) + data[1];
+		y = (data[4] << 8) + data[3];
+		z = (data[6] << 8) + data[5];
+#if defined (CONFIG_EUR_MODEL_GT_I9210)
+		if (get_hw_rev() >= 6 )
+		{
+			tmp = x;
+			x = y;
+			y = tmp;
+		}
+#endif
+	} else
+		pr_err("%s: invalid raw data(st1 = %d)\n",
+					__func__, data[0] & 0x01);
+
+done:
+	return sprintf(buf, "%d,%d,%d\n", x, y, z);
+}
+
+#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_USA_MODEL_SGH_I757) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined(CONFIG_CAN_MODEL_SGH_I757M)
+/* sysfs for logging Power line noise */
+static ssize_t akm8975_rawdata_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct akm8975_data *akm = dev_get_drvdata(dev);
 	short x = 0, y = 0, z = 0;
 	int ret;
 	u8 data[8];
@@ -222,8 +283,10 @@ done:
 	return sprintf(buf, "%d,%d,%d\n", x, y, z);
 }
 
-static int akmd_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
-		unsigned long arg)
+static DEVICE_ATTR(raw_data,0664,akm8975_rawdata_show,NULL);
+#endif
+
+static long akmd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
 	struct akm8975_data *akm = container_of(file->private_data,
@@ -235,7 +298,7 @@ static int akmd_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 		char mode;
 		u8 data[8];
 	} rwbuf;
-
+	
 	ret = akmd_copy_in(cmd, argp, rwbuf.raw, sizeof(rwbuf));
 	if (ret)
 		return ret;
@@ -361,7 +424,7 @@ static const struct file_operations akmd_fops = {
 	.owner = THIS_MODULE,
 	.open = nonseekable_open,
 	.read = akmd_read,
-	.ioctl = akmd_ioctl,
+	.unlocked_ioctl = akmd_ioctl,
 };
 
 static int akm8975_setup_irq(struct akm8975_data *akm)
@@ -453,8 +516,15 @@ int akm8975_probe(struct i2c_client *client,
 	if(pdata->power_off)
 		akm->power_off = pdata->power_off;
 
-#if defined (CONFIG_KOR_MODEL_SHV_E110S)
+#if defined (CONFIG_KOR_MODEL_SHV_E110S) || defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined(CONFIG_KOR_MODEL_SHV_E160L) || defined(CONFIG_EUR_MODEL_GT_I9210) \
+     ||	 defined(CONFIG_USA_MODEL_SGH_I577) 
+#if defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined(CONFIG_KOR_MODEL_SHV_E160L)
+	if (get_hw_rev() >= 0x04 ) {
+#elif  defined(CONFIG_USA_MODEL_SGH_I577)
+	if (get_hw_rev() >= 0x06 ) {	
+#else 
 	if (get_hw_rev() >= 0x08 ) {
+#endif
 	/* For Magnetic sensor POR condition */ 
 	if(pdata->power_on_mag)
 		pdata->power_on_mag();
@@ -465,7 +535,18 @@ int akm8975_probe(struct i2c_client *client,
 	/* For Magnetic sensor POR condition */ 
 	}
 #endif
-
+#if defined (CONFIG_USA_MODEL_SGH_I717)
+	if (get_hw_rev() >= 0x5) {
+		/* For Magnetic sensor POR condition */ 
+		if(pdata->power_on_mag)
+			pdata->power_on_mag();
+		msleep(1);
+		if(pdata->power_off_mag)
+			pdata->power_off_mag();
+		msleep(10);
+		/* For Magnetic sensor POR condition */ 
+	}
+#endif
 	if(akm->power_on)
 		akm->power_on();
 
@@ -493,12 +574,44 @@ int akm8975_probe(struct i2c_client *client,
 	if (err)
 		goto exit_akmd_device_register_failed;
 
+#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_USA_MODEL_SGH_I757) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined(CONFIG_CAN_MODEL_SGH_I757M)
+	/* creating class/device for test */
+	akm->akm8975_class = class_create(THIS_MODULE, "magnetometer");
+	if(IS_ERR(akm->akm8975_class)) {
+		pr_err("%s: class create failed(magnetometer)\n", __func__);
+		err = PTR_ERR(akm->akm8975_class);
+		goto exit_class_create_failed;
+	}
+
+	akm->akm8975_dev = device_create(akm->akm8975_class, NULL, 0, "%s", "magnetometer");
+	if(IS_ERR(akm->akm8975_dev)) {
+		pr_err("%s: device create failed(magnetometer)\n", __func__);
+		err = PTR_ERR(akm->akm8975_dev);
+		goto exit_device_create_failed;
+	}
+
+	err = device_create_file(akm->akm8975_dev, &dev_attr_raw_data);
+	if (err < 0) {
+		pr_err("%s: failed to create device file(%s)\n", __func__, dev_attr_raw_data.attr.name);
+		goto exit_device_create_file_failed;
+	}
+
+	dev_set_drvdata(akm->akm8975_dev, akm);
+#endif
+
 	init_waitqueue_head(&akm->state_wq);
 
 	printk("ak8975 probe success!\n");
 
 	return 0;
-
+#if defined(CONFIG_USA_MODEL_SGH_I577) || defined(CONFIG_USA_MODEL_SGH_I757) || defined(CONFIG_CAN_MODEL_SGH_I577R) || defined(CONFIG_CAN_MODEL_SGH_I757M)
+exit_device_create_file_failed:
+	device_destroy(akm->akm8975_class, 0);
+exit_device_create_failed:
+	class_destroy(akm->akm8975_class);
+exit_class_create_failed:
+	misc_deregister(&akm->akmd_device);
+#endif	
 exit_akmd_device_register_failed:
 	free_irq(akm->irq, akm);
 //	gpio_free(akm->pdata->gpio_data_ready_int);

@@ -198,8 +198,8 @@ void *create_ramdump_device(const char *dev_name)
 		return NULL;
 	}
 
-	strncpy(rd_dev->name, "ramdump_", 256);
-	strncat(rd_dev->name, dev_name, 256);
+	snprintf(rd_dev->name, ARRAY_SIZE(rd_dev->name), "ramdump_%s",
+		 dev_name);
 
 	init_completion(&rd_dev->ramdump_complete);
 
@@ -241,14 +241,14 @@ int do_ramdump(void *handle, struct ramdump_segment *segments,
 	rd_dev->data_ready = 1;
 	rd_dev->ramdump_status = -1;
 
+	INIT_COMPLETION(rd_dev->ramdump_complete);
+
 	/* Tell userspace that the data is ready */
 	wake_up(&rd_dev->dump_wait_q);
 
 	/* Wait (with a timeout) to let the ramdump complete */
 	ret = wait_for_completion_timeout(&rd_dev->ramdump_complete,
 			msecs_to_jiffies(RAMDUMP_WAIT_MSECS));
-
-	INIT_COMPLETION(rd_dev->ramdump_complete);
 
 	if (!ret) {
 		pr_err("Ramdump(%s): Timed out waiting for userspace.\n",

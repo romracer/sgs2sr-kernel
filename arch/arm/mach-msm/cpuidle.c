@@ -8,19 +8,16 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/cpuidle.h>
+#include <linux/cpu_pm.h>
 
-#include "cpuidle.h"
+#include <mach/cpuidle.h>
+
 #include "pm.h"
 
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct cpuidle_device, msm_cpuidle_devs);
@@ -66,7 +63,14 @@ static int msm_cpuidle_enter(
 	atomic_notifier_call_chain(head, MSM_CPUIDLE_STATE_ENTER, NULL);
 #endif
 
+#ifdef CONFIG_CPU_PM
+	cpu_pm_enter();
+#endif
 	ret = msm_pm_idle_enter((enum msm_pm_sleep_mode) (state->driver_data));
+
+#ifdef CONFIG_CPU_PM
+	cpu_pm_exit();
+#endif
 
 #ifdef CONFIG_MSM_SLEEP_STATS
 	atomic_notifier_call_chain(head, MSM_CPUIDLE_STATE_EXIT, NULL);

@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include "msm_fb.h"
@@ -44,10 +39,8 @@ static int __init mipi_video_novatek_qhd_pt_init(void)
 {
 	int ret;
 
-#ifdef CONFIG_FB_MSM_MIPI_PANEL_DETECT
 	if (msm_fb_detect_client("mipi_video_novatek_qhd"))
 		return 0;
-#endif
 
 	pinfo.xres = 540;
 	pinfo.yres = 960;
@@ -93,7 +86,7 @@ static int __init mipi_video_novatek_qhd_pt_init(void)
 	pinfo.mipi.dsi_phy_db = &dsi_video_mode_phy_db;
 
 	ret = mipi_novatek_device_register(&pinfo, MIPI_DSI_PRIM,
-						MIPI_DSI_PANEL_WVGA_PT);
+						MIPI_DSI_PANEL_QHD_PT);
 	if (ret)
 		pr_err("%s: failed to register device!\n", __func__);
 

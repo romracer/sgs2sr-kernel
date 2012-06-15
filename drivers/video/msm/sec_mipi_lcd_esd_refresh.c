@@ -39,8 +39,12 @@
 #include "mipi_dsi.h"
 
 #define DET_CHECK_TIME_MS	50		
-#define WAKE_LOCK_TIME		(HZ /2)	/* 0.5 sec */
+#if defined (CONFIG_USA_MODEL_SGH_I757) || defined(CONFIG_CAN_MODEL_SGH_I757M)  //except celoxhd
+#define WAKE_LOCK_TIME		(6 * HZ)	/* 0.5 sec */
 
+#else
+#define WAKE_LOCK_TIME		(HZ /2)	/* 0.5 sec */
+#endif
 #if 1 // def LCDC_DEBUG
 #define DPRINT(x...)	printk("[Mipi_LCD_ESD] " x)
 #else
@@ -52,21 +56,84 @@ struct sec_esd_info {
 	//struct delayed_work jack_detect_work;
 	struct wake_lock det_wake_lock;
 	struct work_struct  det_work;
+	int esd_cnt;
+	boolean esd_ignore;
+	boolean esd_force_ignore;
 };
+static struct sec_esd_info *p_sec_esd_info = NULL;
 
-int esd_cnt = 0;
-#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K)
-#define ESD_EXCEPT_CNT (3)
+int	use_vsyncLPmode = FALSE;
+
+void set_lcd_esd_ignore( boolean src );
+
+#if defined (CONFIG_KOR_MODEL_SHV_E120S) || defined (CONFIG_KOR_MODEL_SHV_E120K) || defined (CONFIG_USA_MODEL_SGH_I717) || defined (CONFIG_USA_MODEL_SGH_I757) || defined(CONFIG_CAN_MODEL_SGH_I757M)
+#define ESD_EXCEPT_CNT (1)
 #else
 #define ESD_EXCEPT_CNT (0)
 #endif 
 
-void lcd_esd_seq( void )
+void set_lcd_esd_ignore( boolean src )
+{
+	use_vsyncLPmode = FALSE;
+	
+	if( p_sec_esd_info == NULL ) {
+		DPRINT( "%s : not initialized\n", __func__ );
+		return;
+	}
+
+	p_sec_esd_info->esd_ignore = src;
+//	DPRINT( "%s : %d\n", __func__, p_sec_esd_info->esd_ignore );
+}	
+void set_lcd_esd_forced_ignore( boolean src )
+{
+	use_vsyncLPmode = FALSE;
+	
+	if( p_sec_esd_info == NULL ) {
+		DPRINT( "%s : not initialized\n", __func__ );
+		return;
+	}
+
+	p_sec_esd_info->esd_force_ignore = src;
+	DPRINT( "%s : %d\n", __func__, p_sec_esd_info->esd_force_ignore );
+}	
+
+
+#ifdef CONFIG_FB_MSM_MIPI_S6E8AA0_WXGA_Q1_PANEL
+
+void lcd_esd_seq( struct sec_esd_info *pSrc )
 {
 	uint32 dsi_lane_ctrl, dsi_video_mode_ctrl;
+	struct sec_esd_info *pESD;
 
-	DPRINT("%s : %d\n", __func__, esd_cnt );
+	if( pSrc )	pESD = pSrc;
+	else pESD = p_sec_esd_info;
 
+	DPRINT("%s : %d\n", __func__, (pESD?pESD->esd_cnt:-1) );
+
+	dsi_lane_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x00A8);
+	dsi_video_mode_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x00C);
+	MIPI_OUTP( MIPI_DSI_BASE + 0x000C, dsi_video_mode_ctrl | 0x11110000 ); // PULSE_MODE_OPT + HSA_PWR_MODE
+	MIPI_OUTP( MIPI_DSI_BASE + 0x00A8, dsi_lane_ctrl &0x0FFFFFFF );
+	wmb();
+	msleep(3);
+	MIPI_OUTP( MIPI_DSI_BASE + 0x00A8, dsi_lane_ctrl );
+	MIPI_OUTP( MIPI_DSI_BASE + 0x000C, dsi_video_mode_ctrl  );
+	wmb();
+
+	msleep(1000);
+	
+	dsi_lane_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x00A8);
+	dsi_video_mode_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x00C);
+	MIPI_OUTP( MIPI_DSI_BASE + 0x000C, dsi_video_mode_ctrl | 0x11110000 ); // PULSE_MODE_OPT + HSA_PWR_MODE
+	MIPI_OUTP( MIPI_DSI_BASE + 0x00A8, dsi_lane_ctrl &0x0FFFFFFF );
+	wmb();
+	msleep(3);
+	MIPI_OUTP( MIPI_DSI_BASE + 0x00A8, dsi_lane_ctrl );
+	MIPI_OUTP( MIPI_DSI_BASE + 0x000C, dsi_video_mode_ctrl  );
+	wmb();
+
+	msleep(2000);
+	
 	dsi_lane_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x00A8);
 	dsi_video_mode_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x00C);
 	MIPI_OUTP( MIPI_DSI_BASE + 0x000C, dsi_video_mode_ctrl | 0x11110000 ); // PULSE_MODE_OPT + HSA_PWR_MODE
@@ -78,6 +145,55 @@ void lcd_esd_seq( void )
 	wmb();
 }
 
+#else
+extern void TSP_ESD_seq(void);
+
+void lcd_LP11_signal( void )
+{
+	uint32 dsi_lane_ctrl, dsi_video_mode_ctrl;
+
+	use_vsyncLPmode = FALSE;
+	dsi_lane_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x00A8);
+	dsi_video_mode_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x00C);
+	MIPI_OUTP( MIPI_DSI_BASE + 0x000C, dsi_video_mode_ctrl | 0x11110000 ); // PULSE_MODE_OPT + HSA_PWR_MODE
+	MIPI_OUTP( MIPI_DSI_BASE + 0x00A8, dsi_lane_ctrl &0x0FFFFFFF ); // generate LP11 when Vsync, Hsync 
+	wmb();
+	msleep(3);
+	MIPI_OUTP( MIPI_DSI_BASE + 0x00A8, dsi_lane_ctrl );
+	MIPI_OUTP( MIPI_DSI_BASE + 0x000C, dsi_video_mode_ctrl  );
+	wmb();
+}
+
+void lcd_esd_seq( struct sec_esd_info *pSrc )
+{
+	struct sec_esd_info *pESD;
+
+	if( pSrc )	pESD = pSrc;
+	else pESD = p_sec_esd_info;
+
+	DPRINT("%s : %d\n", __func__, (pESD?pESD->esd_cnt:-1) );
+
+	lcd_LP11_signal();
+	use_vsyncLPmode = TRUE;
+	TSP_ESD_seq();
+#if !defined (CONFIG_USA_MODEL_SGH_I757) && !defined(CONFIG_CAN_MODEL_SGH_I757M)  //except celoxhd
+	msleep(1000);
+	
+	lcd_LP11_signal();
+	use_vsyncLPmode = TRUE;
+	TSP_ESD_seq();
+	msleep(2000);
+	
+	lcd_LP11_signal();
+	use_vsyncLPmode = TRUE;
+	TSP_ESD_seq();
+
+#endif
+
+	use_vsyncLPmode = TRUE; // in this code, LCD must be hit by ESD
+}
+
+#endif 
 
 static irqreturn_t sec_esd_irq_handler(int irq, void *handle)
 {
@@ -88,6 +204,8 @@ static irqreturn_t sec_esd_irq_handler(int irq, void *handle)
 	disable_irq_nosync(hi->pdata->esd_int);
 	schedule_work(&hi->det_work);
 	
+	use_vsyncLPmode = TRUE;
+
 	return IRQ_HANDLED;
 }
 
@@ -95,26 +213,42 @@ static void sec_esd_work_func(struct work_struct *work)
 {
 	struct sec_esd_info *hi =
 		container_of(work, struct sec_esd_info, det_work);
-
 //	struct sec_esd_platform_data *pdata = hi->pdata;
 
-//	DPRINT( "%s\n", __func__);
+	DPRINT( "%s\n", __func__);
 
+	hi->esd_cnt++;
+	if( hi->esd_cnt <= ESD_EXCEPT_CNT ) DPRINT( "%s : %d ignore Cnt(%d)\n", __func__, hi->esd_cnt, ESD_EXCEPT_CNT );
+	else if(hi->esd_ignore) DPRINT( "%s : %d ignore FLAG\n", __func__, hi->esd_cnt );
+	else if(hi->esd_force_ignore) DPRINT( "%s : %d esd_force_ignore FLAG\n", __func__, hi->esd_force_ignore );
+	else 
+	{
 	/* threaded irq can sleep */
 	wake_lock_timeout(&hi->det_wake_lock, WAKE_LOCK_TIME);
-	if( ++esd_cnt > ESD_EXCEPT_CNT ) 
-		lcd_esd_seq();
+		hi->esd_ignore = TRUE;
+		lcd_esd_seq(hi);
+		hi->esd_ignore = FALSE; // in this block, esd_ignore is must be off 
+	}
 	
 	enable_irq(hi->pdata->esd_int);
 	return;
 }
 
+#if defined (CONFIG_KOR_MODEL_SHV_E160S)
+extern unsigned int get_hw_rev();
+#endif
 
 static int sec_esd_probe(struct platform_device *pdev)
 {
 	struct sec_esd_info *hi;
 	struct sec_esd_platform_data *pdata = pdev->dev.platform_data;
 	int ret;
+#if defined(CONFIG_KOR_MODEL_SHV_E160S)
+	if( get_hw_rev() < 0x05 ){
+		DPRINT( "%s : Esd driver END (HW REV < 05)\n", __func__);
+		return 0;
+	}
+#endif		
 
 	DPRINT( "%s : Registering esd driver\n", __func__);
 	if (!pdata) {
@@ -128,7 +262,10 @@ static int sec_esd_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
+	p_sec_esd_info = hi;
 	hi->pdata = pdata;
+	hi->esd_cnt = 0;
+	hi->esd_ignore = FALSE;
 
 	wake_lock_init(&hi->det_wake_lock, WAKE_LOCK_SUSPEND, "sec_mipi_lcd_esd_det");
 

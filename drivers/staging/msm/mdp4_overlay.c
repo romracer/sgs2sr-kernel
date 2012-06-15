@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/module.h>
@@ -696,7 +691,7 @@ void mdp4_mixer_stage_down(struct mdp4_overlay_pipe *pipe)
 	stage = pipe->mixer_stage;
 	mixer = pipe->mixer_num;
 
-	if (pipe != ctrl->stage[mixer][stage])	/* not runing */
+	if (pipe != ctrl->stage[mixer][stage])	/* not running */
 		return;
 
 	/* MDP_LAYERMIXER_IN_CFG, shard by both mixer 0 and 1  */
@@ -874,8 +869,8 @@ struct mdp4_overlay_pipe *mdp4_overlay_pipe_alloc(void)
 		if (pipe->pipe_ndx == 0) {
 			pipe->pipe_ndx = i + 1;	/* start from 1 */
 			init_completion(&pipe->comp);
-	printk(KERN_INFO "mdp4_overlay_pipe_alloc: pipe=%x ndx=%d\n",
-					(int)pipe, pipe->pipe_ndx);
+	printk(KERN_INFO "mdp4_overlay_pipe_alloc: pipe=%p ndx=%d\n",
+					pipe, pipe->pipe_ndx);
 			return pipe;
 		}
 		pipe++;
@@ -887,8 +882,8 @@ struct mdp4_overlay_pipe *mdp4_overlay_pipe_alloc(void)
 
 void mdp4_overlay_pipe_free(struct mdp4_overlay_pipe *pipe)
 {
-	printk(KERN_INFO "mdp4_overlay_pipe_free: pipe=%x ndx=%d\n",
-					(int)pipe, pipe->pipe_ndx);
+	printk(KERN_INFO "mdp4_overlay_pipe_free: pipe=%p ndx=%d\n",
+					pipe, pipe->pipe_ndx);
 	memset(pipe, 0, sizeof(*pipe));
 }
 

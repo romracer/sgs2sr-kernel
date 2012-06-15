@@ -18,8 +18,8 @@
 
 #ifndef _MSM_PCM_H
 #define _MSM_PCM_H
-#include <mach/qdsp6v2/apr_audio.h>
-#include <mach/qdsp6v2/q6asm.h>
+#include <sound/apr_audio.h>
+#include <sound/q6asm.h>
 
 #define MAX_PLAYBACK_SESSIONS	2
 #define MAX_CAPTURE_SESSIONS	1
@@ -86,9 +86,7 @@ struct pcm_session {
 };
 
 /* platform data */
-extern struct snd_soc_platform msm_soc_platform;
-extern struct snd_soc_dai msm_dais[2];
-extern struct snd_soc_codec_device soc_codec_dev_msm;
+extern struct snd_soc_platform_driver msm_soc_platform;
 extern struct pcm_session session_route;
 
 #endif /*_MSM_PCM_H*/

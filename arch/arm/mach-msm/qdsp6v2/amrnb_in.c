@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
 */
 
 #include <linux/module.h>
@@ -27,8 +22,8 @@
 #include <linux/msm_audio_amrnb.h>
 #include <asm/atomic.h>
 #include <asm/ioctls.h>
-#include <mach/qdsp6v2/apr_audio.h>
-#include <mach/qdsp6v2/q6asm.h>
+#include <sound/q6asm.h>
+#include <sound/apr_audio.h>
 #include "audio_utils.h"
 
 /* Buffer with meta*/
@@ -201,7 +196,7 @@ static int amrnb_in_open(struct inode *inode, struct file *file)
 	audio = kzalloc(sizeof(struct q6audio_in), GFP_KERNEL);
 
 	if (audio == NULL) {
-		pr_err("%s: Could not allocate memory for amrnb\
+		pr_err("%s Could not allocate memory for amrnb\
 			driver\n", __func__);
 		return -ENOMEM;
 	}

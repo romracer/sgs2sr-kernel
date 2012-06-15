@@ -12,11 +12,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/module.h>
@@ -173,7 +168,7 @@ static int bq27541_battery_voltage(struct bq27541_device_info *di)
 		return ret;
 	}
 
-	return volt;
+	return volt * 1000;
 }
 
 static void bq27541_cntl_cmd(struct bq27541_device_info *di,
@@ -318,8 +313,8 @@ static void bq27541_hw_config(struct work_struct *work)
 	di  = container_of(work, struct bq27541_device_info, hw_config.work);
 	ret = bq27541_chip_config(di);
 	if (ret) {
-		dev_err(di->dev, "Failed to config Bq27541\n"
-			"The battery might be depleted\n");
+		dev_err(di->dev, "Failed to config Bq27541\n");
+		return;
 	}
 	msm_battery_gauge_register(&bq27541_batt_gauge);
 

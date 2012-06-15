@@ -26,6 +26,11 @@
 #include <mach/sec_debug.h>
 #endif
 
+#ifdef CONFIG_USA_MODEL_SGH_I717
+#define FG_MAX17048_ENABLED
+#define ADJUST_RCOMP_WITH_CHARGING_STATUS
+#endif
+
 #define MAX17040_VCELL_MSB	0x02
 #define MAX17040_VCELL_LSB	0x03
 #define MAX17040_SOC_MSB	0x04
@@ -55,15 +60,7 @@
 #define FULL_SOC_LOW		9250
 #define FULL_SOC_HIGH		9680
 #define FULL_KEEP_SOC		30
-#elif defined(CONFIG_USA_MODEL_SGH_I717)
-#define EMPTY_COND_SOC 		100
-#define EMPTY_SOC 			0
-//#define FULL_SOC		9450
-#define FULL_SOC_DEFAULT	9600
-#define FULL_SOC_LOW		9600
-#define FULL_SOC_HIGH		9600
-#define FULL_KEEP_SOC		30
-#else
+#elif defined(CONFIG_KOR_MODEL_SHV_E120S) ||  defined(CONFIG_KOR_MODEL_SHV_E120K)
 #define EMPTY_COND_SOC 		100
 #define EMPTY_SOC 			20
 //#define FULL_SOC		9450
@@ -71,6 +68,55 @@
 #define FULL_SOC_LOW		9250
 #define FULL_SOC_HIGH		9680
 #define FULL_KEEP_SOC		30
+#elif defined(CONFIG_KOR_MODEL_SHV_E160S) || defined(CONFIG_KOR_MODEL_SHV_E160K) || defined(CONFIG_KOR_MODEL_SHV_E160L)
+#define EMPTY_COND_SOC 		100
+#define EMPTY_SOC 			20
+//#define FULL_SOC		9450
+#define FULL_SOC_DEFAULT	9450
+#define FULL_SOC_LOW		9350
+#define FULL_SOC_HIGH		9780
+#define FULL_KEEP_SOC		30
+#elif defined(CONFIG_USA_MODEL_SGH_I717)
+#define EMPTY_COND_SOC		100
+#define EMPTY_SOC		0
+//#define FULL_SOC		9450
+#define FULL_SOC_DEFAULT	9600
+#define FULL_SOC_LOW		9600
+#define FULL_SOC_HIGH		9630
+#define FULL_KEEP_SOC		30
+#define RCOMP_2ND		0xF01F
+#elif defined(CONFIG_USA_MODEL_SGH_T769) || \
+	defined(CONFIG_USA_MODEL_SGH_I577) || \
+	defined(CONFIG_CAN_MODEL_SGH_I577R)
+#define EMPTY_COND_SOC		100
+#define EMPTY_SOC		20
+//#define FULL_SOC		9450
+#define FULL_SOC_DEFAULT	9510
+#define FULL_SOC_LOW		9510
+#define FULL_SOC_HIGH		9540
+#define FULL_KEEP_SOC		30
+#elif defined(CONFIG_USA_MODEL_SGH_T989) || \
+	defined(CONFIG_USA_MODEL_SGH_I727)
+#define EMPTY_COND_SOC		100
+#define EMPTY_SOC		50
+//#define FULL_SOC		9400
+#define FULL_SOC_DEFAULT	9400
+#define FULL_SOC_LOW		9400
+#define FULL_SOC_HIGH		9430
+#define FULL_KEEP_SOC		30
+
+#else
+#define EMPTY_COND_SOC		100
+#define EMPTY_SOC		20
+//#define FULL_SOC		9450
+#define FULL_SOC_DEFAULT	9350
+#define FULL_SOC_LOW		9250
+#define FULL_SOC_HIGH		9680
+#define FULL_KEEP_SOC		30
+#endif
+
+#if defined(CONFIG_KOR_MODEL_SHV_E160S) ||  defined(CONFIG_KOR_MODEL_SHV_E160K)
+#define ADJUST_SOC_OFFSET
 #endif
 
 /* default disable : TBT */
@@ -113,44 +159,25 @@ struct max17040_chip {
 	int full_soc;
 };
 
-static int max17040_get_property(struct power_supply *psy,
-			    enum power_supply_property psp,
-			    union power_supply_propval *val)
+#ifdef FG_MAX17048_ENABLED
+static int max17048_read_word_reg(struct i2c_client *client, int reg)
 {
-	struct max17040_chip *chip = container_of(psy,
-				struct max17040_chip, battery);
+	struct max17040_chip *chip = i2c_get_clientdata(client);
+	int ret = 0;
 
-	switch (psp) {
-	case POWER_SUPPLY_PROP_STATUS:
-		val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
-		break;
-	case POWER_SUPPLY_PROP_ONLINE:
-		val->intval = 1;
-		break;
-	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		val->intval = chip->vcell;
-		break;
-	case POWER_SUPPLY_PROP_CAPACITY:
-		switch (val->intval) {
-		case 0:	/*normal soc */
-			val->intval = chip->soc;
-			break;
-		case 1: /*raw soc */
-			val->intval = chip->raw_soc;
-			break;
-		case 2: /*rcomp */
-			val->intval = chip->rcomp;
-			break;
-		case 3: /*full soc  */
-			val->intval = chip->full_soc;
-			break;
-		}
-		break;
-	default:
-		return -EINVAL;
-	}
-	return 0;
+	mutex_lock(&chip->mutex);
+
+	ret = i2c_smbus_read_word_data(client, reg);
+
+	if (ret < 0)
+		dev_err(&client->dev, "%s: err %d\n", __func__, ret);
+
+	mutex_unlock(&chip->mutex);
+
+	return ret;
 }
+#endif
+
 
 static int max17040_write_reg(struct i2c_client *client, int reg, u8 value)
 {
@@ -186,21 +213,22 @@ static int max17040_read_reg(struct i2c_client *client, int reg)
 	return ret;
 }
 
-static void max17040_reset(struct i2c_client *client)
-{
-	max17040_write_reg(client, MAX17040_CMD_MSB, 0x54);
-	max17040_write_reg(client, MAX17040_CMD_LSB, 0x00);
-}
-
 static void max17040_get_vcell(struct i2c_client *client)
 {
 	struct max17040_chip *chip = i2c_get_clientdata(client);
 	u8 msb;
 	u8 lsb;
 
+#ifdef FG_MAX17048_ENABLED
+	int data;
+
+	data = max17048_read_word_reg(client, MAX17040_VCELL_MSB);
+	msb = data & 0xff;
+	lsb = (data >> 8) & 0xff;
+#else
 	msb = max17040_read_reg(client, MAX17040_VCELL_MSB);
 	lsb = max17040_read_reg(client, MAX17040_VCELL_LSB);
-
+#endif
 	chip->prevcell = chip->vcell;
 	chip->vcell = ((msb << 4) + (lsb >> 4)) * 1250;
 	if (chip->prevcell == 0)
@@ -217,15 +245,36 @@ static void max17040_get_soc(struct i2c_client *client)
 	int temp_soc;
 	static int fg_zcount = 0;
 
+#ifdef FG_MAX17048_ENABLED
+	int data;
+
+	data = max17048_read_word_reg(client, MAX17040_SOC_MSB);
+	msb = data & 0xff;
+	lsb = (data >> 8) & 0xff;
+#else
 	msb = max17040_read_reg(client, MAX17040_SOC_MSB);
 	lsb = max17040_read_reg(client, MAX17040_SOC_LSB);
-
+#endif
 	psoc = msb * 100 + (lsb * 100) / 256;
 	chip->raw_soc = psoc;
 
 	if(psoc > EMPTY_COND_SOC) {
 		//temp_soc = ((psoc - EMPTY_SOC)*10000)/(FULL_SOC - EMPTY_SOC);
 		temp_soc = ((psoc - EMPTY_SOC)*10000)/(chip->full_soc - EMPTY_SOC);
+
+#ifdef ADJUST_SOC_OFFSET
+		if (temp_soc < 2100)
+			temp_soc = temp_soc;
+		else if (temp_soc < 3100)
+			temp_soc = temp_soc - ((temp_soc * 15) / 100 - 300);
+		else if (temp_soc < 7100)
+			temp_soc = temp_soc - 150;
+		else if (temp_soc < 8100)
+			temp_soc = temp_soc - ((temp_soc * -15)/100 + 1200);
+		else
+			temp_soc = temp_soc;
+#endif
+
 	} else
 		temp_soc = 0;
 	
@@ -260,10 +309,17 @@ static void max17040_get_version(struct i2c_client *client)
 	u8 lsb;
 
 	printk("%s : \n", __func__);
-	
+
+#ifdef FG_MAX17048_ENABLED
+	int data;
+
+	data = max17048_read_word_reg(client, MAX17040_VER_MSB);
+	msb = data & 0xff;
+	lsb = (data >> 8) & 0xff;
+#else
 	msb = max17040_read_reg(client, MAX17040_VER_MSB);
 	lsb = max17040_read_reg(client, MAX17040_VER_LSB);
-
+#endif
 	dev_info(&client->dev, "MAX17040 Fuel-Gauge Ver %d%d\n", msb, lsb);
 }
 
@@ -274,8 +330,16 @@ static u16 max17040_get_rcomp(struct i2c_client *client)
 	u16 ret = 0;
 
 	//printk("%s : \n", __func__);
+#ifdef FG_MAX17048_ENABLED
+	int data;
+
+	data = max17048_read_word_reg(client, MAX17040_RCOMP_MSB);
+	msb = data & 0xff;
+	lsb = (data >> 8) & 0xff;
+#else
 	msb = max17040_read_reg(client, MAX17040_RCOMP_MSB);
 	lsb = max17040_read_reg(client, MAX17040_RCOMP_LSB);
+#endif
 
 	ret = (u16)(msb<<8 | lsb);
 	//pr_info("MAX17040 Fuel-Gauge RCOMP 0x%x%x\n", msb, lsb);
@@ -300,6 +364,27 @@ static void max17040_set_rcomp(struct i2c_client *client, u16 new_rcomp)
 	mutex_unlock(&chip->mutex);
 }
 
+static void max17040_reset(struct i2c_client *client)
+{
+	struct max17040_chip *chip = i2c_get_clientdata(client);
+
+	pr_info("%s :\n", __func__);
+
+	/* POR : CMD,5400h */
+	max17040_write_reg(client, MAX17040_CMD_MSB, 0x54);
+	max17040_write_reg(client, MAX17040_CMD_LSB, 0x00);
+	msleep(300);
+
+	max17040_set_rcomp(client, chip->new_rcomp);
+	chip->rcomp = max17040_get_rcomp(client);
+
+	/* Quick Start : MODE,4000h : TBT */
+	/*
+	max17040_write_reg(client, MAX17040_MODE_MSB, 0x40);
+	max17040_write_reg(client, MAX17040_MODE_LSB, 0x00);
+	*/
+}
+
 static void max17040_adjust_fullsoc(struct i2c_client *client)
 {
 	struct max17040_chip *chip = i2c_get_clientdata(client);
@@ -314,7 +399,7 @@ static void max17040_adjust_fullsoc(struct i2c_client *client)
 		if (temp_soc > (FULL_SOC_LOW + FULL_KEEP_SOC)) {
 			chip->full_soc = temp_soc - FULL_KEEP_SOC;
 		} else {
-			chip->full_soc = temp_soc;
+			chip->full_soc = FULL_SOC_LOW;
 		}
 	}
 
@@ -375,8 +460,7 @@ static enum power_supply_property max17040_battery_props[] = {
 #define SEC_FG_ATTR(_name)			\
 {						            \
 	.attr = { .name = #_name,		\
-		  .mode = 0664,			    \
-		  .owner = THIS_MODULE },	\
+		  .mode = 0664 },	\
 	.show = sec_fg_show_property,	\
 	.store = sec_fg_store,			\
 }
@@ -522,6 +606,46 @@ static void max17040_rcomp_update(struct i2c_client *client, int temp)
 }
 #endif
 
+static int max17040_get_property(struct power_supply *psy,
+			    enum power_supply_property psp,
+			    union power_supply_propval *val)
+{
+	struct max17040_chip *chip = container_of(psy,
+				struct max17040_chip, battery);
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_STATUS:
+		val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+		break;
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = 1;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+		max17040_get_vcell(chip->client);
+		val->intval = chip->vcell;
+		break;
+	case POWER_SUPPLY_PROP_CAPACITY:
+		switch (val->intval) {
+		case 0:	/*normal soc */
+			val->intval = chip->soc;
+			break;
+		case 1: /*raw soc */
+			val->intval = chip->raw_soc;
+			break;
+		case 2: /*rcomp */
+			val->intval = chip->rcomp;
+			break;
+		case 3: /*full soc  */
+			val->intval = chip->full_soc;
+			break;
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+
 static int max17040_set_property(struct power_supply *psy,
 			    enum power_supply_property psp,
 			    const union power_supply_propval *val)
@@ -538,12 +662,36 @@ static int max17040_set_property(struct power_supply *psy,
 #endif
 		break;
 	case POWER_SUPPLY_PROP_STATUS:
+#ifdef ADJUST_RCOMP_WITH_CHARGING_STATUS
+		switch (val->intval) {
+		case POWER_SUPPLY_STATUS_FULL:
+			pr_info("%s: charger full state!\n", __func__);
+			/* adjust full soc */
+			max17040_adjust_fullsoc(chip->client);
+			break;
+
+		case POWER_SUPPLY_STATUS_CHARGING:
+			max17040_set_rcomp(chip->client, RCOMP_2ND);
+			max17040_get_rcomp(chip->client);
+			break;
+
+		case POWER_SUPPLY_STATUS_DISCHARGING:
+			max17040_set_rcomp(chip->client, chip->rcomp);
+			max17040_get_rcomp(chip->client);
+			break;
+
+		default :
+			return -EINVAL;
+		}
+		break;
+#else
 		pr_info("%s: charger full state!\n", __func__);
 		if (val->intval != POWER_SUPPLY_STATUS_FULL)
 			return -EINVAL;
 		/* adjust full soc */
 		max17040_adjust_fullsoc(chip->client);
 		break;
+#endif
 	default:
 		return -EINVAL;
 	}

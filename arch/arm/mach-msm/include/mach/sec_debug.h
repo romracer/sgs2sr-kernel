@@ -60,16 +60,12 @@ static inline int sec_debug_is_enabled(void) {return 0;}
 
 #ifdef CONFIG_SEC_DEBUG_SCHED_LOG
 extern void sec_debug_task_sched_log(int cpu, struct task_struct *task);
-void sec_debug_task_sched_log_short_msg(char *msg);
 extern void sec_debug_irq_sched_log(unsigned int irq, void *fn, int en);
 extern void sec_debug_irq_sched_log_end(void);
 extern void sec_debug_timer_log(unsigned int type, int int_lock, void *fn);
 extern void sec_debug_sched_log_init(void);
 #else
 static inline void sec_debug_task_sched_log(int cpu, struct task_struct *task)
-{
-}
-static inline void sec_debug_task_sched_log_short_msg(char *msg)
 {
 }
 static inline void sec_debug_irq_sched_log(unsigned int irq, void *fn, int en)
@@ -257,6 +253,24 @@ static inline void sec_debug_mdp_enable(int enable)
 
 #endif
 
+#ifdef CONFIG_SEC_DEBUG_POWERCOLLAPSE_LOG
+#define POWERCOLLAPSE_LOG_MAX 1024
+
+struct powercollapse_log {
+	unsigned long long time;
+	unsigned int value1;
+	unsigned int value2;
+};
+
+extern void sec_debug_powercollapse_log(unsigned int value1, unsigned int value2);
+
+#else
+static inline void sec_debug_powercollapse_log(unsigned int value1, unsigned int value2)
+{
+}
+
+#endif
+
 #ifdef CONFIG_SEC_DEBUG_SDIO_LOG
 #define SDIO_LOG_MAX 1024
 
@@ -302,5 +316,7 @@ extern void sec_debug_reg_write(unsigned long addr, unsigned long data, int size
 #define KERNEL_SEC_DEBUG_LEVEL_HIGH	(0x47494844)
 extern bool kernel_sec_set_debug_level(int level);
 extern int kernel_sec_get_debug_level(void);
+
+#define LOCAL_CONFIG_PRINT_EXTRA_INFO
 
 #endif /* SEC_DEBUG_H */

@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -27,17 +22,13 @@
 #include <linux/regulator/consumer.h>
 #include <asm/uaccess.h>
 #include <mach/qdsp6v2/audio_dev_ctl.h>
-#include <mach/qdsp6v2/apr_audio.h>
+#include <mach/qdsp6v2/audio_acdb.h>
 #include <mach/vreg.h>
 #include <mach/pmic.h>
 #include <mach/debug_mm.h>
-#include <mach/qdsp6v2/q6afe.h>
+#include <sound/q6afe.h>
+#include <sound/apr_audio.h>
 #include "snddev_icodec.h"
-#include "audio_acdb.h"
-
-#if defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_KOR_MODEL_SHV_E110S) || defined(CONFIG_KOR_MODEL_SHV_E120L)
-extern unsigned int get_hw_rev(void);
-#endif 
 
 #define SNDDEV_ICODEC_PCM_SZ 32 /* 16 bit / sample stereo mode */
 #define SNDDEV_ICODEC_MUL_FACTOR 3 /* Multi by 8 Shift by 3  */
@@ -323,8 +314,6 @@ static int snddev_icodec_open_rx(struct snddev_icodec_state *icodec)
 
 	trc =  clk_set_rate(drv->rx_osrclk,
 			SNDDEV_ICODEC_CLK_RATE(icodec->sample_rate));
-	//(+)dragonball		
-  printk("SNDDEV_ICODEC_CLK_RATE(icodec->sample_rate)=>%d",icodec->sample_rate);
 	if (IS_ERR_VALUE(trc)) {
 		pr_err("ERROR setting m clock1\n");
 		goto error_invalid_freq;
@@ -365,8 +354,6 @@ static int snddev_icodec_open_rx(struct snddev_icodec_state *icodec)
 	/* OSR default to 256, can be changed for power optimization
 	 * If OSR is to be changed, need clock API for setting the divider
 	 */
-	//(+)dragonball		
-  printk("adie_codec_open::profile=>%s,adie_path=>%s ",icodec->data->profile,icodec->adie_path );	 
 
 	switch (icodec->data->channel_mode) {
 	case 2:
@@ -387,9 +374,9 @@ static int snddev_icodec_open_rx(struct snddev_icodec_state *icodec)
 
 	trc = afe_open(icodec->data->copp_id, &afe_config, icodec->sample_rate);
 
-	if (IS_ERR_VALUE(trc))
+	if (trc < 0)
 		pr_err("%s: afe open failed, trc = %d\n", __func__, trc);
-	
+
 	/* Enable ADIE */
 	if (icodec->adie_path) {
 		adie_codec_proceed_stage(icodec->adie_path,
@@ -446,6 +433,15 @@ static int snddev_icodec_open_tx(struct snddev_icodec_state *icodec)
 			goto error_pamp;
 		}
 	}
+
+#ifdef CONFIG_VP_A2220
+	if (icodec->data->a2220_vp_on) {
+		if (icodec->data->a2220_vp_on()) {
+			pr_err("%s: Error turning on a2220 vp\n", __func__);
+			goto error_a2220;
+		}
+	}	
+#endif	
 
 	msm_snddev_tx_mclk_request();
 
@@ -526,8 +522,14 @@ error_invalid_freq:
 
 	if (icodec->data->pamp_off)
 		icodec->data->pamp_off();
-
+#ifdef CONFIG_VP_A2220	
+	if (icodec->data->pamp_off)
+		icodec->data->pamp_off();	
+#endif
 	pr_err("%s: encounter error\n", __func__);
+#ifdef CONFIG_VP_A2220
+error_a2220:
+#endif
 error_pamp:
 	wake_unlock(&drv->tx_idlelock);
 	return -ENODEV;
@@ -622,6 +624,11 @@ static int snddev_icodec_close_tx(struct snddev_icodec_state *icodec)
 	if (icodec->data->pamp_off)
 		icodec->data->pamp_off();
 
+#ifdef CONFIG_VP_A2220
+	if (icodec->data->a2220_vp_off)
+		icodec->data->a2220_vp_off();
+#endif
+
 	icodec->enabled = 0;
 
 	wake_unlock(&drv->tx_idlelock);
@@ -681,6 +688,8 @@ static int snddev_icodec_open(struct msm_snddev_info *dev_info)
 		mutex_lock(&drv->rx_lock);
 		if (drv->rx_active) {
 			mutex_unlock(&drv->rx_lock);
+			pr_err("%s: rx_active is set, return EBUSY\n",
+				__func__);
 			rc = -EBUSY;
 			goto error;
 		}
@@ -690,11 +699,13 @@ static int snddev_icodec_open(struct msm_snddev_info *dev_info)
 			if ((icodec->data->dev_vol_type & (
 				SNDDEV_DEV_VOL_DIGITAL |
 				SNDDEV_DEV_VOL_ANALOG)))
-			/*As per QC's suggestion for SR 623568 , return value of  snddev_icodec_set_device_volume_impl
-			 * is ignored, which was causing device open failure*/
-			rc = snddev_icodec_set_device_volume_impl(dev_info, dev_info->dev_volume);
-			if(!IS_ERR_VALUE(rc))
+				rc = snddev_icodec_set_device_volume_impl(
+						dev_info, dev_info->dev_volume);
+			if (!IS_ERR_VALUE(rc))
 				drv->rx_active = 1;
+			else
+				pr_err("%s: set_device_volume_impl"
+					" error(rx) = %d\n", __func__, rc);
 		}
 		mutex_unlock(&drv->rx_lock);
 	} else if (icodec->data->capability & SNDDEV_CAP_LB) {
@@ -705,8 +716,8 @@ static int snddev_icodec_open(struct msm_snddev_info *dev_info)
 			if ((icodec->data->dev_vol_type & (
 				SNDDEV_DEV_VOL_DIGITAL |
 				SNDDEV_DEV_VOL_ANALOG)))
-				if ( snddev_icodec_set_device_volume_impl(dev_info, dev_info->dev_volume) < 0 ) 
-					printk(" snddev_icodec_set_device_volume_impl returns error\n"); 
+				rc = snddev_icodec_set_device_volume_impl(
+						dev_info, dev_info->dev_volume);
 		}
 
 		mutex_unlock(&drv->lb_lock);
@@ -714,6 +725,8 @@ static int snddev_icodec_open(struct msm_snddev_info *dev_info)
 		mutex_lock(&drv->tx_lock);
 		if (drv->tx_active) {
 			mutex_unlock(&drv->tx_lock);
+			pr_err("%s: tx_active is set, return EBUSY\n",
+				__func__);
 			rc = -EBUSY;
 			goto error;
 		}
@@ -723,9 +736,13 @@ static int snddev_icodec_open(struct msm_snddev_info *dev_info)
 			if ((icodec->data->dev_vol_type & (
 				SNDDEV_DEV_VOL_DIGITAL |
 				SNDDEV_DEV_VOL_ANALOG)))
-				rc = snddev_icodec_set_device_volume_impl(dev_info, dev_info->dev_volume);
-				if(!IS_ERR_VALUE(rc)) 
-					drv->tx_active = 1;
+				rc = snddev_icodec_set_device_volume_impl(
+						dev_info, dev_info->dev_volume);
+			if (!IS_ERR_VALUE(rc))
+				drv->tx_active = 1;
+			else
+				pr_err("%s: set_device_volume_impl"
+					" error(tx) = %d\n", __func__, rc);
 		}
 		mutex_unlock(&drv->tx_lock);
 	}
@@ -749,12 +766,15 @@ static int snddev_icodec_close(struct msm_snddev_info *dev_info)
 		mutex_lock(&drv->rx_lock);
 		if (!drv->rx_active) {
 			mutex_unlock(&drv->rx_lock);
+			pr_err("%s: rx_active not set, return\n", __func__);
 			rc = -EPERM;
 			goto error;
 		}
 		rc = snddev_icodec_close_rx(icodec);
 		if (!IS_ERR_VALUE(rc))
 			drv->rx_active = 0;
+		else
+			pr_err("%s: close rx failed, rc = %d\n", __func__, rc);
 		mutex_unlock(&drv->rx_lock);
 	} else if (icodec->data->capability & SNDDEV_CAP_LB) {
 		mutex_lock(&drv->lb_lock);
@@ -764,12 +784,15 @@ static int snddev_icodec_close(struct msm_snddev_info *dev_info)
 		mutex_lock(&drv->tx_lock);
 		if (!drv->tx_active) {
 			mutex_unlock(&drv->tx_lock);
+			pr_err("%s: tx_active not set, return\n", __func__);
 			rc = -EPERM;
 			goto error;
 		}
 		rc = snddev_icodec_close_tx(icodec);
 		if (!IS_ERR_VALUE(rc))
 			drv->tx_active = 0;
+		else
+			pr_err("%s: close tx failed, rc = %d\n", __func__, rc);
 		mutex_unlock(&drv->tx_lock);
 	}
 
@@ -807,7 +830,7 @@ static int snddev_icodec_set_freq(struct msm_snddev_info *dev_info, u32 rate)
 
 	icodec = dev_info->private_data;
 	if (adie_codec_freq_supported(icodec->data->profile, rate) != 0) {
-		pr_err("%s: adie_codec_freq failed\n", __func__);
+		pr_err("%s: adie_codec_freq_supported() failed\n", __func__);
 		rc = -EINVAL;
 		goto error;
 	} else {
@@ -956,27 +979,11 @@ int snddev_icodec_set_device_volume(struct msm_snddev_info *dev_info,
 
 	mutex_lock(lock);
 
-	if ( snddev_icodec_set_device_volume_impl(dev_info, dev_info->dev_volume) < 0 ) 
-		printk(" snddev_icodec_set_device_volume_impl returns error\n"); 
+	rc = snddev_icodec_set_device_volume_impl(dev_info,
+			dev_info->dev_volume);
 	mutex_unlock(lock);
 	return rc;
 }
-
-
-#if 0//clean up source	defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_KOR_MODEL_SHV_E110S) || defined(CONFIG_KOR_MODEL_SHV_E120L)
-#include <linux/mfd/msm-adie-codec.h>
-
-extern struct adie_codec_action_unit headset_rx_legacy_48KHz_osr256_actions[];
-extern struct adie_codec_action_unit headset_vt_rx_legacy_48KHz_osr256_actions[];
-extern struct adie_codec_action_unit headset_voip_rx_legacy_48KHz_osr256_actions[];
-extern struct adie_codec_action_unit fm_radio_headset_rx_legacy_48KHz_osr256_actions[];
-extern struct adie_codec_action_unit tty_headset_rx_legacy_48KHz_osr256_actions[];
-extern struct adie_codec_action_unit headset_call_rx_legacy_48KHz_osr256_actions[];
-extern struct adie_codec_action_unit speaker_headset_rx_legacy_48KHz_osr256_actions[];
-#if defined(CONFIG_KOR_MODEL_SHV_E120L)
-extern struct adie_codec_action_unit lineout_rx_legacy_48KHz_osr256_actions[];
-#endif // CONFIG_KOR_MODEL_SHV_E120L
-#endif
 
 static int snddev_icodec_probe(struct platform_device *pdev)
 {
@@ -1007,55 +1014,6 @@ static int snddev_icodec_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto error;
 	}
-
-#if 0//clean up source		defined(CONFIG_USA_MODEL_SGH_T989) || defined(CONFIG_KOR_MODEL_SHV_E110S)
-#if defined(CONFIG_USA_MODEL_SGH_T989)
-	if(get_hw_rev()>=0x9) //Rev0.3, Rev0.3A
-#elif defined(CONFIG_KOR_MODEL_SHV_E110S)
-	if(get_hw_rev()!=0x4) // NOT Rev0.3
-#endif
-	{
-		pr_info("[QTR] HPH_CAPLESS_MODE  (get_hw_rev:%d) \n", get_hw_rev() );
-	}
-	else
-	{
-		if(strcmp(pdata->name, "headset_rx")==0)
-		{
-			pr_info("[QTR] %s name: %s\n", __func__, pdata->name); 
-			pdata->profile->settings->actions = &headset_rx_legacy_48KHz_osr256_actions[0];
-		}
-		if(strcmp(pdata->name, "headset_vt_rx")==0)
-		{
-			pr_info("[QTR] %s name: %s\n", __func__, pdata->name); 
-			pdata->profile->settings->actions = &headset_vt_rx_legacy_48KHz_osr256_actions[0];
-		}
-		if(strcmp(pdata->name, "headset_voip_rx")==0)
-		{
-			pr_info("[QTR] %s name: %s\n", __func__, pdata->name); 
-			pdata->profile->settings->actions = &headset_voip_rx_legacy_48KHz_osr256_actions[0];
-		}
-		if(strcmp(pdata->name, "fm_radio_headset_rx")==0)
-		{
-			pr_info("[QTR] %s name: %s\n", __func__, pdata->name); 
-			pdata->profile->settings->actions = &fm_radio_headset_rx_legacy_48KHz_osr256_actions[0];
-		}
-		if(strcmp(pdata->name, "tty_headset_rx")==0)
-		{
-			pr_info("[QTR] %s name: %s\n", __func__, pdata->name); 
-			pdata->profile->settings->actions = &tty_headset_rx_legacy_48KHz_osr256_actions[0];
-		}
-		if(strcmp(pdata->name, "headset_call_rx")==0)
-		{
-			pr_info("[QTR] %s name: %s\n", __func__, pdata->name); 
-			pdata->profile->settings->actions = &headset_call_rx_legacy_48KHz_osr256_actions[0];
-		}
-		if(strcmp(pdata->name, "speaker_headset_rx")==0)
-		{
-			pr_info("[QTR] %s name: %s\n", __func__, pdata->name); 
-			pdata->profile->settings->actions = &speaker_headset_rx_legacy_48KHz_osr256_actions[0];
-		}
-	}
-#endif
 
 	dev_info->name = pdata->name;
 	dev_info->copp_id = pdata->copp_id;

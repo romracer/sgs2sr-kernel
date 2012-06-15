@@ -32,10 +32,6 @@
 #define CBUS_NOPORT         0xFF
 
 
-
-static byte msc_return_cmd;
-static byte msc_return_value;
-
 enum
 {
     MHD_MSC_MSG_RCP             = 0x10,     // RCP sub-command

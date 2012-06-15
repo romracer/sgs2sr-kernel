@@ -19,67 +19,39 @@
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/log2.h>
-#include <linux/spinlock.h>
-#include <linux/timer.h>
 
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/input/pmic8xxx-pwrkey.h>
 
-#define PON_CNTL_1	0x1C
+#include <mach/sec_debug.h>
+
+#define PON_CNTL_1 0x1C
 #define PON_CNTL_PULL_UP BIT(7)
 #define PON_CNTL_TRIG_DELAY_MASK (0x7)
+
+static int pwrkey_status = 0;
 
 /**
  * struct pmic8xxx_pwrkey - pmic8xxx pwrkey information
  * @key_press_irq: key press irq number
- * @timer: timer for end key simulation
- * @key_pressed: flag to keep track for power key reporting
  * @pdata: platform data
- * @lock:  protect key press update and end key simulation
  */
 struct pmic8xxx_pwrkey {
 	struct input_dev *pwr;
 	int key_press_irq;
-	struct timer_list timer;
-	bool key_pressed;
 	const struct pm8xxx_pwrkey_platform_data *pdata;
-	spinlock_t lock;
 };
-
-static void pmic8xxx_pwrkey_timer(unsigned long handle)
-{
-	unsigned long flags;
-	struct pmic8xxx_pwrkey *pwrkey = (struct pmic8xxx_pwrkey *)handle;
-
-	spin_lock_irqsave(&pwrkey->lock, flags);
-	pwrkey->key_pressed = true;
-
-	input_report_key(pwrkey->pwr, KEY_POWER, 1);
-	input_sync(pwrkey->pwr);
-	spin_unlock_irqrestore(&pwrkey->lock, flags);
-}
 
 static irqreturn_t pwrkey_press_irq(int irq, void *_pwrkey)
 {
 	struct pmic8xxx_pwrkey *pwrkey = _pwrkey;
-	const struct pm8xxx_pwrkey_platform_data *pdata = pwrkey->pdata;
-	unsigned long flags;
 
-	/* no pwrkey time duration, means no screen lock key simulation */
-	if (!pwrkey->pdata->pwrkey_time_ms) {
-		input_report_key(pwrkey->pwr, KEY_POWER, 1);
-		input_sync(pwrkey->pwr);
-		return IRQ_HANDLED;
-	}
-
-	spin_lock_irqsave(&pwrkey->lock, flags);
-
-	input_report_key(pwrkey->pwr, KEY_SCREENLOCK, 1);
+	pwrkey_status = true;
+	input_report_key(pwrkey->pwr, KEY_POWER, 1);
 	input_sync(pwrkey->pwr);
-
-	mod_timer(&pwrkey->timer, jiffies +
-			 msecs_to_jiffies(pdata->pwrkey_time_ms));
-	spin_unlock_irqrestore(&pwrkey->lock, flags);
+	#if defined(CONFIG_SEC_DEBUG)
+	sec_debug_check_crash_key(KEY_POWER, 1);
+	#endif
 
 	return IRQ_HANDLED;
 }
@@ -87,33 +59,18 @@ static irqreturn_t pwrkey_press_irq(int irq, void *_pwrkey)
 static irqreturn_t pwrkey_release_irq(int irq, void *_pwrkey)
 {
 	struct pmic8xxx_pwrkey *pwrkey = _pwrkey;
-	unsigned long flags;
 
-	/* no pwrkey time, means no delay in pwr key reporting */
-	if (!pwrkey->pdata->pwrkey_time_ms) {
-		input_report_key(pwrkey->pwr, KEY_POWER, 0);
-		input_sync(pwrkey->pwr);
-		return IRQ_HANDLED;
-	}
-
-	del_timer_sync(&pwrkey->timer);
-	spin_lock_irqsave(&pwrkey->lock, flags);
-
-	if (pwrkey->key_pressed) {
-		pwrkey->key_pressed = false;
-		input_report_key(pwrkey->pwr, KEY_POWER, 0);
-		input_sync(pwrkey->pwr);
-	}
-
-	input_report_key(pwrkey->pwr, KEY_SCREENLOCK, 0);
+	pwrkey_status = false;
+	input_report_key(pwrkey->pwr, KEY_POWER, 0);
 	input_sync(pwrkey->pwr);
-
-	spin_unlock_irqrestore(&pwrkey->lock, flags);
+	#if defined(CONFIG_SEC_DEBUG)
+	sec_debug_check_crash_key(KEY_POWER, 0);
+	#endif
 
 	return IRQ_HANDLED;
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 static int pmic8xxx_pwrkey_suspend(struct device *dev)
 {
 	struct pmic8xxx_pwrkey *pwrkey = dev_get_drvdata(dev);
@@ -133,12 +90,10 @@ static int pmic8xxx_pwrkey_resume(struct device *dev)
 
 	return 0;
 }
-
-static const struct dev_pm_ops pm8xxx_pwr_key_pm_ops = {
-	.suspend	= pmic8xxx_pwrkey_suspend,
-	.resume		= pmic8xxx_pwrkey_resume,
-};
 #endif
+
+static SIMPLE_DEV_PM_OPS(pm8xxx_pwr_key_pm_ops,
+		pmic8xxx_pwrkey_suspend, pmic8xxx_pwrkey_resume);
 
 static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 {
@@ -150,21 +105,17 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	u8 pon_cntl;
 	struct pmic8xxx_pwrkey *pwrkey;
 	const struct pm8xxx_pwrkey_platform_data *pdata =
-						pdev->dev.platform_data;
+					dev_get_platdata(&pdev->dev);
 
 	if (!pdata) {
 		dev_err(&pdev->dev, "power key platform data not supplied\n");
 		return -EINVAL;
 	}
 
-	if (pdata->kpd_trigger_delay_us > 62500) {
+	/* Valid range of pwr key trigger delay is 1/64 sec to 2 seconds. */
+	if (pdata->kpd_trigger_delay_us > USEC_PER_SEC * 2 ||
+		pdata->kpd_trigger_delay_us < USEC_PER_SEC / 64) {
 		dev_err(&pdev->dev, "invalid power key trigger delay\n");
-		return -EINVAL;
-	}
-
-	if (pdata->pwrkey_time_ms &&
-	     (pdata->pwrkey_time_ms < 500 || pdata->pwrkey_time_ms > 1000)) {
-		dev_err(&pdev->dev, "invalid power key time supplied\n");
 		return -EINVAL;
 	}
 
@@ -182,14 +133,13 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	}
 
 	input_set_capability(pwr, EV_KEY, KEY_POWER);
-	input_set_capability(pwr, EV_KEY, KEY_SCREENLOCK);
 
 	pwr->name = "pmic8xxx_pwrkey";
 	pwr->phys = "pmic8xxx_pwrkey/input0";
 	pwr->dev.parent = &pdev->dev;
 
-	delay = (pdata->kpd_trigger_delay_us << 10) / USEC_PER_SEC;
-	delay = 1 + ilog2(delay);
+	delay = (pdata->kpd_trigger_delay_us << 6) / USEC_PER_SEC;
+	delay = ilog2(delay);
 
 	err = pm8xxx_readb(pdev->dev.parent, PON_CNTL_1, &pon_cntl);
 	if (err < 0) {
@@ -210,11 +160,6 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 		goto free_input_dev;
 	}
 
-	setup_timer(&pwrkey->timer, pmic8xxx_pwrkey_timer,
-				 (unsigned long) pwrkey);
-
-	spin_lock_init(&pwrkey->lock);
-
 	err = input_register_device(pwr);
 	if (err) {
 		dev_dbg(&pdev->dev, "Can't register power key: %d\n", err);
@@ -226,7 +171,7 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwrkey);
 
-	err = request_threaded_irq(key_press_irq, NULL, pwrkey_press_irq,
+	err = request_any_context_irq(key_press_irq, pwrkey_press_irq,
 		IRQF_TRIGGER_RISING, "pmic8xxx_pwrkey_press", pwrkey);
 	if (err < 0) {
 		dev_dbg(&pdev->dev, "Can't get %d IRQ for pwrkey: %d\n",
@@ -234,7 +179,7 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 		goto unreg_input_dev;
 	}
 
-	err = request_threaded_irq(key_release_irq, NULL, pwrkey_release_irq,
+	err = request_any_context_irq(key_release_irq, pwrkey_release_irq,
 		 IRQF_TRIGGER_RISING, "pmic8xxx_pwrkey_release", pwrkey);
 	if (err < 0) {
 		dev_dbg(&pdev->dev, "Can't get %d IRQ for pwrkey: %d\n",
@@ -270,7 +215,6 @@ static int __devexit pmic8xxx_pwrkey_remove(struct platform_device *pdev)
 
 	free_irq(key_press_irq, pwrkey);
 	free_irq(key_release_irq, pwrkey);
-	del_timer_sync(&pwrkey->timer);
 	input_unregister_device(pwrkey->pwr);
 	platform_set_drvdata(pdev, NULL);
 	kfree(pwrkey);
@@ -284,11 +228,14 @@ static struct platform_driver pmic8xxx_pwrkey_driver = {
 	.driver		= {
 		.name	= PM8XXX_PWRKEY_DEV_NAME,
 		.owner	= THIS_MODULE,
-#ifdef CONFIG_PM
 		.pm	= &pm8xxx_pwr_key_pm_ops,
-#endif
 	},
 };
+
+int pmic8xxx_pwrkey_status(void)
+{
+	return pwrkey_status;
+}
 
 static int __init pmic8xxx_pwrkey_init(void)
 {
@@ -301,6 +248,8 @@ static void __exit pmic8xxx_pwrkey_exit(void)
 	platform_driver_unregister(&pmic8xxx_pwrkey_driver);
 }
 module_exit(pmic8xxx_pwrkey_exit);
+
+EXPORT_SYMBOL(pmic8xxx_pwrkey_status);
 
 MODULE_ALIAS("platform:pmic8xxx_pwrkey");
 MODULE_DESCRIPTION("PMIC8XXX Power Key driver");

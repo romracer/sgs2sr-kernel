@@ -59,9 +59,14 @@ when              who                         what, where, why
 /*===========================================================================
 
 ===========================================================================*/
-
+#ifdef READ
+#undef READ
 #define READ   1
+#endif
+#ifdef WRITE
+#undef WRITE
 #define WRITE  0
+#endif
 
 #define LAST_BYTE      1
 #define NOT_LAST_BYTE  0
@@ -80,6 +85,15 @@ do{\
 		return false;\
 	}\
 }while(0)
+
+#define EXIT_ON_CABLE_DISCONNECTION_V \
+do{\
+	if(!get_mhl_power_state())	{\
+		printk("MHL Power off Or cable disconnected \n\r");\
+		return;\
+	}\
+}while(0)
+
 /*===========================================================================
 
 ===========================================================================*/
@@ -97,7 +111,7 @@ void I2C_WriteByte(byte deviceID, byte offset, byte value)
 		return;	
 	}
 	
-	EXIT_ON_CABLE_DISCONNECTION;
+	EXIT_ON_CABLE_DISCONNECTION_V;
 	if(deviceID == 0x72)
 		ret = SII9234_i2c_write(client_ptr,offset,value);
 	else if(deviceID == 0x7A)
@@ -154,7 +168,7 @@ byte ReadByteTPI (byte Offset)
 
 void WriteByteTPI (byte Offset, byte Data) 
 {
-	EXIT_ON_CABLE_DISCONNECTION;
+	EXIT_ON_CABLE_DISCONNECTION_V;
 	I2C_WriteByte(SA_TX_Page0_Primary, Offset, Data);
 }
 
@@ -164,7 +178,7 @@ void ReadModifyWriteTPI(byte Offset, byte Mask, byte Data)
 {
 
 	byte Temp;
-	EXIT_ON_CABLE_DISCONNECTION;
+	EXIT_ON_CABLE_DISCONNECTION_V;
 	Temp = ReadByteTPI(Offset);		// Read the current value of the register.
 	Temp &= ~Mask;					// Clear the bits that are set in Mask.
 	Temp |= (Data & Mask);			// OR in new value. Apply Mask to Value for safety.
@@ -179,14 +193,14 @@ byte ReadByteCBUS (byte Offset)
 
 void WriteByteCBUS(byte Offset, byte Data) 
 {
-	EXIT_ON_CABLE_DISCONNECTION;
+	EXIT_ON_CABLE_DISCONNECTION_V;
 	I2C_WriteByte(SA_TX_CBUS_Primary, Offset, Data);
 }
 
 void ReadModifyWriteCBUS(byte Offset, byte Mask, byte Value) 
 {
   byte Temp;
-  EXIT_ON_CABLE_DISCONNECTION;
+  EXIT_ON_CABLE_DISCONNECTION_V;
   Temp = ReadByteCBUS(Offset);
   Temp &= ~Mask;
   Temp |= (Value & Mask);
@@ -252,7 +266,7 @@ byte ReadIndexedRegister (byte PageNum, byte Offset)
 
 void WriteIndexedRegister (byte PageNum, byte Offset, byte Data) 
 {
-	EXIT_ON_CABLE_DISCONNECTION;
+	EXIT_ON_CABLE_DISCONNECTION_V;
 	WriteByteTPI(TPI_INDEXED_PAGE_REG, PageNum);		// Indexed page
 	WriteByteTPI(TPI_INDEXED_OFFSET_REG, Offset);		// Indexed register
 	WriteByteTPI(TPI_INDEXED_VALUE_REG, Data);			// Write value
@@ -284,7 +298,7 @@ void ReadModifyWriteIndexedRegister (byte PageNum, byte Offset, byte Mask, byte 
 {
 
 	byte Temp;
-	EXIT_ON_CABLE_DISCONNECTION;
+	EXIT_ON_CABLE_DISCONNECTION_V;
 	Temp = ReadIndexedRegister (PageNum, Offset);	// Read the current value of the register.
 	Temp &= ~Mask;									// Clear the bits that are set in Mask.
 	Temp |= (Data & Mask);							// OR in new value. Apply Mask to Value for safety.

@@ -179,9 +179,7 @@ struct msm_audio {
 
 /* platform data */
 extern int audio_dsp_out_enable(struct msm_audio *prtd, int yes);
-extern struct snd_soc_platform msm_soc_platform;
-extern struct snd_soc_dai msm_dais[2];
-extern struct snd_soc_codec_device soc_codec_dev_msm;
+extern struct snd_soc_platform_driver msm_soc_platform;
 
 int audrec_encoder_config(struct msm_audio *prtd);
 extern void alsa_get_dsp_frames(struct msm_audio *prtd);

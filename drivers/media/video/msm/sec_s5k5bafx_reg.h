@@ -2543,14 +2543,14 @@ static const u32 s5k5bafx_common[] = {
 	0x002A03FC,
 	0x0F120001,
 
-       0xffff0064, /* 100ms */
+        0xffff0064, /* ADD  100ms, kmkim */
 	
 	0x0028D000,
 	0x002AB0CC,
 	0x0F12000B,
 	/* END of Initial-0719*/
 
-	0xffff0096, //ADD 150ms, kmkim
+	//0xffff0032, //ADD 150ms, kmkim  - 100ms
 };
 
 /* Set-data based on SKT VT standard ,when using 3G network */
@@ -5090,13 +5090,13 @@ static const u32 s5k5bafx_vt_common[] =
 	0x002A03FC,
 	0x0F120001,
 
-  0xffff0064, /* 100ms */
+        0xffff0064, /* ADD  100ms, kmkim */
 	
 	0x0028D000,
 	0x002AB0CC,
 	0x0F12000B,
 	/*SKT-VT END of Initial*/
-	0xffff0096, //ADD 150ms, kmkim
+	0xffff0032, //ADD 150ms, kmkim - 100ms
 
 };
 
@@ -7638,7 +7638,7 @@ static const u32 s5k5bafx_vt_wifi_common[] =
 	0x002A03FC,
 	0x0F120001,
 
-  0xffff0064, /* 100ms */
+        0xffff0064, /* ADD  100ms, kmkim */
 	
 	0x0028D000,
 	0x002AB0CC,
@@ -10242,13 +10242,13 @@ static const u32 s5k5bafx_recording_60Hz_common[] = {
 	0x0F120001,
 
 
-	0xffff0064, /* 100ms */
+        0xffff0064, /* ADD  100ms, kmkim */
 	0x0028D000,
 	0x002AB0CC,
 	0x0F12000B,
 
 	/* Recording 25fps Anti-Flicker 60Hz END of Initial */
-	0xffff0064, //ADD 100ms, kmkim
+	//0xffff0064, //ADD 100ms, kmkim - 100ms
 };
 
 static const u32 s5k5bafx_recording_50Hz_common[] = {
@@ -12778,14 +12778,14 @@ static const u32 s5k5bafx_recording_50Hz_common[] = {
 	0x002A03FC,
 	0x0F120001,
 
-  0xffff0064, /* 100ms */
+        0xffff0064, /* ADD  100ms, kmkim */
 	
 	0x0028D000,
 	0x002AB0CC,
 	0x0F12000B,
 
 	/* Recording 25fps Anti-Flicker 50Hz END of Initial */
-	0xffff0064, //ADD 100ms, kmkim
+	//0xffff0064, //ADD 100ms, kmkim -100ms
 };
 
 

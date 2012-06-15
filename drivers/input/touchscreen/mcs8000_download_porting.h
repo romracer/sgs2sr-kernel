@@ -92,7 +92,7 @@ typedef unsigned char		BOOLEAN;
 
 // For printing debug information. ( Please check 'printing function' )
 #define MELFAS_ENABLE_DBG_PRINT											1
-#define MELFAS_ENABLE_DBG_PROGRESS_PRINT								1
+#define MELFAS_ENABLE_DBG_PROGRESS_PRINT								0
 
 // For delay function test. ( Disable after Porting is finished )
 #define MELFAS_ENABLE_DELAY_TEST										0

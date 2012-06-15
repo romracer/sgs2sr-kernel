@@ -28,15 +28,15 @@
 
 static inline void notify_other_proc_comm(void)
 {
-#if defined(CONFIG_ARCH_MSM7X30)
-	writel_relaxed(1 << 6, MSM_GCC_BASE + 0x8);
-#elif defined(CONFIG_ARCH_MSM8X60)
-	writel_relaxed(1 << 5, MSM_GCC_BASE + 0x8);
-#else
-	writel_relaxed(1, MSM_CSR_BASE + 0x400 + (6) * 4);
-#endif
-	/* Make sure the write completes before returning */
+	/* Make sure the write completes before interrupt */
 	wmb();
+#if defined(CONFIG_ARCH_MSM7X30)
+	__raw_writel(1 << 6, MSM_GCC_BASE + 0x8);
+#elif defined(CONFIG_ARCH_MSM8X60)
+	__raw_writel(1 << 5, MSM_GCC_BASE + 0x8);
+#else
+	__raw_writel(1, MSM_CSR_BASE + 0x400 + (6) * 4);
+#endif
 }
 
 #define APP_COMMAND 0x00
@@ -50,6 +50,7 @@ static inline void notify_other_proc_comm(void)
 #define MDM_DATA2   0x1C
 
 static DEFINE_SPINLOCK(proc_comm_lock);
+static int msm_proc_comm_disable;
 
 /* Poll for a state change, checking for possible
  * modem crashes along the way (so we don't wait
@@ -92,7 +93,7 @@ again:
 	spin_unlock_irqrestore(&proc_comm_lock, flags);
 
 	/* Make sure the writes complete before notifying the other side */
-	dsb();
+	wmb();
 	notify_other_proc_comm();
 
 	return;
@@ -107,6 +108,12 @@ int msm_proc_comm(unsigned cmd, unsigned *data1, unsigned *data2)
 
 	spin_lock_irqsave(&proc_comm_lock, flags);
 
+	if (msm_proc_comm_disable) {
+		ret = -EIO;
+		goto end;
+	}
+
+
 again:
 	if (proc_comm_wait_for(base + MDM_STATUS, PCOM_READY))
 		goto again;
@@ -116,7 +123,7 @@ again:
 	writel_relaxed(data2 ? *data2 : 0, base + APP_DATA2);
 
 	/* Make sure the writes complete before notifying the other side */
-	dsb();
+	wmb();
 	notify_other_proc_comm();
 
 	if (proc_comm_wait_for(base + APP_COMMAND, PCOM_CMD_DONE))
@@ -134,8 +141,17 @@ again:
 
 	writel_relaxed(PCOM_CMD_IDLE, base + APP_COMMAND);
 
+	switch (cmd) {
+	case PCOM_RESET_CHIP:
+	case PCOM_RESET_CHIP_IMM:
+	case PCOM_RESET_APPS:
+		msm_proc_comm_disable = 1;
+		printk(KERN_ERR "msm: proc_comm: proc comm disabled\n");
+		break;
+	}
+end:
 	/* Make sure the writes complete before returning */
-	dsb();
+	wmb();
 	spin_unlock_irqrestore(&proc_comm_lock, flags);
 	return ret;
 }

@@ -71,6 +71,8 @@
 
 //------------------------------------------------------------------------------
 
+static byte msc_return_cmd;
+static byte msc_return_value;
 
 
 static cbusChannelState_t l_cbus[MHD_MAX_CHANNELS];
@@ -1132,7 +1134,7 @@ static byte CBusConmmandGetNextInQueue( byte channel )
 }
 
 
-
+#if 0//not used
 //------------------------------------------------------------------------------
 
 // Function:    CBusResetToIdle
@@ -1170,6 +1172,7 @@ static void CBusResetToIdle ( byte channel )
     }
 
 }
+#endif
 
 
 
@@ -1193,7 +1196,7 @@ static byte CBusCheckInterruptStatus ( byte channel )
 
   byte 	intStatus, result;
 
-  byte     vs_cmd, vs_data;
+  byte     vs_cmd=0, vs_data=0;
 
   byte 	writeBurstLen 	= 0;
 
@@ -1947,7 +1950,7 @@ Bool SI_CbusInitialize ( void )
 
 	int	result = STATUS_SUCCESS;
 
-	int	port = 0;
+//	int	port = 0;
 
 	word	devcap_reg;
 

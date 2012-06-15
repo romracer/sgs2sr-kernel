@@ -102,6 +102,8 @@ struct str_smart_dim{
     u32 *g22_tbl;
     u32 *g300_gra_tbl;
     u32 adjust_volt[CI_MAX][AD_IVMAX];
+    s16 adjust_mtp[CI_MAX][IV_MAX];
+
     //u32 *ad_cv;
     //u32 *ad_dv;
     //u32 refvolt;

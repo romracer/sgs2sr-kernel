@@ -272,8 +272,6 @@ u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp)
 #endif
     int offset = 0;
     s16 t1,t2; 
-    s16 adjust_mtp[CI_MAX][IV_MAX] = {0, };
-    //u32 adjust_volt[CI_MAX][AD_IVMAX] = {0, };
     u8 range_index; 
     u8 table_index=0;
 
@@ -308,9 +306,10 @@ u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp)
             smart->default_gamma[offset+1]) + t1;
 #else
         t2 = (smart->default_gamma[offset]<<8 | smart->default_gamma[offset+1]) + t1;
+
 #endif
         smart->mtp[c][IV_255] = t1;
-        adjust_mtp[c][IV_255] = t2;
+        smart->adjust_mtp[c][IV_255] = t2;
         smart->adjust_volt[c][AD_IV255] = calc_volt[IV_255](t2, c, smart->adjust_volt);
         
   //for V0 All RGB Voltage Value is Reference Voltage      
@@ -327,7 +326,7 @@ u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp)
             t2 = smart->default_gamma[CI_MAX*calc_seq[i]+c] + t1;
             
             smart->mtp[c][calc_seq[i]] = t1;
-            adjust_mtp[c][calc_seq[i]] = t2;
+            smart->adjust_mtp[c][calc_seq[i]] = t2;
             smart->adjust_volt[c][ad_seq[i]] = calc_volt[calc_seq[i]](t2, c, smart->adjust_volt);
         }
     }
@@ -354,7 +353,7 @@ u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp)
         table_index = j;
     }
 
-#if 0 
+#if 1 
 
     printk("++++++++++++++++++++++++++++++ MTP VALUE ++++++++++++++++++++++++++++++\n");
     for(i=IV_1;i<IV_MAX;i++){
@@ -370,7 +369,7 @@ u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp)
         printk("V Level : %d - ",i);
         for(c=CI_RED;c<CI_MAX;c++){
             printk("  %c : 0x%08x(%04d)",color_name[c],
-                adjust_mtp[c][i],adjust_mtp[c][i]);
+                smart->adjust_mtp[c][i],smart->adjust_mtp[c][i]);
         }
         printk("\n");
     }
@@ -385,7 +384,7 @@ u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp)
         }
         printk("\n");
     }
-
+#if 0
     printk("\n\n++++++++++++++++++++++++++++++++++++++  VOLTAGE TABLE ++++++++++++++++++++++++++++++++++++++\n");
     for(i=0;i<256;i++){
         printk("Gray Level : %03d - ",i);
@@ -395,6 +394,7 @@ u8 calc_voltage_table(struct str_smart_dim *smart, const u8 *mtp)
         }
         printk("\n");
     }
+#endif    
 #endif    
     return 0;
 }
@@ -563,7 +563,7 @@ u32 calc_v15_reg(int ci, u32 dv[CI_MAX][IV_MAX])
     ret = ret/1000;
 #else
     t1 = (v1 - v15) << 10;
-    t2 = v1 - v35;
+	t2 = (v1 - v35) ? (v1 - v35) : (v1) ? v1 : 1;
     ret = (320 * (t1/t2)) - (20 << 10);
     ret >>= 10;
     
@@ -589,7 +589,7 @@ u32 calc_v35_reg(int ci, u32 dv[CI_MAX][IV_MAX])
     ret = ret/1000;
 #else
     t1 = (v1 - v35) << 10;
-    t2 = v1 - v57;
+	t2 = (v1 - v57) ? (v1 - v57) : (v1) ? v1 : 1;
     ret = (320 * (t1/t2)) - (65 << 10);
 
     ret >>= 10;
@@ -615,7 +615,7 @@ u32 calc_v50_reg(int ci, u32 dv[CI_MAX][IV_MAX])
     ret = ret/1000;
 #else
     t1 = (v1 - v57) << 10;
-    t2 = v1 - v87;
+	t2 = (v1 - v87) ? (v1 - v87) : (v1) ? v1 : 1;
     ret = (320 * (t1/t2)) - (65 << 10);
     ret >>= 10;
 #endif
@@ -638,7 +638,7 @@ u32 calc_v87_reg(int ci, u32 dv[CI_MAX][IV_MAX])
     ret = ret/1000;
 #else
     t1 = (v1 - v87) << 10;
-    t2 = v1 - v171;
+	t2 = (v1 - v171) ? (v1 - v171) : (v1) ? v1 : 1;
     ret = (320 * (t1/t2)) - (65 << 10);
     ret >>= 10;
 #endif
@@ -664,7 +664,7 @@ u32 calc_v171_reg(int ci, u32 dv[CI_MAX][IV_MAX])
     ret = ret/1000;
 #else
     t1 = (v1 - v171) << 10;
-    t2 = v1 - v255;
+	t2 = (v1 - v255) ? (v1 - v255) : (v1) ? v1 : 1;
     ret = (320 * (t1/t2)) - (65 << 10);
     ret >>= 10;
 #endif
@@ -694,7 +694,7 @@ u32 calc_gamma_table(struct str_smart_dim *smart, u32 gv, u8 result[])
     u32 temp;
     u32 lidx;
     u32 dv[CI_MAX][IV_MAX];
-    s16 gamma[CI_MAX][IV_MAX] = {0, };
+    u16 gamma[CI_MAX][IV_MAX] = {0, };
     u16 offset;
     const u32(*calc_reg[IV_MAX])(int ci, u32 dv[CI_MAX][IV_MAX]) = 
     {
@@ -720,31 +720,36 @@ u32 calc_gamma_table(struct str_smart_dim *smart, u32 gv, u8 result[])
         }
     }
 
-    // for IV1 does not calculate value
-    // just use default gamma value (IV1)
+    // for IV1 does not calculate value just use default gamma value (IV1)
     for(c=CI_RED;c<CI_MAX;c++){
-        gamma[c][IV_1] = smart->default_gamma[c];
+        gamma[c][IV_1] = (u16)smart->default_gamma[c];
     }
         
     for(i=IV_15;i<IV_MAX;i++){
         for(c=CI_RED;c<CI_MAX;c++){
-            gamma[c][i] = (s16)calc_reg[i](c,dv) - smart->mtp[c][i];
+            gamma[c][i] = (u16)(calc_reg[i](c,dv) - smart->mtp[c][i]);
         }
     }
 
     for(c=CI_RED;c<CI_MAX;c++){
         offset = IV_255*CI_MAX+c*2;
-        result[offset] = (gamma[c][IV_255] & 0xff00) >> 8;
-        result[offset+1] = gamma[c][IV_255] & 0xff;
+#if 0        
+        printk("offset : %d, gamma : %x\n",offset, gamma[c][IV_255]);
+        printk("offset 1 : %x, offset 2 : %x\n",
+            (gamma[c][IV_255] >> 8) & 0xff, gamma[c][IV_255] & 0xff);
+#endif        
+        result[offset] = (u8)((gamma[c][IV_255] >> 8) & 0xff);
+        result[offset+1] = (u8)(gamma[c][IV_255] & 0xff);    
     }
 
     for(c=CI_RED;c<CI_MAX;c++){
         for(i=IV_1;i<IV_255;i++){
-            result[(CI_MAX*i)+c] = gamma[c][i];
+            result[(CI_MAX*i)+c] = (u8)gamma[c][i];
         }
     }
  
 #if 0 
+
     printk("\n\n++++++++++++++++++++++++++++++ FOUND VOLTAGE ++++++++++++++++++++++++++++++\n");
     for(i=IV_1;i<IV_MAX;i++){
         printk("V Level : %d - ",i);
@@ -754,7 +759,9 @@ u32 calc_gamma_table(struct str_smart_dim *smart, u32 gv, u8 result[])
         }
         printk("\n");
     }
+#endif
 
+#if 0
     
     printk("\n\n++++++++++++++++++++++++++++++ FOUND REG ++++++++++++++++++++++++++++++\n");
     for(i=IV_1;i<IV_MAX;i++){
@@ -765,6 +772,8 @@ u32 calc_gamma_table(struct str_smart_dim *smart, u32 gv, u8 result[])
         }
         printk("\n");
     }
+
+
 #endif     
     return 0;    
 }

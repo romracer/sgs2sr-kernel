@@ -1,4 +1,4 @@
-/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <mach/dal_axi.h>
@@ -36,6 +31,11 @@ enum {
 	DAL_AXI_BRIDGE_CFG_CGR_SS_3DGRP_ISOSYNC_MODE,
 	DAL_AXI_BRIDGE_CFG_CGR_SS_3DGRP_DEBUG_EN,
 	DAL_AXI_BRIDGE_CFG_CGR_SS_3DGRP_DEBUG_DIS,
+	/* 7x27(A) Graphics Subsystem Bridge Configuration */
+	DAL_AXI_BRIDGE_CFG_GRPSS_XBAR_SYNC_MODE = 58,
+	DAL_AXI_BRIDGE_CFG_GRPSS_XBAR_ASYNC_MODE = 59,
+	DAL_AXI_BRIDGE_CFG_GRPSS_XBAR_ISOSYNC_MODE = 60
+
 };
 
 static int axi_configure_bridge_grfx_sync_mode(int bridge_mode)
@@ -94,4 +94,9 @@ int set_grp3d_async(void)
 {
 	return axi_configure_bridge_grfx_sync_mode(
 		DAL_AXI_BRIDGE_CFG_CGR_SS_3DGRP_ASYNC_MODE);
+}
+
+int set_grp_xbar_async(void)
+{	return axi_configure_bridge_grfx_sync_mode(
+		DAL_AXI_BRIDGE_CFG_GRPSS_XBAR_ASYNC_MODE);
 }

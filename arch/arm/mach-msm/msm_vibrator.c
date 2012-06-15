@@ -2,6 +2,7 @@
  *
  * Copyright (C) 2008 HTC Corporation.
  * Copyright (C) 2007 Google, Inc.
+ * Copyright (c) 2011 Code Aurora Forum. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -17,8 +18,9 @@
 #include <linux/platform_device.h>
 #include <linux/err.h>
 #include <linux/hrtimer.h>
-#include <../../../drivers/staging/android/timed_output.h>
 #include <linux/sched.h>
+#include "pmic.h"
+#include "timed_output.h"
 
 #include <mach/msm_rpcrouter.h>
 
@@ -36,6 +38,26 @@ static struct work_struct work_vibrator_on;
 static struct work_struct work_vibrator_off;
 static struct hrtimer vibe_timer;
 
+#ifdef CONFIG_PM8XXX_RPC_VIBRATOR
+static void set_pmic_vibrator(int on)
+{
+	int rc;
+
+	rc = pmic_vib_mot_set_mode(PM_VIB_MOT_MODE__MANUAL);
+	if (rc) {
+		pr_err("%s: Vibrator set mode failed", __func__);
+		return;
+	}
+
+	if (on)
+		rc = pmic_vib_mot_set_volt(PMIC_VIBRATOR_LEVEL);
+	else
+		rc = pmic_vib_mot_set_volt(0);
+
+	if (rc)
+		pr_err("%s: Vibrator set voltage level failed", __func__);
+}
+#else
 static void set_pmic_vibrator(int on)
 {
 	static struct msm_rpc_endpoint *vib_endpoint;
@@ -62,6 +84,7 @@ static void set_pmic_vibrator(int on)
 	msm_rpc_call(vib_endpoint, HTC_PROCEDURE_SET_VIB_ON_OFF, &req,
 		sizeof(req), 5 * HZ);
 }
+#endif
 
 static void pmic_vibrator_on(struct work_struct *work)
 {
@@ -104,9 +127,10 @@ static int vibrator_get_time(struct timed_output_dev *dev)
 {
 	if (hrtimer_active(&vibe_timer)) {
 		ktime_t r = hrtimer_get_remaining(&vibe_timer);
-		return r.tv.sec * 1000 + r.tv.nsec / 1000000;
-	} else
-		return 0;
+		struct timeval t = ktime_to_timeval(r);
+		return t.tv_sec * 1000 + t.tv_usec / 1000;
+	}
+	return 0;
 }
 
 static enum hrtimer_restart vibrator_timer_func(struct hrtimer *timer)

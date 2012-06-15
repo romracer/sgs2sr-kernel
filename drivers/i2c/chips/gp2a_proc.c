@@ -26,14 +26,15 @@ u32 lightsensor_get_adc(int channel)
 						__func__, channel, ret);
 		goto out;
 	}
-	ret = wait_for_completion_interruptible_timeout(&conv_complete_evt, 10*HZ);
+	ret = wait_for_completion_timeout(&conv_complete_evt, 10*HZ);
 	if (!ret) {
 		pr_err("%s: wait interrupted channel %d ret=%d\n",
 						__func__, channel, ret);
 #ifdef CONFIG_SEC_DEBUG_PM8058_ADC_VERBOSE
 		adc_dbg_info_timer(0);
 #else
-		pm8058_xoadc_clear_recentQ();
+		pm8058_xoadc_clear_recentQ(h);
+		adc_channel_close(h);
 #ifdef CONFIG_SEC_DEBUG_PM8058_ADC
 		if(retry_cnt++ >= 10)
 			adc_dbg_info_timer(0);

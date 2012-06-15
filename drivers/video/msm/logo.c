@@ -23,6 +23,7 @@
 
 #include <linux/irq.h>
 #include <asm/system.h>
+#include <asm/cacheflush.h>
 
 #define fb_width(fb)	((fb)->var.xres)
 #define fb_height(fb)	((fb)->var.yres)
@@ -36,23 +37,23 @@ static int progress_pos;
 static struct timer_list progress_timer;
 
 #ifdef CONFIG_FB_MSM_MIPI_S6E8AA0_HD720_PANEL
+#define PROGRESS_BAR_WIDTH	4
+#define PROGRESS_BAR_HEIGHT	8
 #define PROGRESS_BAR_LEFT_POS	82
 #define PROGRESS_BAR_RIGHT_POS	637
 #define PROGRESS_BAR_START_Y	922
+#elif defined(CONFIG_FB_MSM_MIPI_S6E8AA0_WXGA_Q1_PANEL)
 #define PROGRESS_BAR_WIDTH	4
 #define PROGRESS_BAR_HEIGHT	8
-#elif CONFIG_FB_MSM_MIPI_S6E8AA0_WXGA_Q1_PANEL
 #define PROGRESS_BAR_LEFT_POS	82
-#define PROGRESS_BAR_RIGHT_POS	759
+#define PROGRESS_BAR_RIGHT_POS	717
 #define PROGRESS_BAR_START_Y	922
+#else
 #define PROGRESS_BAR_WIDTH	4
 #define PROGRESS_BAR_HEIGHT	8
-#else
 #define PROGRESS_BAR_LEFT_POS	54
 #define PROGRESS_BAR_RIGHT_POS	425
 #define PROGRESS_BAR_START_Y	576
-#define PROGRESS_BAR_WIDTH	4
-#define PROGRESS_BAR_HEIGHT	8
 #endif
 
 static unsigned char anycall_progress_bar_left[] =
@@ -85,7 +86,7 @@ static unsigned char anycall_progress_bar_center[] =
 	0x2E, 0xB1, 0xDB, 0x00, 0x2E, 0xB1, 0xDB, 0x00, 0x33, 0x33, 0x33, 0x00, 0x33, 0x33, 0x33, 0x00
 };
 
-static unsigned char anycall_progress_bar[] = 
+static unsigned char anycall_progress_bar[] =
 {
 	0x33, 0x33, 0x33, 0x00, 0x33, 0x33, 0x33, 0x00, 0x33, 0x33, 0x33, 0x00, 0x33, 0x33, 0x33, 0x00,
 	0x33, 0x33, 0x33, 0x00, 0x33, 0x33, 0x33, 0x00, 0x33, 0x33, 0x33, 0x00, 0x33, 0x33, 0x33, 0x00,
@@ -136,7 +137,7 @@ int load_565rle_image(char *filename)
 	unsigned short *data, *bits, *ptr;
 	struct fb_info *info;
 #ifndef CONFIG_FRAMEBUFFER_CONSOLE 
-    struct module *owner; 
+	struct module *owner; 
 #endif 	
 	info = registered_fb[0];
 	
@@ -146,13 +147,13 @@ int load_565rle_image(char *filename)
 		return -ENODEV;
 	}
 #ifndef CONFIG_FRAMEBUFFER_CONSOLE 
-    owner = info->fbops->owner; 
-    if (!try_module_get(owner)) 
-        return NULL; 
-    if (info->fbops->fb_open && info->fbops->fb_open(info, 0)) { 
-        module_put(owner); 
-        return NULL; 
-    } 
+	owner = info->fbops->owner; 
+	if (!try_module_get(owner)) 
+		return NULL; 
+	if (info->fbops->fb_open && info->fbops->fb_open(info, 0)) { 
+		module_put(owner); 
+		return NULL; 
+	}
 #endif
 	fd = sys_open(filename, O_RDONLY, 0);
 	if (fd < 0) {
@@ -184,7 +185,7 @@ printk("%s: count %d\n",__func__, count);
 
 	ptr = data;
 	bits = (unsigned short *)(info->screen_base);
-printk("%s: max %d, n %d 0x%x, w %d, h %d\n",__func__, max, ptr[0], (unsigned int)bits, fb_width(info), fb_height(info));
+printk("%s: max %d, n %d 0x%x\n",__func__, max, ptr[0], (unsigned int)bits);
 	while (count > 3) {
 		unsigned n = ptr[0];
 		if (n > max)
@@ -196,11 +197,10 @@ printk("%s: max %d, n %d 0x%x, w %d, h %d\n",__func__, max, ptr[0], (unsigned in
 		ptr += 2;
 		count -= 4;
 	}
-#if !defined (CONFIG_USA_MODEL_SGH_I727)
+#if !defined (CONFIG_USA_OPERATOR_ATT) && !defined (CONFIG_JPN_MODEL_SC_03D) && !defined (CONFIG_CAN_OPERATOR_RWC)
 	if (!is_lpcharging_state() && !sec_debug_is_recovery_mode())
 		s3cfb_start_progress(info);
 #endif
-
 
 err_logo_free_data:
 	kfree(data);
@@ -305,9 +305,34 @@ static void s3cfb_update_framebuffer(struct fb_info *fb,
 	for (row = 0; row < src_height ; row++)	
 	{		
 		memcpy(pDst, pSrc, src_width * bytes_per_pixel);
+		flush_cache_all();
 		pSrc += src_width * bytes_per_pixel;
 		pDst += fix->line_length;
 	}
+ }
+
+
+/*
+if Updated-pixel is overwrited by other color, progressbar-Update Stop.
+return value : TRUE(update), FALSE(STOP)
+*/
+static int s3cfb_check_progress(struct fb_info *fb, const int progress_pos, int width)
+{
+	unsigned char *pDst = fb->screen_base;
+	struct fb_fix_screeninfo *fix = &fb->fix;
+	struct fb_var_screeninfo *var = &fb->var;
+	int bytes_per_pixel = (var->bits_per_pixel / 8);
+	int x = PROGRESS_BAR_LEFT_POS;
+	int y = PROGRESS_BAR_START_Y;
+
+	if (progress_pos + width >= PROGRESS_BAR_RIGHT_POS)
+		return 0;
+
+	pDst += y * fix->line_length + x * bytes_per_pixel;
+	if (*pDst == anycall_progress_bar_left[0])
+		return 1;
+	else
+		return 0;
 }
 
 static void s3cfb_start_progress(struct fb_info *fb)
@@ -360,40 +385,41 @@ static void s3cfb_stop_progress(void)
 	progress_flag = 0;
 }
 
+#ifdef CONFIG_FB_MSM_MIPI_S6E8AA0_HD720_PANEL
+#define CENTERBAR_WIDTH 12
+#elif defined(CONFIG_FB_MSM_MIPI_S6E8AA0_WXGA_Q1_PANEL)
+#define CENTERBAR_WIDTH 12
+#else
+#define CENTERBAR_WIDTH 10
+#endif
 static void progress_timer_handler(unsigned long data)
 {	
 	int i;	
-#if defined(CONFIG_FB_MSM_MIPI_S6E8AA0_HD720_PANEL) || defined(CONFIG_FB_MSM_MIPI_S6E8AA0_WXGA_Q1_PANEL)
-	for(i = 0; i < 8; i++)	
-#else		
-	for(i = 0; i < 5; i++)	
-#endif		
-	{		
-		s3cfb_update_framebuffer((struct fb_info *)data,
-			progress_pos++,
+
+	if (s3cfb_check_progress((struct fb_info *)data, progress_pos, CENTERBAR_WIDTH)) {	
+		for(i = 0; i < CENTERBAR_WIDTH; i++)	
+		{		
+			s3cfb_update_framebuffer((struct fb_info *)data,
+				progress_pos++,
+				PROGRESS_BAR_START_Y,
+				(void*)anycall_progress_bar_center,					
+				1,
+				PROGRESS_BAR_HEIGHT);	
+		}	
+	
+		s3cfb_update_framebuffer((struct fb_info *)data,		
+			progress_pos,
 			PROGRESS_BAR_START_Y,
-			(void*)anycall_progress_bar_center,					
-			1,
-			PROGRESS_BAR_HEIGHT);	
-	}	
-	
-	s3cfb_update_framebuffer((struct fb_info *)data,		
-		progress_pos,
-		PROGRESS_BAR_START_Y,
-		(void*)anycall_progress_bar_right,		
-		PROGRESS_BAR_WIDTH,
-		PROGRESS_BAR_HEIGHT);    
-	
-	if (progress_pos + PROGRESS_BAR_WIDTH >= PROGRESS_BAR_RIGHT_POS )    
-	{        
-		s3cfb_stop_progress();    
-	}    
-	else    
-	{        
-		progress_timer.expires = (get_jiffies_64() + (HZ/14));         
-		progress_timer.function = progress_timer_handler;         
-		add_timer(&progress_timer);    
-	}
+			(void*)anycall_progress_bar_right,		
+			PROGRESS_BAR_WIDTH,
+			PROGRESS_BAR_HEIGHT);
+		
+			progress_timer.expires = (get_jiffies_64() + (HZ/14));         
+			progress_timer.function = progress_timer_handler;         
+			add_timer(&progress_timer);    
+	} else
+		s3cfb_stop_progress();
+
 }
 
 EXPORT_SYMBOL(s3cfb_start_progress);

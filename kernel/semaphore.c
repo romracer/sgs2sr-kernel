@@ -32,7 +32,6 @@
 #include <linux/semaphore.h>
 #include <linux/spinlock.h>
 #include <linux/ftrace.h>
-#include <linux/slab.h>
 
 #include <mach/sec_debug.h>
 

@@ -38,7 +38,6 @@ struct cpufreq_stats {
 	unsigned int state_num;
 	unsigned int last_index;
 	cputime64_t *time_in_state;
-	cputime64_t *percentage;
 	unsigned int *freq_table;
 #ifdef CONFIG_CPU_FREQ_STAT_DETAILS
 	unsigned int *trans_table;
@@ -64,10 +63,6 @@ static int cpufreq_stats_update(unsigned int cpu)
 		stat->time_in_state[stat->last_index] =
 			cputime64_add(stat->time_in_state[stat->last_index],
 				      cputime_sub(cur_time, stat->last_time));
-	if (stat->percentage)
-		stat->percentage[stat->last_index] =
-			cputime64_add(stat->percentage[stat->last_index],
-				      cputime_sub(cur_time, stat->last_time));
 	stat->last_time = cur_time;
 	spin_unlock(&cpufreq_stats_lock);
 	return 0;
@@ -81,46 +76,6 @@ static ssize_t show_total_trans(struct cpufreq_policy *policy, char *buf)
 	return sprintf(buf, "%d\n",
 			per_cpu(cpufreq_stats_table, stat->cpu)->total_trans);
 }
-
-static ssize_t store_percentage(struct cpufreq_policy *policy,
-		const char *buf, size_t count)
-{
-	int i;
-	struct cpufreq_stats *stat = per_cpu(cpufreq_stats_table, policy->cpu);
-	if (!stat)
-		return 0;
-	cpufreq_stats_update(stat->cpu);
-	for (i = 0; i < stat->state_num; i++)
-		stat->percentage[i] = 0;
-	return count;
-}
-
-static ssize_t show_percentage(struct cpufreq_policy *policy, char *buf)
-{
-	ssize_t len = 0;
-	int i;
-	unsigned long sum = 0;
-	struct cpufreq_stats *stat = per_cpu(cpufreq_stats_table, policy->cpu);
-	if (!stat)
-		return 0;
-	cpufreq_stats_update(stat->cpu);
-	for (i = 0; i < stat->state_num; i++)
-		sum += cputime64_to_clock_t(stat->percentage[i]);
-	for (i = 0; i < stat->state_num; i++) {
-		len += sprintf(buf + len, "%u %llu %lu%%\n", stat->freq_table[i],
-			(unsigned long long)
-			cputime64_to_clock_t(stat->percentage[i]),
-			(((unsigned long)
-			cputime64_to_clock_t(stat->percentage[i])) * 100 + 1) / sum);
-	}
-	return len;
-}
-
-static struct freq_attr _attr_percentage = {\
-	.attr = {.name = __stringify(percentage), .mode = 0644,},
-	.show = show_percentage,
-	.store = store_percentage,
-};
 
 static ssize_t show_time_in_state(struct cpufreq_policy *policy, char *buf)
 {
@@ -191,7 +146,6 @@ CPUFREQ_STATDEVICE_ATTR(time_in_state, 0444, show_time_in_state);
 static struct attribute *default_attrs[] = {
 	&_attr_total_trans.attr,
 	&_attr_time_in_state.attr,
-	&_attr_percentage.attr,
 #ifdef CONFIG_CPU_FREQ_STAT_DETAILS
 	&_attr_trans_table.attr,
 #endif
@@ -270,7 +224,7 @@ static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 		count++;
 	}
 
-	alloc_size = count * sizeof(int) + 2 * count * sizeof(cputime64_t);
+	alloc_size = count * sizeof(int) + count * sizeof(cputime64_t);
 
 #ifdef CONFIG_CPU_FREQ_STAT_DETAILS
 	alloc_size += count * count * sizeof(int);
@@ -281,8 +235,7 @@ static int cpufreq_stats_create_table(struct cpufreq_policy *policy,
 		ret = -ENOMEM;
 		goto error_out;
 	}
-	stat->percentage = (cputime64_t *)(stat->time_in_state + count);
-	stat->freq_table = (unsigned int *)(stat->time_in_state + 2 * count);
+	stat->freq_table = (unsigned int *)(stat->time_in_state + count);
 
 #ifdef CONFIG_CPU_FREQ_STAT_DETAILS
 	stat->trans_table = stat->freq_table + count;
@@ -345,11 +298,13 @@ static int cpufreq_stat_notifier_trans(struct notifier_block *nb,
 	old_index = stat->last_index;
 	new_index = freq_table_get_index(stat, freq->new);
 
-	cpufreq_stats_update(freq->cpu);
-	if (old_index == new_index)
+	/* We can't do stat->time_in_state[-1]= .. */
+	if (old_index == -1 || new_index == -1)
 		return 0;
 
-	if (old_index == -1 || new_index == -1)
+	cpufreq_stats_update(freq->cpu);
+
+	if (old_index == new_index)
 		return 0;
 
 	spin_lock(&cpufreq_stats_lock);
@@ -360,6 +315,27 @@ static int cpufreq_stat_notifier_trans(struct notifier_block *nb,
 	stat->total_trans++;
 	spin_unlock(&cpufreq_stats_lock);
 	return 0;
+}
+
+static int cpufreq_stats_create_table_cpu(unsigned int cpu)
+{
+	struct cpufreq_policy *policy;
+	struct cpufreq_frequency_table *table;
+	int ret = -ENODEV;
+
+	policy = cpufreq_cpu_get(cpu);
+	if (!policy)
+		return -ENODEV;
+
+	table = cpufreq_frequency_get_table(cpu);
+	if (!table)
+		goto out;
+
+	ret = cpufreq_stats_create_table(policy, table);
+
+out:
+	cpufreq_cpu_put(policy);
+	return ret;
 }
 
 static int __cpuinit cpufreq_stat_cpu_callback(struct notifier_block *nfb,
@@ -381,14 +357,18 @@ static int __cpuinit cpufreq_stat_cpu_callback(struct notifier_block *nfb,
 	case CPU_DEAD_FROZEN:
 		cpufreq_stats_free_table(cpu);
 		break;
+	case CPU_DOWN_FAILED:
+	case CPU_DOWN_FAILED_FROZEN:
+		cpufreq_stats_create_table_cpu(cpu);
+		break;
 	}
 	return NOTIFY_OK;
 }
 
 /* priority=1 so this will get called before cpufreq_remove_dev */
-static struct notifier_block cpufreq_stat_cpu_notifier __refdata =
-{
+static struct notifier_block cpufreq_stat_cpu_notifier __refdata = {
 	.notifier_call = cpufreq_stat_cpu_callback,
+	.priority = 1,
 };
 
 static struct notifier_block notifier_policy_block = {
@@ -435,6 +415,7 @@ static void __exit cpufreq_stats_exit(void)
 	unregister_hotcpu_notifier(&cpufreq_stat_cpu_notifier);
 	for_each_online_cpu(cpu) {
 		cpufreq_stats_free_table(cpu);
+		cpufreq_stats_free_sysfs(cpu);
 	}
 }
 

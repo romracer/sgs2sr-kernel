@@ -37,7 +37,21 @@ struct dsi_cmd_desc_LCD {
 	struct dsi_cmd_desc *cmd;
 };
 
+
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+#define CANDELA_TABLE_SIZE 24
+static const unsigned int candela_table[CANDELA_TABLE_SIZE] = {
+	 30,  40,  50,  60,  70,  80,  90, 100, 110, 120,
+	130, 140, 150, 160, 170, 180, 190, 200, 210, 220,
+	230, 240, 250, 290       // Quincy: max 290cd
+};
+#endif
+
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+#define MAX_GAMMA_VALUE CANDELA_TABLE_SIZE
+#else
 #define MAX_GAMMA_VALUE 24
+#endif
 
 
 // updated 11.06.28
@@ -106,6 +120,7 @@ static struct dsi_cmd_desc_LCD lcd_Gamma19_Material13_table[MAX_GAMMA_VALUE+1] =
 { 30, "G19M13", &DSI_CMD_GAMMA19_MATERIAL13_30},   // 1 = 30_dimming,
 { 40, "G19M13", &DSI_CMD_GAMMA19_MATERIAL13_40},   // 4 =  (Normal Range is From 4~31)
 { 70, "G19M13", &DSI_CMD_GAMMA19_MATERIAL13_70},   // 8 =
+{ 80, "G19M13", &DSI_CMD_GAMMA19_MATERIAL13_80},   // 8 =
 { 90, "G19M13", &DSI_CMD_GAMMA19_MATERIAL13_90},   //  10 = 90,
 { 100, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_100},   // 11 = 100,
 { 110, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_110},   // 12 = 110,
@@ -126,8 +141,8 @@ static struct dsi_cmd_desc_LCD lcd_Gamma19_Material13_table[MAX_GAMMA_VALUE+1] =
 { 260, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_260},   // 27= 260,
 { 270, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_270},   // 28= 270,
 { 280, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_280},   // 29= 280,
-{ 290, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_290},   // 30= 290,
-{ 300, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_300},   // 31= 300,
+{ 290, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_290}   // 30= 290,
+//{ 300, "G19M13",&DSI_CMD_GAMMA19_MATERIAL13_300}   // 31= 300,
 };
 
 
@@ -229,10 +244,40 @@ static struct dsi_cmd_desc DSI_CMD_GAMMA22_MATERIAL13_280 = {DTYPE_DCS_LWRITE, 1
 static struct dsi_cmd_desc DSI_CMD_GAMMA22_MATERIAL13_290 = {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(GAMMA22_MATERIAL13_COND_SET_290), GAMMA22_MATERIAL13_COND_SET_290};
 static struct dsi_cmd_desc DSI_CMD_GAMMA22_MATERIAL13_300 = {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(GAMMA22_MATERIAL13_COND_SET_300), GAMMA22_MATERIAL13_COND_SET_300};
 
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct dsi_cmd_desc_LCD lcd_Gamma22_Meterial13_table[MAX_GAMMA_VALUE+1] = {// actually, M3 is not used for Q1 ATT(all smartdimming panel).. but seperate it. 
+{ 30, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_30},   // 1 = 30_dimming,
+{ 40, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_40},   // 4 =  (Normal Range is From 4~31)
+{ 50, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_50},   // 8 =
+{ 60, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_60},   //  10 = 90,
+{ 70, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_70},   // 8 =
+{ 80, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_80},   //  10 = 90,
+{ 90, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_90},   //  10 = 90,
+{ 100, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_100},	// 11 = 100,
+{ 110, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_110},	// 12 = 110,
+{ 120, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_120},	// 13 = 120,
+{ 130, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_130},	// 14 = 130,
+{ 140, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_140},	// 15 = 140,
+{ 150, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_150},	// 16 = 150,
+{ 160, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_160},	// 17= 160,
+{ 170, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_170},	// 18= 170,
+{ 180, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_180},	// 19= 180,
+{ 190, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_190},	// 20= 190,
+{ 200, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_200},	// 21= 200,
+{ 210, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_210},	// 22= 210,
+{ 220, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_220},	// 23= 220,
+{ 230, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_230},	// 24= 230,
+{ 240, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_240},	// 25= 240,
+{ 250, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_250},	// 26= 250,
+{ 290, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_290}   // 30= 290,
+//{ 300, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_300},   // 31= 300,
+};
+#else
 static struct dsi_cmd_desc_LCD lcd_Gamma22_Meterial13_table[MAX_GAMMA_VALUE+1] = {
 { 30, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_30},   // 1 = 30_dimming,
 { 40, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_40},   // 4 =  (Normal Range is From 4~31)
 { 70, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_70},   // 8 =
+{ 80, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_80},   //  10 = 90,
 { 90, "G22M13", &DSI_CMD_GAMMA22_MATERIAL13_90},   //  10 = 90,
 { 100, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_100},   // 11 = 100,
 { 110, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_110},   // 12 = 110,
@@ -253,10 +298,10 @@ static struct dsi_cmd_desc_LCD lcd_Gamma22_Meterial13_table[MAX_GAMMA_VALUE+1] =
 { 260, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_260},   // 27= 260,
 { 270, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_270},   // 28= 270,
 { 280, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_280},   // 29= 280,
-{ 290, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_290},   // 30= 290,
-{ 300, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_300},   // 31= 300,
+{ 290, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_290}   // 30= 290,
+//{ 300, "G22M13",&DSI_CMD_GAMMA22_MATERIAL13_300},   // 31= 300,
 };
-
+#endif
 
 
 static char GAMMA22_M3_MATERIAL14_COND_SET_300[] ={ 0xFA, 0x01, 0x60, 0x10, 0x60, 0xB5, 0xD3, 0xBD, 0xB1, 0xD2, 0xB0, 0xC0, 0xDC, 0xC0, 0x94, 0xBA, 0x91, 0xAC, 0xC5, 0xA9, 0x00, 0xC2, 0x00, 0xB7, 0x00, 0xED, };
@@ -325,10 +370,41 @@ static struct dsi_cmd_desc DSI_CMD_GAMMA22_M3_MATERIAL14_280 = {DTYPE_DCS_LWRITE
 static struct dsi_cmd_desc DSI_CMD_GAMMA22_M3_MATERIAL14_290 = {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(GAMMA22_M3_MATERIAL14_COND_SET_290), GAMMA22_M3_MATERIAL14_COND_SET_290};
 static struct dsi_cmd_desc DSI_CMD_GAMMA22_M3_MATERIAL14_300 = {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(GAMMA22_M3_MATERIAL14_COND_SET_300), GAMMA22_M3_MATERIAL14_COND_SET_300};
 
+
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct dsi_cmd_desc_LCD lcd_Gamma22_M3_Meterial14_table[MAX_GAMMA_VALUE+1] = {// actually, M3 is not used for Q1 ATT(all smartdimming panel).. but seperate it. 
+{ 30, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_30},   // 1 = 30_dimming,
+{ 40, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_40},   // 4 =  (Normal Range is From 4~31)
+{ 50, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_50},   // 8 =
+{ 60, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_60},   // 8 =
+{ 70, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_70},   // 8 =
+{ 80, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_80},   // 8 =
+{ 90, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_90},   //  10 = 90,
+{ 100, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_100},   // 11 = 100,
+{ 110, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_110},   // 12 = 110,
+{ 120, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_120},   // 13 = 120,
+{ 130, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_130},   // 14 = 130,
+{ 140, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_140},   // 15 = 140,
+{ 150, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_150},   // 16 = 150,
+{ 160, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_160},   // 17= 160,
+{ 170, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_170},   // 18= 170,
+{ 180, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_180},   // 19= 180,
+{ 190, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_190},   // 20= 190,
+{ 200, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_200},   // 21= 200,
+{ 210, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_210},   // 22= 210,
+{ 220, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_220},   // 23= 220,
+{ 230, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_230},   // 24= 230,
+{ 240, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_240},   // 25= 240,
+{ 250, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_250},   // 26= 250,
+{ 290, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_290}   // 30= 290,
+//{ 300, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_300},	 // 31= 300,
+};
+#else
 static struct dsi_cmd_desc_LCD lcd_Gamma22_M3_Meterial14_table[MAX_GAMMA_VALUE+1] = {
 { 30, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_30},   // 1 = 30_dimming,
 { 40, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_40},   // 4 =  (Normal Range is From 4~31)
 { 70, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_70},   // 8 =
+{ 80, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_80},   // 8 =
 { 90, "G22M14", &DSI_CMD_GAMMA22_M3_MATERIAL14_90},   //  10 = 90,
 { 100, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_100},   // 11 = 100,
 { 110, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_110},   // 12 = 110,
@@ -349,10 +425,10 @@ static struct dsi_cmd_desc_LCD lcd_Gamma22_M3_Meterial14_table[MAX_GAMMA_VALUE+1
 { 260, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_260},   // 27= 260,
 { 270, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_270},   // 28= 270,
 { 280, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_280},   // 29= 280,
-{ 290, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_290},   // 30= 290,
-{ 300, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_300},   // 31= 300,
+{ 290, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_290}   // 30= 290,
+//{ 300, "G22M14",&DSI_CMD_GAMMA22_M3_MATERIAL14_300},   // 31= 300,
 };
-
+#endif
 
 // Updated 110906 -Manual-L
 static char GAMMA22_SM2_MATERIAL15_COND_SET_300[]={ 0xFA,0x01, 0x1F, 0x1F, 0x1F, 0xED, 0xE6, 0xE7, 0xD1, 0xD3, 0xD4, 0xDA, 0xD8, 0xD7, 0xB1, 0xAF, 0xAB, 0xBD, 0xBB, 0xB8, 0x00, 0xD6, 0x00, 0xDA, 0x00, 0xFA, };
@@ -416,10 +492,41 @@ static struct dsi_cmd_desc DSI_CMD_GAMMA22_SM2_MATERIAL15_280 = {DTYPE_DCS_LWRIT
 static struct dsi_cmd_desc DSI_CMD_GAMMA22_SM2_MATERIAL15_290 = {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(GAMMA22_SM2_MATERIAL15_COND_SET_290), GAMMA22_SM2_MATERIAL15_COND_SET_290};
 static struct dsi_cmd_desc DSI_CMD_GAMMA22_SM2_MATERIAL15_300 = {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(GAMMA22_SM2_MATERIAL15_COND_SET_300), GAMMA22_SM2_MATERIAL15_COND_SET_300};
 
+
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct dsi_cmd_desc_LCD lcd_Gamma22_SM2_Meterial15_table[MAX_GAMMA_VALUE+1] = {  // actually, not used for Q1 ATT(all smartdimming panel).. but seperate it. 
+{ 30, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_30},   // 1 = 30_dimming,
+{ 40, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_40},   // 4 =  (Normal Range is From 4~31)
+{ 50, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_50},   // 8 =
+{ 60, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_60},   // 8 =
+{ 70, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_70},   // 8 =
+{ 80, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_80},   // 8 =
+{ 90, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_90},   //  10 = 90,
+{ 100, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_100},   // 11 = 100,
+{ 110, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_110},   // 12 = 110,
+{ 120, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_120},   // 13 = 120,
+{ 130, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_130},   // 14 = 130,
+{ 140, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_140},   // 15 = 140,
+{ 150, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_150},   // 16 = 150,
+{ 160, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_160},   // 17= 160,
+{ 170, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_170},   // 18= 170,
+{ 180, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_180},   // 19= 180,
+{ 190, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_190},   // 20= 190,
+{ 200, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_200},   // 21= 200,
+{ 210, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_210},   // 22= 210,
+{ 220, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_220},   // 23= 220,
+{ 230, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_230},   // 24= 230,
+{ 240, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_240},   // 25= 240,
+{ 250, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_250},   // 26= 250,
+{ 290, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_290}   // 30= 290,
+};
+#else
+
 static struct dsi_cmd_desc_LCD lcd_Gamma22_SM2_Meterial15_table[MAX_GAMMA_VALUE+1] = {
 { 30, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_30},   // 1 = 30_dimming,
 { 40, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_40},   // 4 =  (Normal Range is From 4~31)
 { 70, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_70},   // 8 =
+{ 80, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_80},   // 8 =
 { 90, "G22M13", &DSI_CMD_GAMMA22_SM2_MATERIAL15_90},   //  10 = 90,
 { 100, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_100},   // 11 = 100,
 { 110, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_110},   // 12 = 110,
@@ -440,106 +547,372 @@ static struct dsi_cmd_desc_LCD lcd_Gamma22_SM2_Meterial15_table[MAX_GAMMA_VALUE+
 { 260, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_260},   // 27= 260,
 { 270, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_270},   // 28= 270,
 { 280, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_280},   // 29= 280,
-{ 290, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_290},   // 30= 290,
-{ 300, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_300},   // 31= 300,
+{ 290, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_290}   // 30= 290,
+//{ 300, "G22M13",&DSI_CMD_GAMMA22_SM2_MATERIAL15_300},   // 31= 300,
 };
+#endif
 
 
 
 #define SmartDimming_GammaUpdate_Pos (2)
+
+#ifdef S6E8AA0_WXGA_Q1_58HZ_500MBPS
 static char GAMMA_SmartDimming_COND_SET[]={ 0xFA, 0x01,	0x4A,	0x01,	0x4D,	0x7A,	0x5D,	0xA5,	0x9C,	0xCA,	0xA4,	0xBD,	0xDC,	0xBE,	0x93,	0xBD,	0x95,	0xBA,	0xD2,	0xB7,	0x00,	0x81,	0x00,	0x75,	0x00,	0xA5,	};	
+
+#elif defined(S6E8AA0_WXGA_Q1_57p2HZ_480MBPS)
+static char GAMMA_SmartDimming_COND_SET[]={ 0xFA,0x01, 0x69, 0x5A, 0x6C, 0xA1, 0xB7, 0x9D, 0xAB, 0xB6, 0xAF, 0xB8, 0xC1, 0xB9, 0x8E, 0x96, 0x8B, 0xA6, 0xAC, 0xA4, 0x00, 0xD2, 0x00, 0xD3, 0x00, 0xF1,	};	
+#endif
+
 static struct dsi_cmd_desc DSI_CMD_SmartDimming_GAMMA = {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(GAMMA_SmartDimming_COND_SET), GAMMA_SmartDimming_COND_SET};  
-const unsigned char GAMMA_SmartDimming_VALUE_SET_300cd[24] = {
-0x58,0x1F,0x63,0xAC,0xB4,0x99,
-0xAD,0xBA,0xA3,0xC0,0xCB,0xBB,
-0x93,0x9F,0x8B,0xAD,0xB4,0xA7,
-0x00,0xBE,0x00,0xAB,0x00,0xE7
+
+#ifdef S6E8AA0_WXGA_Q1_57p2HZ_480MBPS
+const unsigned char GAMMA_SmartDimming_VALUE_SET_SM2C15_300cd[24] = {   // same as GAMMA_SmartDimming_COND_SET
+0x69,0x5A,0x6C,0xA1,0xB7,0x9D,
+0xAB,0xB6,0xAF,0xB8,0xC1,0xB9,
+0x8E,0x96,0x8B,0xA6,0xAC,0xA4,
+0x00,0xD2,0x00,0xD3,0x00,0xF1
 };
 
+#elif defined(S6E8AA0_WXGA_Q1_58HZ_500MBPS)
+const unsigned char GAMMA_SmartDimming_VALUE_SET_SM2C15_300cd[24] = {
+0x69,0x5A,0x6C,0x9E,0xB5,0xA6,
+0xA7,0xB2,0xAC,0xBA,0xC1,0xBA,
+0x8D,0x94,0x89,0xA5,0xAA,0xA3,
+0x00,0xD0,0x00,0xD1,0x00,0xF0
+};
+#elif defined(S6E8AA0_WXGA_Q1_60HZ_500MBPS)
+const unsigned char GAMMA_SmartDimming_VALUE_SET_SM2C15_300cd[24] = {
+0x1F,0x1F,0x1F,0xED,0xE6,0xE7,
+0xD1,0xD3,0xD4,0xDA,0xD8,0xD7,
+0xB1,0xAF,0xAB,0xBD,0xBB,0xB8,
+0x00,0xD6,0x00,0xDA,0x00,0xFA
+};
+#endif 
 
-static char ACL_COND_SET_50[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x0F,	0x16,	0x1D,	0x24,	0x2A,	0x31,	0x38,	0x3F,	0x46,	};
-static char ACL_COND_SET_48[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x08,	0x0E,	0x15,	0x1B,	0x22,	0x29,	0x2F,	0x36,	0x3C,	0x43,	};
+#if 0
+static char ACL_COND_SET_55[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x09,	0x12,	0x1A,	0x23,	0x2B,	0x33,	0x3C,	0x44,	0x4D,	0x55,	};
+static char ACL_COND_SET_53[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x09,	0x11,	0x18,	0x20,	0x28,	0x30,	0x38,	0x3F,	0x47,	0x4F,	};
+static char ACL_COND_SET_50[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x08,	0x0F,	0x16,	0x1D,	0x25,	0x2C,	0x33,	0x3A,	0x41,	0x48,	};
+static char ACL_COND_SET_48[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x08,	0x0F,	0x15,	0x1C,	0x23,	0x2A,	0x31,	0x37,	0x3E,	0x45,	};
 static char ACL_COND_SET_47[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x07,	0x0E,	0x14,	0x1B,	0x21,	0x27,	0x2E,	0x34,	0x3B,	0x41,	};
-static char ACL_COND_SET_45[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x07,	0x0D,	0x13,	0x19,	0x1F,	0x25,	0x2B,	0x31,	0x37,	0x3D,	};
-static char ACL_COND_SET_43[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x07,	0x0C,	0x12,	0x18,	0x1E,	0x23,	0x29,	0x2F,	0x34,	0x3A,	};
+static char ACL_COND_SET_45[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x07,	0x0E,	0x14,	0x1A,	0x21,	0x27,	0x2D,	0x33,	0x3A,	0x40,	};
+static char ACL_COND_SET_43[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x07,	0x0D,	0x13,	0x19,	0x1F,	0x25,	0x2B,	0x31,	0x37,	0x3D,	};
 static char ACL_COND_SET_40[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x06,	0x0C,	0x11,	0x16,	0x1C,	0x21,	0x26,	0x2B,	0x31,	0x36,	};
 
+static struct dsi_cmd_desc DSI_CMD_ACL_55= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_55), ACL_COND_SET_55};
+static struct dsi_cmd_desc DSI_CMD_ACL_53= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_53), ACL_COND_SET_53};
 static struct dsi_cmd_desc DSI_CMD_ACL_50= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_50), ACL_COND_SET_50};
 static struct dsi_cmd_desc DSI_CMD_ACL_48= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_48), ACL_COND_SET_48};
 static struct dsi_cmd_desc DSI_CMD_ACL_47= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_47), ACL_COND_SET_47};
 static struct dsi_cmd_desc DSI_CMD_ACL_45= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_45), ACL_COND_SET_45};
 static struct dsi_cmd_desc DSI_CMD_ACL_43= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_43), ACL_COND_SET_43};
 static struct dsi_cmd_desc DSI_CMD_ACL_40= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_40), ACL_COND_SET_40};
+//#else  // Operating Manual O-2
+static char ACL_COND_SET_55[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x09,0x12,0x1A,0x22,0x2B,0x33,0x3B,0x43,0x4C,0x54,	};
+static char ACL_COND_SET_53[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x09,0x11,0x18,0x20,0x28,0x30,0x38,0x3F,0x47,0x4F,	};
+static char ACL_COND_SET_52[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x09,0x10,0x18,0x1F,0x27,0x2F,0x36,0x3E,0x45,0x4D,	};
+static char ACL_COND_SET_50[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x08,0x0F,0x17,0x1E,0x25,0x2C,0x33,0x3B,0x42,0x49,	};
+static char ACL_COND_SET_48[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x08,0x0F,0x16,0x1D,0x24,0x2A,0x31,0x38,0x3F,0x46,	};
+static char ACL_COND_SET_45[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x07,0x0E,0x14,0x1A,0x21,0x27,0x2D,0x33,0x3A,0x40,	};
+static char ACL_COND_SET_43[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x07,0x0D,0x13,0x19,0x20,0x26,0x2C,0x32,0x38,0x3E,	};
+static char ACL_COND_SET_33[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x05,0x0A,0x0E,0x13,0x17,0x1B,0x20,0x24,0x29,0x2D,	};
+static char ACL_COND_SET_20[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x04,0x06,0x09,0x0C,0x0F,0x11,0x14,0x17,0x19,0x1C,	};
+
+static char ACL_COND_SET_40[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x06,	0x0C,	0x11,	0x16,	0x1C,	0x21,	0x26,	0x2B,	0x31,	0x36,	};
+static struct dsi_cmd_desc DSI_CMD_ACL_40= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_40), ACL_COND_SET_40};
+
+static struct dsi_cmd_desc DSI_CMD_ACL_55= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_55), ACL_COND_SET_55};
+static struct dsi_cmd_desc DSI_CMD_ACL_53= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_53), ACL_COND_SET_53};
+static struct dsi_cmd_desc DSI_CMD_ACL_52= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_52), ACL_COND_SET_52};
+static struct dsi_cmd_desc DSI_CMD_ACL_50= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_50), ACL_COND_SET_50};
+static struct dsi_cmd_desc DSI_CMD_ACL_48= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_48), ACL_COND_SET_48};
+static struct dsi_cmd_desc DSI_CMD_ACL_45= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_45), ACL_COND_SET_45};
+static struct dsi_cmd_desc DSI_CMD_ACL_43= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_43), ACL_COND_SET_43};
+static struct dsi_cmd_desc DSI_CMD_ACL_33= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_33), ACL_COND_SET_33};
+static struct dsi_cmd_desc DSI_CMD_ACL_20= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_20), ACL_COND_SET_20};
+#else  // Operating Manual Q
+static char ACL_COND_SET_50[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x08,0x0F,0x16,0x1D,0x24,0x2B,0x32,0x39,0x40,0x47,	};
+static char ACL_COND_SET_49[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x08,0x0F,0x16,0x1D,0x24,0x2A,0x31,0x38,0x3F,0x46,	};
+static char ACL_COND_SET_48[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x08,0x0F,0x15,0x1C,0x23,0x2A,0x31,0x37,0x3E,0x45,	};
+static char ACL_COND_SET_47[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x08,0x0E,0x15,0x1B,0x22,0x29,0x2F,0x36,0x3C,0x43,	};
+static char ACL_COND_SET_46[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x07,0x0E,0x14,0x1B,0x21,0x27,0x2E,0x34,0x3B,0x41,	};
+static char ACL_COND_SET_45[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x07,0x0E,0x14,0x1A,0x21,0x27,0x2D,0x33,0x3A,0x40,	};
+static char ACL_COND_SET_43[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x07,0x0D,0x13,0x19,0x20,0x26,0x2C,0x32,0x38,0x3E,	};
+static char ACL_COND_SET_33[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x05,0x0A,0x0E,0x13,0x17,0x1B,0x20,0x24,0x29,0x2D,	};
+static char ACL_COND_SET_20[]={	0xC1,	0x47,0x53,0x13,0x53,0x00,0x00,0x03,0x1F,0x00,0x00,0x04,0xFF,0x00,0x00,0x00,0x00,0x00,0x01,0x04,0x06,0x09,0x0C,0x0F,0x11,0x14,0x17,0x19,0x1C,	};
+
+static char ACL_COND_SET_40[]={	0xC1,	0x47,	0x53,	0x13,	0x53,	0x00,	0x00,	0x3,	0x1F,	0x00,	0x00,	0x04,	0xFF,	0x00,	0x00,	0x00,	0x00,	0x00,	0x01,	0x06,	0x0C,	0x11,	0x16,	0x1C,	0x21,	0x26,	0x2B,	0x31,	0x36,	};
+static struct dsi_cmd_desc DSI_CMD_ACL_40= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_40), ACL_COND_SET_40};
+
+static struct dsi_cmd_desc DSI_CMD_ACL_50= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_50), ACL_COND_SET_50};
+static struct dsi_cmd_desc DSI_CMD_ACL_49= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_49), ACL_COND_SET_49};
+static struct dsi_cmd_desc DSI_CMD_ACL_48= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_48), ACL_COND_SET_48};
+static struct dsi_cmd_desc DSI_CMD_ACL_47= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_47), ACL_COND_SET_47};
+static struct dsi_cmd_desc DSI_CMD_ACL_46= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_46), ACL_COND_SET_46};
+static struct dsi_cmd_desc DSI_CMD_ACL_45= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_45), ACL_COND_SET_45};
+static struct dsi_cmd_desc DSI_CMD_ACL_43= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_43), ACL_COND_SET_43};
+static struct dsi_cmd_desc DSI_CMD_ACL_33= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_33), ACL_COND_SET_33};
+static struct dsi_cmd_desc DSI_CMD_ACL_20= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ACL_COND_SET_20), ACL_COND_SET_20};
+
+#endif
 
 
+#if 0 // Manual-N2 but not has all point
 static struct dsi_cmd_desc_LCD lcd_acl_table[MAX_GAMMA_VALUE+1] = {
 { 0, "30", NULL},   // 1 = 30_dimming,
 { 0, "40", NULL},   // 4 =  (Normal Range is From 4~31)
-{ 40, "70", &DSI_CMD_ACL_40},   // 8 =
-{ 40, "90", &DSI_CMD_ACL_40},   //  10 = 90,
-{ 40, "100", &DSI_CMD_ACL_40},   // 11 = 100,
-{ 40, "110", &DSI_CMD_ACL_40},   // 12 = 110,
-{ 40, "120", &DSI_CMD_ACL_40},   // 13 = 120,
-{ 40, "130", &DSI_CMD_ACL_40},   // 14 = 130,
-{ 40, "140", &DSI_CMD_ACL_40},   // 15 = 140,
-{ 40, "150", &DSI_CMD_ACL_40},   // 16 = 150,
-{ 40, "160", &DSI_CMD_ACL_40},   // 17= 160,
-{ 40, "170", &DSI_CMD_ACL_40},   // 18= 170,
-{ 40, "180", &DSI_CMD_ACL_40},   // 19= 180,
-{ 43, "190", &DSI_CMD_ACL_43},   // 20= 190,
-{ 45, "200", &DSI_CMD_ACL_45},   // 21= 200,
-{ 47, "210", &DSI_CMD_ACL_47},   // 22= 210,
-{ 48, "220", &DSI_CMD_ACL_48},   // 23= 220,
-{ 50, "230", &DSI_CMD_ACL_50},   // 24= 230,
-{ 50, "240", &DSI_CMD_ACL_50},   // 25= 240,
-{ 50, "250", &DSI_CMD_ACL_50},   // 26= 250,
-{ 50, "260", &DSI_CMD_ACL_50},   // 27= 260,
-{ 50, "270", &DSI_CMD_ACL_50},   // 28= 270,
-{ 50, "280", &DSI_CMD_ACL_50},   // 29= 280,
-{ 50, "290", &DSI_CMD_ACL_50},   // 30= 290,
-{ 50, "300", &DSI_CMD_ACL_50},   // 31= 300,
+{ 45, "70", &DSI_CMD_ACL_45},   // 8 =
+{ 45, "80", &DSI_CMD_ACL_45},   // 8 =
+{ 45, "90", &DSI_CMD_ACL_45},   //  10 = 90,
+{ 45, "100", &DSI_CMD_ACL_45},   // 11 = 100,
+{ 45, "110", &DSI_CMD_ACL_45},   // 12 = 110,
+{ 45, "120", &DSI_CMD_ACL_45},   // 13 = 120,
+{ 45, "130", &DSI_CMD_ACL_45},   // 14 = 130,
+{ 45, "140", &DSI_CMD_ACL_45},   // 15 = 140,
+{ 45, "150", &DSI_CMD_ACL_45},   // 16 = 150,
+{ 45, "160", &DSI_CMD_ACL_45},   // 17= 160,
+{ 47, "170", &DSI_CMD_ACL_47},   // 18= 170,
+{ 49, "180", &DSI_CMD_ACL_49},   // 19= 180,
+{ 52, "190", &DSI_CMD_ACL_52},   // 20= 190,
+{ 53, "200", &DSI_CMD_ACL_53},   // 21= 200,
+{ 55, "210", &DSI_CMD_ACL_55},   // 22= 210,
+{ 55, "220", &DSI_CMD_ACL_55},   // 23= 220,
+{ 55, "230", &DSI_CMD_ACL_55},   // 24= 230,
+{ 55, "240", &DSI_CMD_ACL_55},   // 25= 240,
+{ 55, "250", &DSI_CMD_ACL_55},   // 26= 250,
+{ 55, "260", &DSI_CMD_ACL_55},   // 27= 260,
+{ 55, "270", &DSI_CMD_ACL_55},   // 28= 270,
+{ 55, "280", &DSI_CMD_ACL_55},   // 29= 280,
+{ 55, "290", &DSI_CMD_ACL_55},   // 30= 290,
+//{ 55, "300", &DSI_CMD_ACL_55},   // 31= 300,
 };
+#else // Mannual-N2 Fake
+#if 0
+static struct dsi_cmd_desc_LCD lcd_acl_table[MAX_GAMMA_VALUE+1] = {
+{ 0, "30", NULL},   // 1 = 30_dimming,
+{ 0, "40", NULL},   // 4 =  (Normal Range is From 4~31)
+{ 45, "70", &DSI_CMD_ACL_45},   // 8 =
+{ 45, "80", &DSI_CMD_ACL_45},   // 8 =
+{ 45, "90", &DSI_CMD_ACL_45},   //  10 = 90,
+{ 45, "100", &DSI_CMD_ACL_45},   // 11 = 100,
+{ 45, "110", &DSI_CMD_ACL_45},   // 12 = 110,
+{ 45, "120", &DSI_CMD_ACL_45},   // 13 = 120,
+{ 45, "130", &DSI_CMD_ACL_45},   // 14 = 130,
+{ 45, "140", &DSI_CMD_ACL_45},   // 15 = 140,
+{ 45, "150", &DSI_CMD_ACL_45},   // 16 = 150,
+{ 45, "160", &DSI_CMD_ACL_45},   // 17= 160,
+{ 47, "170", &DSI_CMD_ACL_47},   // 18= 170,
+{ 50, "180", &DSI_CMD_ACL_50},   // 19= 180,
+{ 53, "190", &DSI_CMD_ACL_53},   // 20= 190,
+{ 53, "200", &DSI_CMD_ACL_53},   // 21= 200,
+{ 55, "210", &DSI_CMD_ACL_55},   // 22= 210,
+{ 55, "220", &DSI_CMD_ACL_55},   // 23= 220,
+{ 55, "230", &DSI_CMD_ACL_55},   // 24= 230,
+{ 55, "240", &DSI_CMD_ACL_55},   // 25= 240,
+{ 55, "250", &DSI_CMD_ACL_55},   // 26= 250,
+{ 55, "260", &DSI_CMD_ACL_55},   // 27= 260,
+{ 55, "270", &DSI_CMD_ACL_55},   // 28= 270,
+{ 55, "280", &DSI_CMD_ACL_55},   // 29= 280,
+{ 55, "290", &DSI_CMD_ACL_55},   // 30= 290,
+//{ 55, "300", &DSI_CMD_ACL_55},   // 31= 300,
+};
+//#else  // Operating Manual O-2
+static struct dsi_cmd_desc_LCD lcd_acl_table[MAX_GAMMA_VALUE+1] = {
+{ 0, "30", NULL},   // 1 = 30_dimming,
+{ 0, "40", NULL},   // 4 =  (Normal Range is From 4~31)
+{ 43, "70", &DSI_CMD_ACL_43},   // 8 =
+{ 45, "80", &DSI_CMD_ACL_45},   // 8 =
+{ 45, "90", &DSI_CMD_ACL_45},   //  10 = 90,
+{ 45, "100", &DSI_CMD_ACL_45},   // 11 = 100,
+{ 45, "110", &DSI_CMD_ACL_45},   // 12 = 110,
+{ 45, "120", &DSI_CMD_ACL_45},   // 13 = 120,
+{ 45, "130", &DSI_CMD_ACL_45},   // 14 = 130,
+{ 45, "140", &DSI_CMD_ACL_45},   // 15 = 140,
+{ 45, "150", &DSI_CMD_ACL_45},   // 16 = 150,
+{ 45, "160", &DSI_CMD_ACL_45},   // 17= 160,
+{ 45, "170", &DSI_CMD_ACL_45},   // 18= 170,
+{ 45, "180", &DSI_CMD_ACL_45},   // 19= 180,
+{ 48, "190", &DSI_CMD_ACL_48},   // 20= 190,
+{ 50, "200", &DSI_CMD_ACL_50},   // 21= 200,
+{ 52, "210", &DSI_CMD_ACL_52},   // 22= 210,
+{ 53, "220", &DSI_CMD_ACL_53},   // 23= 220,
+{ 55, "230", &DSI_CMD_ACL_55},   // 24= 230,
+{ 55, "240", &DSI_CMD_ACL_55},   // 25= 240,
+{ 55, "250", &DSI_CMD_ACL_55},   // 26= 250,
+{ 55, "260", &DSI_CMD_ACL_55},   // 27= 260,
+{ 55, "270", &DSI_CMD_ACL_55},   // 28= 270,
+{ 55, "280", &DSI_CMD_ACL_55},   // 29= 280,
+{ 55, "290", &DSI_CMD_ACL_55},   // 30= 290,
+//{ 55, "300", &DSI_CMD_ACL_55},   // 31= 300,
+};
+#else  // Operating Manual Q
+
+
+
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct dsi_cmd_desc_LCD lcd_acl_table[MAX_GAMMA_VALUE+1] = {
+{ 0, "30", NULL},   // 1 = 30_dimming,
+{ 0, "40", NULL},   // 4 =  (Normal Range is From 4~31)
+{ 20, "50", &DSI_CMD_ACL_20},
+{ 33, "60", &DSI_CMD_ACL_33},
+{ 43, "70", &DSI_CMD_ACL_43},   // 8 =
+{ 45, "80", &DSI_CMD_ACL_45},   // 8 =
+{ 45, "90", &DSI_CMD_ACL_45},   //  10 = 90,
+{ 45, "100", &DSI_CMD_ACL_45},   // 11 = 100,
+{ 45, "110", &DSI_CMD_ACL_45},   // 12 = 110,
+{ 45, "120", &DSI_CMD_ACL_45},   // 13 = 120,
+{ 45, "130", &DSI_CMD_ACL_45},   // 14 = 130,
+{ 45, "140", &DSI_CMD_ACL_45},   // 15 = 140,
+{ 45, "150", &DSI_CMD_ACL_45},   // 16 = 150,
+{ 46, "160", &DSI_CMD_ACL_46},   // 17= 160,
+{ 46, "170", &DSI_CMD_ACL_46},   // 18= 170,
+{ 46, "180", &DSI_CMD_ACL_46},   // 19= 180,
+{ 46, "190", &DSI_CMD_ACL_46},   // 20= 190,
+{ 46, "200", &DSI_CMD_ACL_46},   // 21= 200,
+{ 46, "210", &DSI_CMD_ACL_46},   // 22= 210,
+{ 46, "220", &DSI_CMD_ACL_46},   // 23= 220,
+{ 46, "230", &DSI_CMD_ACL_46},   // 24= 230,
+{ 46, "240", &DSI_CMD_ACL_46},   // 25= 240,
+{ 46, "250", &DSI_CMD_ACL_46},   // 26= 250,
+{ 50, "290", &DSI_CMD_ACL_50},	 // 30= 290,
+};
+#else
+#ifdef S6E8AA0_WXGA_Q1_57p2HZ_480MBPS // ±¹ÆÇ ¿Ü
+static struct dsi_cmd_desc_LCD lcd_acl_table[MAX_GAMMA_VALUE+1] = {
+{ 0, "30", NULL},   // 1 = 30_dimming,
+{ 0, "40", NULL},   // 4 =  (Normal Range is From 4~31)
+//{ 20, "50", &DSI_CMD_ACL_20},
+//{ 33, "60", &DSI_CMD_ACL_33},
+{ 43, "70", &DSI_CMD_ACL_43},   // 8 =
+{ 45, "80", &DSI_CMD_ACL_45},   // 8 =
+{ 45, "90", &DSI_CMD_ACL_45},   //  10 = 90,
+{ 45, "100", &DSI_CMD_ACL_45},   // 11 = 100,
+//{ 45, "105", &DSI_CMD_ACL_45},   // 12 = 110,
+{ 45, "110", &DSI_CMD_ACL_45},   // 12 = 110,
+{ 45, "120", &DSI_CMD_ACL_45},   // 13 = 120,
+{ 45, "130", &DSI_CMD_ACL_45},   // 14 = 130,
+{ 45, "140", &DSI_CMD_ACL_45},   // 15 = 140,
+{ 45, "150", &DSI_CMD_ACL_45},   // 16 = 150,
+{ 46, "160", &DSI_CMD_ACL_46},   // 17= 160,
+{ 46, "170", &DSI_CMD_ACL_46},   // 18= 170,
+{ 46, "180", &DSI_CMD_ACL_46},   // 19= 180,
+{ 46, "190", &DSI_CMD_ACL_46},   // 20= 190,
+{ 46, "200", &DSI_CMD_ACL_46},   // 21= 200,
+{ 46, "210", &DSI_CMD_ACL_46},   // 22= 210,
+{ 46, "220", &DSI_CMD_ACL_46},   // 23= 220,
+{ 46, "230", &DSI_CMD_ACL_46},   // 24= 230,
+{ 46, "240", &DSI_CMD_ACL_46},   // 25= 240,
+{ 46, "250", &DSI_CMD_ACL_46},   // 26= 250,
+{ 47, "260", &DSI_CMD_ACL_47},   // 27= 260,
+{ 48, "270", &DSI_CMD_ACL_48},   // 28= 270,
+{ 49, "280", &DSI_CMD_ACL_49},   // 29= 280,
+{ 50, "290", &DSI_CMD_ACL_50},   // 30= 290,
+//{ 55, "300", &DSI_CMD_ACL_55},   // 31= 300,
+};
+#else // KOR/NTT
+static struct dsi_cmd_desc_LCD lcd_acl_table[MAX_GAMMA_VALUE+1] = {
+{ 0, "30", NULL},   // 1 = 30_dimming,
+{ 0, "40", NULL},   // 4 =  (Normal Range is From 4~31)
+{ 43, "70", &DSI_CMD_ACL_43},   // 8 =
+{ 46, "80", &DSI_CMD_ACL_46},   // 8 =       // only 80cd  45% => ACL Code 46% code
+{ 45, "90", &DSI_CMD_ACL_45},   //  10 = 90,
+{ 45, "100", &DSI_CMD_ACL_45},   // 11 = 100,
+{ 45, "110", &DSI_CMD_ACL_45},   // 12 = 110,
+{ 45, "120", &DSI_CMD_ACL_45},   // 13 = 120,
+{ 45, "130", &DSI_CMD_ACL_45},   // 14 = 130,
+{ 45, "140", &DSI_CMD_ACL_45},   // 15 = 140,
+{ 45, "150", &DSI_CMD_ACL_45},   // 16 = 150,
+{ 45, "160", &DSI_CMD_ACL_45},   // 17= 160,  //only 160cd 46% => ACL code 45% code
+{ 46, "170", &DSI_CMD_ACL_46},   // 18= 170,
+{ 46, "180", &DSI_CMD_ACL_46},   // 19= 180,
+{ 46, "190", &DSI_CMD_ACL_46},   // 20= 190,
+{ 46, "200", &DSI_CMD_ACL_46},   // 21= 200,
+{ 46, "210", &DSI_CMD_ACL_46},   // 22= 210,
+{ 46, "220", &DSI_CMD_ACL_46},   // 23= 220,
+{ 46, "230", &DSI_CMD_ACL_46},   // 24= 230,
+{ 46, "240", &DSI_CMD_ACL_46},   // 25= 240,
+{ 46, "250", &DSI_CMD_ACL_46},   // 26= 250,
+{ 47, "260", &DSI_CMD_ACL_47},   // 27= 260,
+{ 48, "270", &DSI_CMD_ACL_48},   // 28= 270,
+{ 49, "280", &DSI_CMD_ACL_49},   // 29= 280,
+{ 50, "290", &DSI_CMD_ACL_50},   // 30= 290,
+//{ 50, "300", &DSI_CMD_ACL_50},   // 31= 300,
+};
+#endif
+#endif
+
+#endif 
+#endif 
 
 #define GET_NORMAL_ELVSS_ID_ADDRESS	(2)
-static char ELVSS_COND_SET_93V[]={	0xB1, 0x04, 0x90 };
-static char ELVSS_COND_SET_84V[]={	0xB1, 0x04, 0x99};
-static char ELVSS_COND_SET_80V[]={	0xB1, 0x04, 0x9D };
-static char ELVSS_COND_SET_72V[]={	0xB1, 0x04, 0x9F };
+static char ELVSS_COND_SET_90h[]={	0xB1, 0x04, 0x90 }; // -4.7v -> 9.3V
+static char ELVSS_COND_SET_99h[]={	0xB1, 0x04, 0x99 }; // -3.8v -> 8.4V
+static char ELVSS_COND_SET_9Dh[]={	0xB1, 0x04, 0x9D }; // -3.4v -> 8.0V
+static char ELVSS_COND_SET_9Fh[]={	0xB1, 0x04, 0x9F }; // -3.2v -> 7.8V
 
-static struct dsi_cmd_desc DSI_CMD_ELVSS_93V= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ELVSS_COND_SET_93V), ELVSS_COND_SET_93V}; 
-static struct dsi_cmd_desc DSI_CMD_ELVSS_84V= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ELVSS_COND_SET_84V), ELVSS_COND_SET_84V}; 
-static struct dsi_cmd_desc DSI_CMD_ELVSS_80V= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ELVSS_COND_SET_80V), ELVSS_COND_SET_80V}; 
-static struct dsi_cmd_desc DSI_CMD_ELVSS_72V= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ELVSS_COND_SET_72V), ELVSS_COND_SET_72V}; 
+static struct dsi_cmd_desc DSI_CMD_ELVSS_90h= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ELVSS_COND_SET_90h), ELVSS_COND_SET_90h}; 
+static struct dsi_cmd_desc DSI_CMD_ELVSS_99h= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ELVSS_COND_SET_99h), ELVSS_COND_SET_99h}; 
+static struct dsi_cmd_desc DSI_CMD_ELVSS_9Dh= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ELVSS_COND_SET_9Dh), ELVSS_COND_SET_9Dh}; 
+static struct dsi_cmd_desc DSI_CMD_ELVSS_9Fh= {DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(ELVSS_COND_SET_9Fh), ELVSS_COND_SET_9Fh}; 
 
 
-static struct dsi_cmd_desc_LCD lcd_elvss_table[MAX_GAMMA_VALUE+1] = {
-{ 72, "30", &DSI_CMD_ELVSS_72V},   // 1 = 30_dimming,
-{ 72, "40", &DSI_CMD_ELVSS_72V},   // 4 =  (Normal Range is From 4~31)
-{ 72, "70", &DSI_CMD_ELVSS_72V},   // 8 =
-{ 72, "90", &DSI_CMD_ELVSS_72V},   //  10 = 90,
-{ 72, "100", &DSI_CMD_ELVSS_72V},   // 11 = 100,
-{ 80, "110", &DSI_CMD_ELVSS_80V},   // 12 = 110,
-{ 80, "120", &DSI_CMD_ELVSS_80V},   // 13 = 120,
-{ 80, "130", &DSI_CMD_ELVSS_80V},   // 14 = 130,
-{ 80, "140", &DSI_CMD_ELVSS_80V},   // 15 = 140,
-{ 80, "150", &DSI_CMD_ELVSS_80V},   // 16 = 150,
-{ 80, "160", &DSI_CMD_ELVSS_80V},   // 17= 160,
-{ 84, "170", &DSI_CMD_ELVSS_84V},   // 18= 170,
-{ 84, "180", &DSI_CMD_ELVSS_84V},   // 19= 180,
-{ 84, "190", &DSI_CMD_ELVSS_84V},   // 20= 190,
-{ 84, "200", &DSI_CMD_ELVSS_84V},   // 21= 200,
-{ 93, "210", &DSI_CMD_ELVSS_93V},   // 22= 210,
-{ 93, "220", &DSI_CMD_ELVSS_93V},   // 23= 220,
-{ 93, "230", &DSI_CMD_ELVSS_93V},   // 24= 230,
-{ 93, "240", &DSI_CMD_ELVSS_93V},   // 25= 240,
-{ 93, "250", &DSI_CMD_ELVSS_93V},   // 26= 250,
-{ 93, "260", &DSI_CMD_ELVSS_93V},   // 27= 260,
-{ 93, "270", &DSI_CMD_ELVSS_93V},   // 28= 270,
-{ 93, "280", &DSI_CMD_ELVSS_93V},   // 29= 280,
-{ 93, "290", &DSI_CMD_ELVSS_93V},   // 30= 290,
-{ 93, "300", &DSI_CMD_ELVSS_93V},   // 31= 300,
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static struct dsi_cmd_desc_LCD lcd_elvss_table[CANDELA_TABLE_SIZE+1] = {
+{ 32, "30", &DSI_CMD_ELVSS_9Fh},   // 1 = 30_dimming,
+{ 32, "40", &DSI_CMD_ELVSS_9Fh},   
+{ 32, "50", &DSI_CMD_ELVSS_9Fh},   
+{ 32, "60", &DSI_CMD_ELVSS_9Fh},   
+{ 32, "70", &DSI_CMD_ELVSS_9Fh},   
+{ 32, "80", &DSI_CMD_ELVSS_9Fh},   
+{ 32, "90", &DSI_CMD_ELVSS_9Fh},   
+{ 32, "100", &DSI_CMD_ELVSS_9Fh},   
+{ 34, "110", &DSI_CMD_ELVSS_9Dh},   
+{ 34, "120", &DSI_CMD_ELVSS_9Dh},   
+{ 34, "130", &DSI_CMD_ELVSS_9Dh},   
+{ 34, "140", &DSI_CMD_ELVSS_9Dh},   
+{ 34, "150", &DSI_CMD_ELVSS_9Dh},   
+{ 34, "160", &DSI_CMD_ELVSS_9Dh},  
+{ 38, "170", &DSI_CMD_ELVSS_99h},   
+{ 38, "180", &DSI_CMD_ELVSS_99h},   
+{ 38, "190", &DSI_CMD_ELVSS_99h},  
+{ 38, "200", &DSI_CMD_ELVSS_99h},   
+{ 47, "210", &DSI_CMD_ELVSS_90h},   
+{ 47, "220", &DSI_CMD_ELVSS_90h},   
+{ 47, "230", &DSI_CMD_ELVSS_90h},   
+{ 47, "240", &DSI_CMD_ELVSS_90h},   
+{ 47, "250", &DSI_CMD_ELVSS_90h},   
+{ 47, "300", &DSI_CMD_ELVSS_90h},   
 };
-
+#else
+static struct dsi_cmd_desc_LCD lcd_elvss_table[MAX_GAMMA_VALUE+1] = {
+{ 32, "30", &DSI_CMD_ELVSS_9Fh},   // 1 = 30_dimming,
+{ 32, "40", &DSI_CMD_ELVSS_9Fh},   // 4 =  (Normal Range is From 4~31)
+{ 32, "70", &DSI_CMD_ELVSS_9Fh},   // 8 =
+{ 32, "80", &DSI_CMD_ELVSS_9Fh},   // 8 =
+{ 32, "90", &DSI_CMD_ELVSS_9Fh},   //  10 = 90,
+{ 32, "100", &DSI_CMD_ELVSS_9Fh},   // 11 = 100,
+{ 34, "110", &DSI_CMD_ELVSS_9Dh},   // 12 = 110,
+{ 34, "120", &DSI_CMD_ELVSS_9Dh},   // 13 = 120,
+{ 34, "130", &DSI_CMD_ELVSS_9Dh},   // 14 = 130,
+{ 34, "140", &DSI_CMD_ELVSS_9Dh},   // 15 = 140,
+{ 34, "150", &DSI_CMD_ELVSS_9Dh},   // 16 = 150,
+{ 34, "160", &DSI_CMD_ELVSS_9Dh},   // 17= 160,
+{ 38, "170", &DSI_CMD_ELVSS_99h},   // 18= 170,
+{ 38, "180", &DSI_CMD_ELVSS_99h},   // 19= 134,
+{ 38, "190", &DSI_CMD_ELVSS_99h},   // 20= 190,
+{ 38, "200", &DSI_CMD_ELVSS_99h},   // 21= 200,
+{ 47, "210", &DSI_CMD_ELVSS_90h},   // 22= 210,
+{ 47, "220", &DSI_CMD_ELVSS_90h},   // 23= 220,
+{ 47, "230", &DSI_CMD_ELVSS_90h},   // 24= 230,
+{ 47, "240", &DSI_CMD_ELVSS_90h},   // 25= 240,
+{ 47, "250", &DSI_CMD_ELVSS_90h},   // 26= 250,
+{ 47, "260", &DSI_CMD_ELVSS_90h},   // 27= 260,
+{ 47, "270", &DSI_CMD_ELVSS_90h},   // 28= 270,
+{ 47, "280", &DSI_CMD_ELVSS_90h},   // 29= 234,
+{ 47, "290", &DSI_CMD_ELVSS_90h}   // 30= 290,
+//{ 47, "300", &DSI_CMD_ELVSS_90h},   // 31= 300,
+};
+#endif
 
 #define LCD_ELVSS_DELTA_210_300CD (0)
 #define LCD_ELVSS_DELTA_170_200CD (0x08)
@@ -553,32 +926,65 @@ static struct dsi_cmd_desc lcd_each_elvss_table[1] = {
 	{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(EACH_ELVSS_COND_SET), EACH_ELVSS_COND_SET}
 };
 
-static int lcd_elvss_delta_table[MAX_GAMMA_VALUE+1] = {
-LCD_ELVSS_DELTA_000_100CD, // 0 = 30_dimming,
+
+#ifdef MAPPING_TBL_AUTO_BRIGHTNESS
+static int lcd_elvss_delta_table[CANDELA_TABLE_SIZE+1] = {
+LCD_ELVSS_DELTA_000_100CD, // 0 = 30
 LCD_ELVSS_DELTA_000_100CD, // 1 =  40        
-LCD_ELVSS_DELTA_000_100CD, // 2 =  70        
-LCD_ELVSS_DELTA_000_100CD, //  3 = 90,       
-LCD_ELVSS_DELTA_000_100CD, // 4 = 100,       
-LCD_ELVSS_DELTA_110_160CD, // 5 = 110,       
-LCD_ELVSS_DELTA_110_160CD, // 6 = 120,       
-LCD_ELVSS_DELTA_110_160CD, // 7 = 130,       
-LCD_ELVSS_DELTA_110_160CD, // 8 = 140,       
-LCD_ELVSS_DELTA_110_160CD, // 9 = 150,       
-LCD_ELVSS_DELTA_110_160CD, // 10= 160,       
-LCD_ELVSS_DELTA_170_200CD, // 11= 170,       
-LCD_ELVSS_DELTA_170_200CD, // 12= 180,       
-LCD_ELVSS_DELTA_170_200CD, // 13= 190,       
-LCD_ELVSS_DELTA_170_200CD, // 14= 200,       
-LCD_ELVSS_DELTA_210_300CD, // 15= 210,       
-LCD_ELVSS_DELTA_210_300CD, // 16= 220,       
-LCD_ELVSS_DELTA_210_300CD, // 17= 230,       
-LCD_ELVSS_DELTA_210_300CD, // 18= 240,       
-LCD_ELVSS_DELTA_210_300CD, // 19= 250,       
-LCD_ELVSS_DELTA_210_300CD, // 20= 260,       
-LCD_ELVSS_DELTA_210_300CD, // 21= 270,       
-LCD_ELVSS_DELTA_210_300CD, // 22= 280,       
-LCD_ELVSS_DELTA_210_300CD, // 23= 290,       
-LCD_ELVSS_DELTA_210_300CD // 24= 300,       
+LCD_ELVSS_DELTA_000_100CD, // 2 =  50       
+LCD_ELVSS_DELTA_000_100CD, //  3 = 60,       
+LCD_ELVSS_DELTA_000_100CD, // 4 = 70,       
+LCD_ELVSS_DELTA_000_100CD, // 5 = 80,       
+LCD_ELVSS_DELTA_000_100CD, // 6 = 90,       
+LCD_ELVSS_DELTA_000_100CD, // 7 = 100,       
+LCD_ELVSS_DELTA_110_160CD, // 8 = 110,		 
+LCD_ELVSS_DELTA_110_160CD, // 9 = 120,       
+LCD_ELVSS_DELTA_110_160CD, // 10 = 130,   
+LCD_ELVSS_DELTA_110_160CD, // 11 = 140,       
+LCD_ELVSS_DELTA_110_160CD, // 12 = 150,       
+LCD_ELVSS_DELTA_110_160CD, // 13= 160,       
+LCD_ELVSS_DELTA_170_200CD, // 14= 170,       
+LCD_ELVSS_DELTA_170_200CD, // 15= 180,       
+LCD_ELVSS_DELTA_170_200CD, // 16= 190,       
+LCD_ELVSS_DELTA_170_200CD, // 17= 200,       
+LCD_ELVSS_DELTA_210_300CD, // 18= 210,       
+LCD_ELVSS_DELTA_210_300CD, // 19= 220,       
+LCD_ELVSS_DELTA_210_300CD, // 20= 230,       
+LCD_ELVSS_DELTA_210_300CD, // 21= 240,       
+LCD_ELVSS_DELTA_210_300CD, // 22= 250,          
+LCD_ELVSS_DELTA_210_300CD // 23= 300,       
 };
+
+#else
+static int lcd_elvss_delta_table[MAX_GAMMA_VALUE+1] = {
+LCD_ELVSS_DELTA_000_100CD, //  30_dimming,
+LCD_ELVSS_DELTA_000_100CD, //  40        
+LCD_ELVSS_DELTA_000_100CD, //  70        
+LCD_ELVSS_DELTA_000_100CD, //  80        
+LCD_ELVSS_DELTA_000_100CD, //  90,       
+LCD_ELVSS_DELTA_000_100CD, //  100,       
+LCD_ELVSS_DELTA_110_160CD, //  110,       
+LCD_ELVSS_DELTA_110_160CD, //  120,       
+LCD_ELVSS_DELTA_110_160CD, //  130,       
+LCD_ELVSS_DELTA_110_160CD, //  140,       
+LCD_ELVSS_DELTA_110_160CD, //  150,       
+LCD_ELVSS_DELTA_110_160CD, //  160,       
+LCD_ELVSS_DELTA_170_200CD, //  170,       
+LCD_ELVSS_DELTA_170_200CD, //  180,       
+LCD_ELVSS_DELTA_170_200CD, //  190,       
+LCD_ELVSS_DELTA_170_200CD, //  200,       
+LCD_ELVSS_DELTA_210_300CD, //  210,       
+LCD_ELVSS_DELTA_210_300CD, //  220,       
+LCD_ELVSS_DELTA_210_300CD, //  230,       
+LCD_ELVSS_DELTA_210_300CD, //  240,       
+LCD_ELVSS_DELTA_210_300CD, //  250,       
+LCD_ELVSS_DELTA_210_300CD, //  260,       
+LCD_ELVSS_DELTA_210_300CD, //  270,       
+LCD_ELVSS_DELTA_210_300CD, //  280,       
+LCD_ELVSS_DELTA_210_300CD //  290,       
+//LCD_ELVSS_DELTA_210_300CD  //  300,       
+};
+#endif
+
 
 #endif  /* MIPI_S6E8AA0_SEQ_H */

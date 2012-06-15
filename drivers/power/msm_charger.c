@@ -9,13 +9,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
-//#define DEBUG
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -45,12 +39,6 @@
 
 #define MSM_CHARGER_GAUGE_MISSING_VOLTS 3500
 #define MSM_CHARGER_GAUGE_MISSING_TEMP  35
-
-// for init check charger
-#define MSM_USB_CHARGE_MA       450
-#define MSM_TA_CHARGE_MA        650
-//
-
 /**
  * enum msm_battery_status
  * @BATT_STATUS_ABSENT: battery not present
@@ -104,6 +92,7 @@ struct msm_charger_mux {
 	unsigned int update_time;
 	int stop_update;
 	struct delayed_work update_heartbeat_work;
+
 	struct mutex status_lock;
 	enum msm_battery_status batt_status;
 	struct msm_hardware_charger_priv *current_chg_priv;
@@ -116,10 +105,6 @@ struct msm_charger_mux {
 	int head;
 	spinlock_t queue_lock;
 	int queue_count;
-// for init check charger
-	struct delayed_work check_charger_work;
-	int init_checkvalue;
-//	
 	struct work_struct queue_work;
 	struct workqueue_struct *event_wq_thread;
 	struct wake_lock wl;
@@ -188,13 +173,9 @@ static int is_battery_id_valid(void)
 
 static int get_prop_battery_mvolts(void)
 {
-	int vcell;
-	
-	if (msm_batt_gauge && msm_batt_gauge->get_battery_mvolts) {
-		vcell = msm_batt_gauge->get_battery_mvolts();
-		//printk("%s : vcell = %dmV\n", __func__, vcell);
-		return vcell;
-	} else {
+	if (msm_batt_gauge && msm_batt_gauge->get_battery_mvolts)
+		return msm_batt_gauge->get_battery_mvolts();
+	else {
 		pr_err("msm-charger no batt gauge assuming 3.5V\n");
 		return MSM_CHARGER_GAUGE_MISSING_VOLTS;
 	}
@@ -212,10 +193,17 @@ static int get_battery_temperature(void)
 
 static int get_prop_batt_capacity(void)
 {
-	if (msm_batt_gauge && msm_batt_gauge->get_batt_remaining_capacity)
-		return msm_batt_gauge->get_batt_remaining_capacity();
+	int capacity;
 
-	return msm_chg.get_batt_capacity_percent();
+	if (msm_batt_gauge && msm_batt_gauge->get_batt_remaining_capacity)
+		capacity = msm_batt_gauge->get_batt_remaining_capacity();
+	else
+		capacity = msm_chg.get_batt_capacity_percent();
+
+	if (capacity <= 10)
+		pr_err("battery capacity very low = %d\n", capacity);
+
+	return capacity;
 }
 
 static int get_prop_batt_health(void)
@@ -353,7 +341,7 @@ static int msm_batt_power_get_property(struct power_supply *psy,
 		val->intval = msm_chg.min_voltage * 1000;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-		val->intval = get_prop_battery_mvolts() * 1000;
+		val->intval = get_prop_battery_mvolts();
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		val->intval = get_prop_batt_capacity();
@@ -374,9 +362,6 @@ static struct power_supply msm_psy_batt = {
 
 static int usb_chg_current;
 static struct msm_hardware_charger_priv *usb_hw_chg_priv;
-static struct msm_hardware_charger_priv *ac_hw_chg_priv;
-#if 0
-static struct msm_hardware_charger_priv *usb_hw_chg_priv;
 static void (*notify_vbus_state_func_ptr)(int);
 static int usb_notified_of_insertion;
 
@@ -384,7 +369,6 @@ static int usb_notified_of_insertion;
 int msm_charger_register_vbus_sn(void (*callback)(int))
 {
 	pr_debug(KERN_INFO "%s\n", __func__);
-	printk("%s: \n", __func__);
 	notify_vbus_state_func_ptr = callback;
 	return 0;
 }
@@ -393,7 +377,6 @@ int msm_charger_register_vbus_sn(void (*callback)(int))
 void msm_charger_unregister_vbus_sn(void (*callback)(int))
 {
 	pr_debug(KERN_INFO "%s\n", __func__);
-	printk("%s: \n", __func__);
 	notify_vbus_state_func_ptr = NULL;
 }
 
@@ -423,7 +406,6 @@ static void notify_usb_of_the_plugin_event(struct msm_hardware_charger_priv
 		usb_hw_chg_priv = NULL;
 	}
 }
-#endif
 
 static unsigned int msm_chg_get_batt_capacity_percent(void)
 {
@@ -490,8 +472,6 @@ static int msm_charging_switched(struct msm_hardware_charger_priv *priv)
 {
 	int ret = 0;
 
-	printk("%s:\n", __func__);
-
 	if (priv->hw_chg->charging_switched)
 		ret = priv->hw_chg->charging_switched(priv->hw_chg);
 	return ret;
@@ -500,7 +480,6 @@ static int msm_charging_switched(struct msm_hardware_charger_priv *priv)
 static int msm_stop_charging(struct msm_hardware_charger_priv *priv)
 {
 	int ret;
-	printk("%s:\n", __func__);
 
 	ret = priv->hw_chg->stop_charging(priv->hw_chg);
 	if (!ret)
@@ -526,8 +505,6 @@ static int msm_start_charging(void)
 {
 	int ret;
 	struct msm_hardware_charger_priv *priv;
-
-	printk("%s:\n", __func__);
 
 	priv = msm_chg.current_chg_priv;
 	wake_lock(&msm_chg.wl);
@@ -624,8 +601,6 @@ static void update_heartbeat(struct work_struct *work)
 {
 	int temperature;
 
-	printk(KERN_ERR "%s\n", __func__);
-		
 	if (msm_chg.batt_status == BATT_STATUS_ABSENT
 		|| msm_chg.batt_status == BATT_STATUS_ID_INVALID) {
 		if (is_battery_present())
@@ -825,11 +800,6 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 		update_batt_status();
 		if (hw_chg->type == CHG_TYPE_USB) {
 			priv->hw_chg_state = CHG_PRESENT_STATE;
-#if 0			
-			// samsung modified
-			usb_hw_chg_priv = priv;
-			//notify_usb_of_the_plugin_event(priv, 1);
-#else
 			notify_usb_of_the_plugin_event(priv, 1);
 			if (usb_chg_current) {
 				priv->max_source_current = usb_chg_current;
@@ -838,10 +808,6 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 				priv->hw_chg_state = CHG_READY_STATE;
 				handle_charger_ready(priv);
 			}
-#endif
-		} else if (hw_chg->type == CHG_TYPE_AC) {
-			priv->hw_chg_state = CHG_PRESENT_STATE;
-			ac_hw_chg_priv = priv;
 		} else {
 			priv->hw_chg_state = CHG_READY_STATE;
 			handle_charger_ready(priv);
@@ -877,16 +843,9 @@ static void handle_event(struct msm_hardware_charger *hw_chg, int event)
 		}
 		update_batt_status();
 		if (hw_chg->type == CHG_TYPE_USB) {
-#if 0
-			// samsung modified
-			usb_hw_chg_priv = NULL;
-			//notify_usb_of_the_plugin_event(priv, 0);
-#else
 			usb_chg_current = 0;
 			notify_usb_of_the_plugin_event(priv, 0);
-#endif
-		} else if (hw_chg->type == CHG_TYPE_AC)
-			ac_hw_chg_priv = NULL;
+		}
 		handle_charger_removed(priv, CHG_ABSENT_STATE);
 		break;
 	case CHG_DONE_EVENT:
@@ -1020,55 +979,20 @@ static void process_events(struct work_struct *work)
 	} while (!rc);
 }
 
-#if 0
-/* USB calls these to tell us how much charging current we should draw*/
+/* USB calls these to tell us how much charging current we should draw */
 void msm_charger_vbus_draw(unsigned int mA)
 {
 	if (usb_hw_chg_priv) {
-		if (mA == 650) {
-			usb_hw_chg_priv->hw_chg->type = CHG_TYPE_AC;
-			usb_hw_chg_priv->max_source_current = mA;
-		} else {
-			usb_hw_chg_priv->hw_chg->type = CHG_TYPE_USB;
-			usb_hw_chg_priv->max_source_current = mA;
-		}
-		//msm_charger_notify_event(usb_hw_chg_priv->hw_chg,
-		//				CHG_ENUMERATED_EVENT);
+		usb_hw_chg_priv->max_source_current = mA;
+		msm_charger_notify_event(usb_hw_chg_priv->hw_chg,
+						CHG_ENUMERATED_EVENT);
 	} else
 		/* remember the current, to be used when charger is ready */
 		usb_chg_current = mA;
 }
-#endif
-
-/* USB calls these to tell us how much charging current we should draw*/
-void msm_charger_vbus_draw(unsigned int mA)
-{
-	msm_chg.init_checkvalue = 0 ;
-	if (mA == 650) {
-		if(ac_hw_chg_priv) {
-			ac_hw_chg_priv->hw_chg->type = CHG_TYPE_AC;
-			ac_hw_chg_priv->max_source_current = mA;
-			msm_charger_notify_event(ac_hw_chg_priv->hw_chg, CHG_ENUMERATED_EVENT);
-		} else {
-			msm_chg.init_checkvalue = MSM_TA_CHARGE_MA ;
-			pr_err("%s called early;charger isnt initialized\n", __func__);
-		}
-	} else {
-		if(usb_hw_chg_priv) {
-			usb_hw_chg_priv->hw_chg->type = CHG_TYPE_USB;
-			usb_hw_chg_priv->max_source_current = mA;
-			msm_charger_notify_event(usb_hw_chg_priv->hw_chg, CHG_ENUMERATED_EVENT);
-		} else {
-			msm_chg.init_checkvalue = MSM_USB_CHARGE_MA ;
-			pr_err("%s called early;charger isnt initialized\n", __func__);
-		}
-	}
-}
 
 static int __init determine_initial_batt_status(void)
 {
-	int rc;
-
 	if (is_battery_present())
 		if (is_battery_id_valid())
 			if (is_battery_temp_within_range())
@@ -1084,13 +1008,6 @@ static int __init determine_initial_batt_status(void)
 	if (is_batt_status_capable_of_charging())
 		handle_battery_inserted();
 
-	rc = power_supply_register(msm_chg.dev, &msm_psy_batt);
-	if (rc < 0) {
-		dev_err(msm_chg.dev, "%s: power_supply_register failed"
-			" rc=%d\n", __func__, rc);
-		return rc;
-	}
-
 	/* start updaing the battery powersupply every msm_chg.update_time
 	 * milliseconds */
 	queue_delayed_work(msm_chg.event_wq_thread,
@@ -1102,26 +1019,8 @@ static int __init determine_initial_batt_status(void)
 	return 0;
 }
 
-// for init check charger
-static void check_charger(struct work_struct *work)
-{
-	printk("%s :\n", __func__);
-	msm_charger_vbus_draw(msm_chg.init_checkvalue);
-	if (msm_chg.init_checkvalue!=0)
-	{
-		queue_delayed_work(msm_chg.event_wq_thread,
-					&msm_chg.check_charger_work,
-					  round_jiffies_relative(msecs_to_jiffies
-								 (1000)));		
-	}
-	else
-		cancel_delayed_work(&msm_chg.check_charger_work);
-}
-//
 static int __devinit msm_charger_probe(struct platform_device *pdev)
 {
-	printk("%s :\n", __func__);
-	
 	msm_chg.dev = &pdev->dev;
 	if (pdev->dev.platform_data) {
 		unsigned int milli_secs;
@@ -1144,9 +1043,6 @@ static int __devinit msm_charger_probe(struct platform_device *pdev)
 				 "%dms\n", __func__, milli_secs);
 			milli_secs = jiffies_to_msecs(MAX_JIFFY_OFFSET);
 		}
-
-		milli_secs = 5000;
-		
 		msm_chg.update_time = milli_secs;
 
 		msm_chg.max_voltage = pdata->max_voltage;
@@ -1171,15 +1067,6 @@ static int __devinit msm_charger_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&msm_chg.update_heartbeat_work, update_heartbeat);
 
 	wake_lock_init(&msm_chg.wl, WAKE_LOCK_SUSPEND, "msm_charger");
-// for init check charger
-	if (msm_chg.init_checkvalue!=0)
-	{
-		INIT_DELAYED_WORK(&msm_chg.check_charger_work, check_charger);
-		queue_delayed_work(msm_chg.event_wq_thread,
-					&msm_chg.check_charger_work,
-					  round_jiffies_relative(msecs_to_jiffies(1000)));
-	}
-//	
 	return 0;
 }
 
@@ -1260,11 +1147,20 @@ EXPORT_SYMBOL(msm_charger_register);
 
 void msm_battery_gauge_register(struct msm_battery_gauge *batt_gauge)
 {
+	int rc;
+
 	if (msm_batt_gauge) {
 		msm_batt_gauge = batt_gauge;
 		pr_err("msm-charger %s multiple battery gauge called\n",
 								__func__);
 	} else {
+		rc = power_supply_register(msm_chg.dev, &msm_psy_batt);
+		if (rc < 0) {
+			dev_err(msm_chg.dev, "%s: power_supply_register failed"
+					" rc=%d\n", __func__, rc);
+			return;
+		}
+
 		msm_batt_gauge = batt_gauge;
 		determine_initial_batt_status();
 	}

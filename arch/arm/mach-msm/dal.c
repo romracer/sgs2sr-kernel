@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2009, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  *
  */
 /*
@@ -412,7 +407,7 @@ static struct dalrpc_port *dalrpc_port_open(char *port, int cpu)
 	if (!p)
 		return NULL;
 
-	strncpy(p->port, port, sizeof(p->port) - 1);
+	strlcpy(p->port, port, sizeof(p->port));
 	p->refcount = 1;
 
 	snprintf(wq_name, sizeof(wq_name), "dalrpc_rcv_%s", port);
@@ -542,8 +537,8 @@ int daldevice_attach(uint32_t device_id, char *port, int cpu,
 		} else if (strnlen((char *)&h->msg.param[1],
 				   DALRPC_MAX_PORTNAME_LEN)) {
 			/* another port was recommended in the response. */
-			strncpy(dyn_port, (char *)&h->msg.param[1],
-				DALRPC_MAX_PORTNAME_LEN);
+			strlcpy(dyn_port, (char *)&h->msg.param[1],
+				sizeof(dyn_port));
 			dyn_port[DALRPC_MAX_PORTNAME_LEN] = 0;
 			port = dyn_port;
 		} else if (port == dyn_port) {

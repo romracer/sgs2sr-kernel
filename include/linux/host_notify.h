@@ -25,12 +25,12 @@ enum otg_hostnotify_mode {
 	NOTIFY_TEST_MODE,
 };
 
-enum booster_power{
+enum booster_power {
 	NOTIFY_POWER_OFF,
 	NOTIFY_POWER_ON,
 };
 
-enum set_command{
+enum set_command {
 	NOTIFY_SET_OFF,
 	NOTIFY_SET_ON,
 };

@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/delay.h>
@@ -556,12 +551,10 @@ static int __init lcdc_samsung_panel_init(void)
 {
 	int ret;
 
-#ifdef CONFIG_FB_MSM_LCDC_AUTO_DETECT
 	if (msm_fb_detect_client("lcdc_samsung_oled")) {
 		pr_err("%s: detect failed\n", __func__);
 		return 0;
 	}
-#endif
 
 	ret = platform_driver_register(&this_driver);
 	if (ret) {

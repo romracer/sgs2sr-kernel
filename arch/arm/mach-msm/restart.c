@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include <linux/module.h>
@@ -24,27 +19,34 @@
 #include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/pm.h>
+#include <linux/cpu.h>
+#include <linux/interrupt.h>
 #include <linux/mfd/pmic8058.h>
 #include <linux/mfd/pmic8901.h>
+#include <linux/mfd/pm8xxx/misc.h>
 
-#include <mach/msm_iomap.h>
-#include <mach/restart.h>
-#include <mach/scm-io.h>
 #include <asm/mach-types.h>
 #include <mach/sec_debug.h>  // onlyjazz
 #include <linux/notifier.h> // klaatu
 #include <linux/ftrace.h> // klaatu
 
-#define TCSR_WDT_CFG 0x30
+#include <mach/msm_iomap.h>
+#include <mach/restart.h>
+#include <mach/socinfo.h>
+#include <mach/irqs.h>
+#include <mach/scm.h>
+#include "msm_watchdog.h"
+#include "timer.h"
 
-#define WDT0_RST       (MSM_TMR0_BASE + 0x38)
-#define WDT0_EN        (MSM_TMR0_BASE + 0x40)
-#define WDT0_BARK_TIME (MSM_TMR0_BASE + 0x4C)
-#define WDT0_BITE_TIME (MSM_TMR0_BASE + 0x5C)
+#define WDT0_RST	0x38
+#define WDT0_EN		0x40
+#define WDT0_BARK_TIME	0x4C
+#define WDT0_BITE_TIME	0x5C
 
 #define PSHOLD_CTL_SU (MSM_TLMM_BASE + 0x820)
 
-#define RESTART_REASON_ADDR 0x2A05F65C
+#define RESTART_REASON_ADDR 0x65C
+#define DLOAD_MODE_ADDR     0x0
 
 #define RESTART_LPM_BOOT_MODE		0x77665506
 #define RESTART_ARM11FOTA_MODE  	0x77665503
@@ -53,15 +55,23 @@
 #define RESTART_FASTBOOT_MODE   	0x77665500
 #ifdef CONFIG_SEC_DEBUG
 #define RESTART_SECDEBUG_MODE   	0x776655EE
+#define RESTART_SECCOMMDEBUG_MODE   	0x7766DEAD
 #endif
 // NOT USE 0x776655FF~0x77665608 command
 #define RESTART_HOMEDOWN_MODE       	0x776655FF
 #define RESTART_HOMEDOWN_MODE_END   	0x77665608
 
+#define SCM_IO_DISABLE_PMIC_ARBITER	1
+
 static int restart_mode;
+static void *restart_reason;
+
+int pmic_reset_irq;
+static void __iomem *msm_tmr0_base;
 
 #ifdef CONFIG_MSM_DLOAD_MODE
 static int in_panic;
+static void *dload_mode_addr;
 
 #if 0	/* onlyjazz.ef24 : intentionally remove it */
 /* Download mode master kill-switch */
@@ -87,28 +97,16 @@ static struct notifier_block panic_blk = {
 	.notifier_call	= panic_prep_restart,
 };
 
-#if 1	/* onlyjazz.ef27 : make the dload_mode_addr global to avoid ioremap in interrupt context */
-void *dload_mode_addr = NULL;
-#endif
-
 static void set_dload_mode(int on)
 {
-#if 0	/* onlyjazz.ef27 : make the dload_mode_addr global to avoid ioremap/iounmap in interrupt context */
-	void *dload_mode_addr;
-	dload_mode_addr = ioremap_nocache(0x2A05F000, SZ_4K);
-#endif
-
 	if (dload_mode_addr) {
-		writel(on ? 0xE47B337D : 0, dload_mode_addr);
-		writel(on ? 0xCE14091A : 0,
+		__raw_writel(on ? 0xE47B337D : 0, dload_mode_addr);
+		__raw_writel(on ? 0xCE14091A : 0,
 		       dload_mode_addr + sizeof(unsigned int));
 		mb();
 		
 		// klaatu
 		pr_err("set_dload_mode <%d> ( %x )\n", on, CALLER_ADDR0);
-#if 0	/* onlyjazz.ef27 : make the dload_mode_addr global to avoid ioremap/iounmap in interrupt context */
-		iounmap(dload_mode_addr);
-#endif
 	}
 }
 
@@ -144,31 +142,73 @@ void msm_set_restart_mode(int mode)
 }
 EXPORT_SYMBOL(msm_set_restart_mode);
 
-static void msm_power_off(void)
+static void __msm_power_off(int lower_pshold)
 {
-	printk(KERN_NOTICE "Powering off the SoC\n");
+	local_irq_disable();
+	printk(KERN_CRIT "Powering off the SoC\n");
 #ifdef CONFIG_MSM_DLOAD_MODE
 	set_dload_mode(0);
 #endif
-	pm8058_reset_pwr_off(0);
-	pm8901_reset_pwr_off(0);
-	mdelay(8); /*total 8ms delay before PS_HOLD is pulled low */ 
-	writel(0, PSHOLD_CTL_SU);
-	mdelay(10000);
-	printk(KERN_ERR "Powering off has failed\n");
+	pm8xxx_reset_pwr_off(0);
+
+	if (lower_pshold) {
+		__raw_writel(0, PSHOLD_CTL_SU);
+		mdelay(10000);
+		printk(KERN_ERR "Powering off has failed\n");
+	}
+	local_irq_enable();
 	return;
 }
 
-#ifdef CONFIG_SEC_DEBUG
-extern void* restart_reason;
-#endif
+static void msm_power_off(void)
+{
+	/* MSM initiated power off, lower ps_hold */
+	__msm_power_off(1);
+}
+
+static void cpu_power_off(void *data)
+{
+	int rc;
+
+	pr_err("PMIC Initiated shutdown %s cpu=%d\n", __func__,
+						smp_processor_id());
+	if (smp_processor_id() == 0) {
+		/*
+		 * PMIC initiated power off, do not lower ps_hold, pmic will
+		 * shut msm down
+		 */
+		__msm_power_off(0);
+
+		pet_watchdog();
+		pr_err("Calling scm to disable arbiter\n");
+		/* call secure manager to disable arbiter and never return */
+		rc = scm_call_atomic1(SCM_SVC_PWR,
+						SCM_IO_DISABLE_PMIC_ARBITER, 1);
+
+		pr_err("SCM returned even when asked to busy loop rc=%d\n", rc);
+		pr_err("waiting on pmic to shut msm down\n");
+	}
+
+	preempt_disable();
+	while (1)
+		;
+}
+
+static irqreturn_t resout_irq_handler(int irq, void *dev_id)
+{
+	pr_warn("%s PMIC Initiated shutdown\n", __func__);
+	oops_in_progress = 1;
+	smp_call_function_many(cpu_online_mask, cpu_power_off, NULL, 0);
+	if (smp_processor_id() == 0)
+		cpu_power_off(NULL);
+	preempt_disable();
+	while (1)
+		;
+	return IRQ_HANDLED;
+}
 
 void arch_reset(char mode, const char *cmd)
 {
-#ifndef CONFIG_SEC_DEBUG
-	void *restart_reason;
-#endif
-
 #ifdef CONFIG_MSM_DLOAD_MODE
 
 #ifdef CONFIG_SEC_DEBUG // klaatu
@@ -198,45 +238,36 @@ void arch_reset(char mode, const char *cmd)
 
 	printk(KERN_NOTICE "Going down for restart now\n");
 
-	pm8058_reset_pwr_off(1);
+	pm8xxx_reset_pwr_off(1);
 
-#ifdef CONFIG_SEC_DEBUG
-	/* onlyjazz.ed26  : avoid ioreamp is possible because arch_reset can be called in interrupt context */
-	if (!restart_reason)
-		restart_reason = ioremap_nocache(RESTART_REASON_ADDR, SZ_4K);
-#endif
         // TODO:  Never use RESTART_LPM_BOOT_MODE/0x77665506 as another restart reason instead of LPM mode.
         // RESTART_LPM_BOOT_MODE/0x77665506 is reserved for LPM mode.
 	if (cmd != NULL) {
-#ifndef CONFIG_SEC_DEBUG
-		restart_reason = ioremap_nocache(RESTART_REASON_ADDR, SZ_4K);
-#endif
 		if (!strncmp(cmd, "bootloader", 10)) {
-			writel(RESTART_FASTBOOT_MODE, restart_reason);
+			__raw_writel(RESTART_FASTBOOT_MODE, restart_reason);
 		} else if (!strncmp(cmd, "recovery", 8)) {
-			writel(RESTART_RECOVERY_MODE, restart_reason);
+			__raw_writel(RESTART_RECOVERY_MODE, restart_reason);
 		} else if (!strncmp(cmd, "download", 8)) {
-			unsigned long code;
+			unsigned long code = 0;
 			strict_strtoul(cmd + 8, 16, &code);
 			code = code & 0xff;
-			writel(RESTART_HOMEDOWN_MODE + code, restart_reason);
+			__raw_writel(RESTART_HOMEDOWN_MODE + code, restart_reason);
 		} else if (!strncmp(cmd, "oem-", 4)) {
-			unsigned long code;
+			unsigned long code = 0;
 			strict_strtoul(cmd + 4, 16, &code);
 			code = code & 0xff;
-			writel(0x6f656d00 | code, restart_reason);
+			__raw_writel(0x6f656d00 | code, restart_reason);
 #ifdef CONFIG_SEC_DEBUG
 		} else if (!strncmp(cmd, "sec_debug_hw_reset", 18)) {
-			writel(0x776655ee, restart_reason);
+			__raw_writel(0x776655ee, restart_reason);
+		} else if (!strncmp(cmd, "sec_debug_comm_dump", 19)) {
+			__raw_writel(0x7766DEAD, restart_reason);
 #endif
 		} else if (!strncmp(cmd, "arm11_fota", 10)) {
-			writel(RESTART_ARM11FOTA_MODE, restart_reason);
+			__raw_writel(RESTART_ARM11FOTA_MODE, restart_reason);
 		} else {
-			writel(RESTART_OTHERBOOT_MODE, restart_reason);
+			__raw_writel(RESTART_OTHERBOOT_MODE, restart_reason);
 		}
-#ifndef CONFIG_SEC_DEBUG
-		iounmap(restart_reason);
-#endif
 	}
 #ifdef CONFIG_SEC_DEBUG
 	else {
@@ -244,28 +275,25 @@ void arch_reset(char mode, const char *cmd)
 	}
 #endif
 
-#if 0	
-	writel(0, WDT0_EN);
-	if (!(machine_is_msm8x60_charm_surf() ||
-	      machine_is_msm8x60_charm_ffa())) {
-		dsb();
-		writel(0, PSHOLD_CTL_SU); /* Actually reset the chip */
+#if 0 /* onlyjazz.el20 : it was commented out in celox gingerbread, according to the request from waro.park */
+	__raw_writel(0, msm_tmr0_base + WDT0_EN);
+	if (!(machine_is_msm8x60_fusion() || machine_is_msm8x60_fusn_ffa())) {
+		mb();
+		__raw_writel(0, PSHOLD_CTL_SU); /* Actually reset the chip */
 		mdelay(5000);
 		pr_notice("PS_HOLD didn't work, falling back to watchdog\n");
 	}
 #endif
 
-/* 	MDM dump corruption
-	Give time to MDM to prepare Upload mode*/
-//------------------
-	__raw_writel(0, WDT0_EN);
+#if 0  /* onlyjazz.el20 : give time for MDM to prepare upload mode to prevent mdm dump corruption. still required ?  */
+	__raw_writel(0, msm_tmr0_base + WDT0_EN);
 	mdelay(1000);
-//------------------	
-	__raw_writel(1, WDT0_RST);
-	__raw_writel(5*0x31F3, WDT0_BARK_TIME);
-	__raw_writel(0x31F3, WDT0_BITE_TIME);
-	__raw_writel(3, WDT0_EN);
-	secure_writel(3, MSM_TCSR_BASE + TCSR_WDT_CFG);
+#endif
+
+	__raw_writel(1, msm_tmr0_base + WDT0_RST);
+	__raw_writel(5*0x31F3, msm_tmr0_base + WDT0_BARK_TIME);
+	__raw_writel(0x31F3, msm_tmr0_base + WDT0_BITE_TIME);
+	__raw_writel(1, msm_tmr0_base + WDT0_EN);
 
 	mdelay(10000);
 	printk(KERN_ERR "Restarting has failed\n");
@@ -288,12 +316,11 @@ static struct notifier_block dload_reboot_block = {
 
 static int __init msm_restart_init(void)
 {
+	int rc;
+
 #ifdef CONFIG_MSM_DLOAD_MODE
-
-	/* onlyjazz.ef27 : make the dload_mode_addr global to avoid ioremap/iounmap in interrupt context */
-	dload_mode_addr = ioremap_nocache(0x2A05F000, SZ_4K);
-
 	atomic_notifier_chain_register(&panic_notifier_list, &panic_blk);
+	dload_mode_addr = MSM_IMEM_BASE + DLOAD_MODE_ADDR;
 
 #ifdef CONFIG_SEC_DEBUG // klaatu
 	register_reboot_notifier(&dload_reboot_block);
@@ -304,8 +331,19 @@ static int __init msm_restart_init(void)
 	else
 		set_dload_mode(0);
 #endif
-
+	msm_tmr0_base = msm_timer_get_timer0_base();
+	restart_reason = MSM_IMEM_BASE + RESTART_REASON_ADDR;
 	pm_power_off = msm_power_off;
+
+	if (pmic_reset_irq != 0) {
+		rc = request_any_context_irq(pmic_reset_irq,
+					resout_irq_handler, IRQF_TRIGGER_HIGH,
+					"restart_from_pmic", NULL);
+		if (rc < 0)
+			pr_err("pmic restart irq fail rc = %d\n", rc);
+	} else {
+		pr_warn("no pmic restart interrupt specified\n");
+	}
 
 	return 0;
 }

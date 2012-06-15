@@ -9,11 +9,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
- *
  */
 
 #include "vcd_ddl_shared_mem.h"
@@ -88,10 +83,8 @@
 #define VIDC_SM_ENC_EXT_CTRL_ADDR                    0x0028
 #define VIDC_SM_ENC_EXT_CTRL_VBV_BUFFER_SIZE_BMSK    0xffff0000
 #define VIDC_SM_ENC_EXT_CTRL_VBV_BUFFER_SIZE_SHFT    16
-#if 1 //ksnr   QC Patch for H263-Non-PlusType Encoding
 #define VIDC_SM_ENC_EXT_CTRL_H263_CPCFC_ENABLE_BMSK  0x80
 #define VIDC_SM_ENC_EXT_CTRL_H263_CPCFC_ENABLE_SHFT  7
-#endif
 #define VIDC_SM_ENC_EXT_CTRL_SEQ_HDR_CTRL_BMSK       0x8
 #define VIDC_SM_ENC_EXT_CTRL_SEQ_HDR_CTRL_SHFT       3
 #define VIDC_SM_ENC_EXT_CTRL_FRAME_SKIP_ENABLE_BMSK  0x6
@@ -206,6 +199,13 @@
 #define VIDC_SM_CHROMA_ADDR_CHANGE_ADDR   0x0148
 #define VIDC_SM_CHROMA_ADDR_CHANGE_BMASK  0x00000001
 #define VIDC_SM_CHROMA_ADDR_CHANGE_SHFT   0
+
+#define VIDC_SM_SEI_ENABLE_ADDR                     0x0180
+#define VIDC_SM_SEI_ENABLE_RECOVERY_POINT_SEI_BMSK  0x00000001
+#define VIDC_SM_SEI_ENABLE_RECOVERY_POINT_SEI_SHFT  0
+
+#define VIDC_SM_ENC_EXT_CTRL_CLOSED_GOP_ENABLE_BMSK	0x40
+#define VIDC_SM_ENC_EXT_CTRL_CLOSED_GOP_ENABLE_SHFT	6
 
 #define DDL_MEM_WRITE_32(base, offset, val) ddl_mem_write_32(\
 	(u32 *) ((u8 *) (base)->align_virtual_addr + (offset)), (val))
@@ -351,11 +351,8 @@ void vidc_sm_get_dec_order_crop_info(
 void vidc_sm_set_extended_encoder_control(struct ddl_buf_addr
 	*shared_mem, u32 hec_enable,
 	enum VIDC_SM_frame_skip frame_skip_mode,
-#if 0  //ksnr   QC Patch for H263-Non-PlusType Encoding	
-	u32 seq_hdr_in_band, u32 vbv_buffer_size)
-#else
-	u32 seq_hdr_in_band, u32 vbv_buffer_size, u32 cpcfc_enable)
-#endif
+	u32 seq_hdr_in_band, u32 vbv_buffer_size, u32 cpcfc_enable,
+	u32 closed_gop_enable)
 {
 	u32 enc_ctrl;
 
@@ -370,14 +367,13 @@ void vidc_sm_set_extended_encoder_control(struct ddl_buf_addr
 			VIDC_SM_ENC_EXT_CTRL_SEQ_HDR_CTRL_BMSK) |
 			VIDC_SETFIELD(vbv_buffer_size,
 			VIDC_SM_ENC_EXT_CTRL_VBV_BUFFER_SIZE_SHFT,
-#if 0 //ksnr   QC Patch for H263-Non-PlusType Encoding			
-			VIDC_SM_ENC_EXT_CTRL_VBV_BUFFER_SIZE_BMSK);
-#else
 			VIDC_SM_ENC_EXT_CTRL_VBV_BUFFER_SIZE_BMSK) |
 			VIDC_SETFIELD((cpcfc_enable) ? 1 : 0,
 			VIDC_SM_ENC_EXT_CTRL_H263_CPCFC_ENABLE_SHFT,
-			VIDC_SM_ENC_EXT_CTRL_H263_CPCFC_ENABLE_BMSK);
-#endif
+			VIDC_SM_ENC_EXT_CTRL_H263_CPCFC_ENABLE_BMSK) |
+			VIDC_SETFIELD(closed_gop_enable,
+			VIDC_SM_ENC_EXT_CTRL_CLOSED_GOP_ENABLE_SHFT,
+			VIDC_SM_ENC_EXT_CTRL_CLOSED_GOP_ENABLE_BMSK);
 	DDL_MEM_WRITE_32(shared_mem, VIDC_SM_ENC_EXT_CTRL_ADDR, enc_ctrl);
 }
 
@@ -518,6 +514,16 @@ void vidc_sm_get_min_yc_dpb_sizes(struct ddl_buf_addr *shared_mem,
 		VIDC_SM_MIN_LUMA_DPB_SIZE_ADDR);
 	*pn_min_chroma_dpb_size = DDL_MEM_READ_32(shared_mem,
 		VIDC_SM_MIN_CHROMA_DPB_SIZE_ADDR);
+}
+
+void vidc_sm_set_concealment_color(struct ddl_buf_addr *shared_mem,
+	u32 conceal_ycolor, u32 conceal_ccolor)
+{
+	u32 conceal_color;
+
+	conceal_color = (((conceal_ycolor << 8) & 0xff00) |
+		(conceal_ccolor & 0xff));
+	DDL_MEM_WRITE_32(shared_mem, 0x00f0, conceal_color);
 }
 
 void vidc_sm_set_metadata_enable(struct ddl_buf_addr *shared_mem,
@@ -691,7 +697,7 @@ void vidc_sm_set_mpeg4_profile_override(struct ddl_buf_addr *shared_mem,
 	enum vidc_sm_mpeg4_profileinfo profile_info)
 {
 	u32 profile_enforce = 0;
-	if (shared_mem) {
+	if (shared_mem != NULL) {
 		profile_enforce = 1;
 		switch (profile_info) {
 		case VIDC_SM_PROFILE_INFO_ASP:
@@ -705,6 +711,17 @@ void vidc_sm_set_mpeg4_profile_override(struct ddl_buf_addr *shared_mem,
 			profile_enforce = 0;
 			break;
 		}
+		DDL_MEM_WRITE_32(shared_mem, 0x15c, profile_enforce);
 	}
-	DDL_MEM_WRITE_32(shared_mem, 0x15c, profile_enforce);
+}
+void vidc_sm_set_decoder_sei_enable(struct ddl_buf_addr *shared_mem,
+	u32 sei_enable)
+{
+	DDL_MEM_WRITE_32(shared_mem, VIDC_SM_SEI_ENABLE_ADDR, sei_enable);
+}
+
+void vidc_sm_get_decoder_sei_enable(struct ddl_buf_addr *shared_mem,
+	u32 *sei_enable)
+{
+	*sei_enable = DDL_MEM_READ_32(shared_mem, VIDC_SM_SEI_ENABLE_ADDR);
 }

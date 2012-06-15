@@ -34,8 +34,8 @@
 #include <asm/atomic.h>
 #include <asm/ioctls.h>
 #include <mach/msm_adsp.h>
-#include <mach/qdsp6v2/apr_audio.h>
-#include <mach/qdsp6v2/q6asm.h>
+#include <sound/q6asm.h>
+#include <sound/apr_audio.h>
 #include "audio_lpa.h"
 
 #include <linux/msm_audio.h>
@@ -173,7 +173,7 @@ static void lpa_listner(u32 evt_id, union auddev_evt_data *evt_payload,
 				}
 				else
 				{
-					rc = q6asm_set_volume(audio->ac, audio->volume);
+				rc = q6asm_set_volume(audio->ac, audio->volume);
 				}
 #else
 				rc = q6asm_set_volume(audio->ac, audio->volume);
@@ -201,7 +201,9 @@ static void audlpa_prevent_sleep(struct audio *audio)
 static void audlpa_allow_sleep(struct audio *audio)
 {
 	pr_debug("%s:\n", __func__);
-	wake_unlock(&audio->wakelock);
+	wake_lock_timeout(&audio->wakelock, 5 * HZ);
+//	wake_unlock(&audio->wakelock);
+
 }
 
 /* must be called with audio->lock held */
@@ -769,7 +771,7 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	case AUDIO_SET_VOLUME:
 		//pr_debug("AUDIO_SET_VOLUME %d, audio->volume=%d", arg, audio->volume);
-		pr_info("AUDIO_SET_VOLUME %d, audio->volume=%d, mute=%d", arg, audio->volume, audlpa_mute);
+		pr_info("AUDIO_SET_VOLUME %d, audio->volume=%d, mute=%d", (int)arg, audio->volume, audlpa_mute);
 #ifdef LPA_MUTE_CTRL
 		audio->volume = arg;
 #endif
@@ -853,7 +855,6 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				.step = SOFT_VOLUME_STEP,
 				.rampingcurve = SOFT_VOLUME_CURVE_LINEAR,
 			};
-			
 			audio->out_enabled = 1;
 			audio->out_needed = 1;
 			rc = q6asm_set_volume(audio->ac, audio->volume);
@@ -884,7 +885,9 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				audio->stopped = 0;
 			audlpa_prevent_sleep(audio);
 
+#ifdef LPA_MUTE_CTRL
 			audlpa_mute = 0;
+#endif
 		}
 		break;
 
@@ -1168,7 +1171,6 @@ static int audio_release(struct inode *inode, struct file *file)
 	audio->event_abort = 1;
 	wake_up(&audio->event_wait);
 	audlpa_reset_event_queue(audio);
-	iounmap(audio->data);
 	pmem_kfree(audio->phys);
 	if (audio->stopped == 0)
 		audlpa_allow_sleep(audio);
@@ -1412,7 +1414,6 @@ done:
 	return rc;
 err:
 	q6asm_audio_client_free(audio->ac);
-	iounmap(audio->data);
 	pmem_kfree(audio->phys);
 	kfree(audio);
 	return rc;

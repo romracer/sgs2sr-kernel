@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #ifndef __ASM_ARCH_MSM_IRQS_8960_H
@@ -37,17 +32,18 @@
 #define AVS_SVICINTSWDONE			(GIC_PPI_START + 7)
 #define CPU_DBGCPUXCOMMRXFULL			(GIC_PPI_START + 8)
 #define CPU_DBGCPUXCOMMTXEMPTY			(GIC_PPI_START + 9)
-#define CPU_SICCPUXPERFMONIRPTREQ		(GIC_PPI_START + 10)
+#define INT_ARMQC_PERFMON			(GIC_PPI_START + 10)
 #define SC_AVSCPUXDOWN				(GIC_PPI_START + 11)
 #define SC_AVSCPUXUP				(GIC_PPI_START + 12)
 #define SC_SICCPUXACGIRPTREQ			(GIC_PPI_START + 13)
 #define SC_SICCPUXEXTFAULTIRPTREQ		(GIC_PPI_START + 14)
 /* PPI 15 is unused */
 
-#define APCC_QGICMPUIRPTREQ			(GIC_SPI_START + 0)
-#define APCC_QGICL2IRPTREQ			(GIC_SPI_START + 1)
-#define APCC_QGICL2PERFMONIRPTREQ		(GIC_SPI_START + 2)
-#define APCC_QGICACGIRPTREQ			(GIC_SPI_START + 3)
+#define APCC_QGICACGIRPTREQ			(GIC_SPI_START + 0)
+#define APCC_QGICL2PERFMONIRPTREQ		(GIC_SPI_START + 1)
+#define SC_SICL2PERFMONIRPTREQ			APCC_QGICL2PERFMONIRPTREQ
+#define APCC_QGICL2IRPTREQ			(GIC_SPI_START + 2)
+#define APCC_QGICMPUIRPTREQ			(GIC_SPI_START + 3)
 #define TLMM_MSM_DIR_CONN_IRQ_0			(GIC_SPI_START + 4)
 #define TLMM_MSM_DIR_CONN_IRQ_1			(GIC_SPI_START + 5)
 #define TLMM_MSM_DIR_CONN_IRQ_2			(GIC_SPI_START + 6)
@@ -184,16 +180,16 @@
 #define SPS_MTI_30				(GIC_SPI_START + 137)
 #define SPS_MTI_31				(GIC_SPI_START + 138)
 #define CSIPHY_4LN_IRQ				(GIC_SPI_START + 139)
-#define CSIPHY_2LN_IRQ				(GIC_SPI_START + 140)
+#define MSM8960_CSIPHY_2LN_IRQ			(GIC_SPI_START + 140)
 #define USB2_IRQ				(GIC_SPI_START + 141)
 #define USB1_IRQ				(GIC_SPI_START + 142)
 #define TSSC_SSBI_IRQ				(GIC_SPI_START + 143)
 #define TSSC_SAMPLE_IRQ				(GIC_SPI_START + 144)
 #define TSSC_PENUP_IRQ				(GIC_SPI_START + 145)
-#define GSBI1_UARTDM_IRQ			(GIC_SPI_START + 146)
-#define GSBI1_QUP_IRQ				(GIC_SPI_START + 147)
-#define GSBI2_UARTDM_IRQ			(GIC_SPI_START + 148)
-#define GSBI2_QUP_IRQ			        (GIC_SPI_START + 149)
+#define MSM8960_GSBI1_UARTDM_IRQ		(GIC_SPI_START + 146)
+#define MSM8960_GSBI1_QUP_IRQ			(GIC_SPI_START + 147)
+#define MSM8960_GSBI2_UARTDM_IRQ		(GIC_SPI_START + 148)
+#define MSM8960_GSBI2_QUP_IRQ		        (GIC_SPI_START + 149)
 #define GSBI3_UARTDM_IRQ			(GIC_SPI_START + 150)
 #define GSBI3_QUP_IRQ				(GIC_SPI_START + 151)
 #define GSBI4_UARTDM_IRQ			(GIC_SPI_START + 152)
@@ -271,26 +267,20 @@
 #define TLMM_MSM_DIR_CONN_IRQ_21		(GIC_SPI_START + 224)
 #define PM8921_SEC_IRQ_104			(GIC_SPI_START + 225)
 #define PM8018_SEC_IRQ_107			(GIC_SPI_START + 226)
+#define USB_HSIC_IRQ				(GIC_SPI_START + 229)
 
 /* Backwards compatible IRQ macros. */
 #define INT_ADM_AARM				ADM_0_SCSS_0_IRQ
 
-/* For now, use the maximum number of interrupts until a pending GIC issue
- * is sorted out */
-#define NR_MSM_IRQS 256
-#define NR_GPIO_IRQS 150
-#define NR_PM8921_IRQS 256
-#define NR_BOARD_IRQS (NR_PM8921_IRQS)
-#define NR_TLMM_MSM_DIR_CONN_IRQ 8 /*Need to Verify this Count*/
-#define NR_MSM_GPIOS NR_GPIO_IRQS
-
 /* smd/smsm interrupts */
-#define INT_A9_M2A_0                    MSS_TO_APPS_IRQ_0
-#define INT_A9_M2A_5                    MSS_TO_APPS_IRQ_1
-#define INT_ADSP_A11                    LPASS_SCSS_GP_HIGH_IRQ
-#define INT_ADSP_A11_SMSM               LPASS_SCSS_GP_MEDIUM_IRQ
-#define INT_DSPS_A11                    SPS_MTI_31
-#define INT_WCNSS_A11                   RIVA_APSS_SPARE_IRQ
+#define INT_A9_M2A_0		(GIC_SPI_START + 37) /*MSS_TO_APPS_IRQ_0*/
+#define INT_A9_M2A_5		(GIC_SPI_START + 38) /*MSS_TO_APPS_IRQ_1*/
+#define INT_ADSP_A11		LPASS_SCSS_GP_HIGH_IRQ
+#define INT_ADSP_A11_SMSM	LPASS_SCSS_GP_MEDIUM_IRQ
+#define INT_DSPS_A11		SPS_MTI_31
+#define INT_DSPS_A11_SMSM	SPS_MTI_30
+#define INT_WCNSS_A11		RIVA_APSS_SPARE_IRQ
+#define INT_WCNSS_A11_SMSM	RIVA_APPS_WLAN_SMSM_IRQ
 
 #endif
 

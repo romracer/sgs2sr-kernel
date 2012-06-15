@@ -193,12 +193,24 @@ static void lpa_listner(u32 evt_id, union auddev_evt_data *evt_payload,
 			audio->running, audio->enabled, audio->source);
 		if (audio->running == 1 && audio->enabled == 1) {
 			audpp_route_stream(audio->dec_id, audio->source);
-			if (audio->source & AUDPP_MIXER_HLB)
+			if (audio->source & AUDPP_MIXER_HLB) {
 				audpp_dsp_set_vol_pan(
 					AUDPP_CMD_CFG_DEV_MIXER_ID_4,
 					&audio->vol_pan,
 					COPP);
-			else if (audio->source & AUDPP_MIXER_NONHLB)
+					/*restore the POPP gain to 0x2000
+					this is needed to avoid use cases
+					where POPP volume is lowered during
+					NON HLB playback, when device moved
+					from NON HLB to HLB POPP is not
+					disabled but POPP gain will be retained
+					as the old one which result
+					in lower volume*/
+					audio->vol_pan.volume = 0x2000;
+					audpp_dsp_set_vol_pan(
+						audio->dec_id,
+						&audio->vol_pan, POPP);
+			} else if (audio->source & AUDPP_MIXER_NONHLB)
 				audpp_dsp_set_vol_pan(
 					audio->dec_id, &audio->vol_pan, POPP);
 			if (audio->device_switch == DEVICE_SWITCH_STATE_READY) {
@@ -591,16 +603,14 @@ static void audlpa_async_send_data(struct audio *audio, unsigned needed,
 			temp = audio->bytecount_head;
 			used_buf = list_first_entry(&audio->out_queue,
 					struct audlpa_buffer_node, list);
-			if ((audio->bytecount_head + used_buf->buf.data_len) <
-				audio->bytecount_consumed) {
-				audio->bytecount_head += used_buf->buf.data_len;
-				temp = audio->bytecount_head;
-				list_del(&used_buf->list);
-				evt_payload.aio_buf = used_buf->buf;
-				audlpa_post_event(audio, AUDIO_EVENT_WRITE_DONE,
-						  evt_payload);
-				kfree(used_buf);
-			}
+
+			audio->bytecount_head += used_buf->buf.data_len;
+			temp = audio->bytecount_head;
+			list_del(&used_buf->list);
+			evt_payload.aio_buf = used_buf->buf;
+			audlpa_post_event(audio, AUDIO_EVENT_WRITE_DONE,
+					  evt_payload);
+			kfree(used_buf);
 			audio->drv_status &= ~ADRV_STATUS_OBUF_GIVEN;
 		}
 	}

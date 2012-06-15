@@ -20,6 +20,7 @@
 #include <linux/types.h>	/* u32 */
 #include <linux/list.h>		/* list_head */
 #include <linux/kernel.h>	/* pr_info() */
+#include <linux/compiler.h>
 
 #include <mach/sps.h>
 
@@ -27,12 +28,43 @@
 
 /* Adjust for offset of struct sps_q_event */
 #define SPS_EVENT_INDEX(e)    ((e) - 1)
+#define SPS_ERROR -1
 
+/* BAM identifier used in log messages */
+#define BAM_ID(dev)       ((dev)->props.phys_addr)
+
+#ifdef CONFIG_DEBUG_FS
+extern u32 sps_debugfs_enabled;
+extern u32 detailed_debug_on;
+#define MAX_MSG_LEN 80
+#define SPS_DEBUGFS(msg, args...) do {					\
+			char buf[MAX_MSG_LEN];		\
+			snprintf(buf, MAX_MSG_LEN, msg"\n", ##args);	\
+			sps_debugfs_record(buf);	\
+		} while (0)
+#define SPS_ERR(msg, args...) do {					\
+			pr_err(msg, ##args);	\
+			if (unlikely(sps_debugfs_enabled))	\
+				SPS_DEBUGFS(msg, ##args);	\
+		} while (0)
+#define SPS_INFO(msg, args...) do {					\
+			pr_info(msg, ##args);	\
+			if (unlikely(sps_debugfs_enabled))	\
+				SPS_DEBUGFS(msg, ##args);	\
+		} while (0)
+#define SPS_DBG(msg, args...) do {					\
+			if (unlikely(detailed_debug_on))	\
+				pr_info(msg, ##args);	\
+			else	\
+				pr_debug(msg, ##args);	\
+			if (unlikely(sps_debugfs_enabled))	\
+				SPS_DEBUGFS(msg, ##args);	\
+		} while (0)
+#else
 #define	SPS_DBG(x...)		pr_debug(x)
 #define	SPS_INFO(x...)		pr_info(x)
 #define	SPS_ERR(x...)		pr_err(x)
-
-#define SPS_ERROR -1
+#endif
 
 /* End point parameters */
 struct sps_conn_end_pt {
@@ -85,6 +117,11 @@ struct sps_mem_stats {
 	u32 bytes_used;
 	u32 max_bytes_used;
 };
+
+#ifdef CONFIG_DEBUG_FS
+/* record debug info for debugfs */
+void sps_debugfs_record(const char *);
+#endif
 
 /**
  * Translate physical to virtual address

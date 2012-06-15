@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/delay.h>
@@ -192,10 +187,8 @@ static int __init lcdc_chimei_lvds_panel_init(void)
 	int ret;
 	struct msm_panel_info *pinfo;
 
-#ifdef CONFIG_FB_MSM_MIPI_PANEL_DETECT
-	if (msm_fb_detect_client("lcdc_chimei_lvds_wxga"))
+	if (msm_fb_detect_client("lcdc_chimei_wxga"))
 		return 0;
-#endif
 
 	ret = platform_driver_register(&this_driver);
 	if (ret)

@@ -45,16 +45,41 @@ static int __devinit pmu_device_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static struct platform_driver pmu_driver = {
+static struct platform_driver cpu_pmu_driver = {
 	.driver		= {
-		.name	= "arm-pmu",
+		.name	= "cpu-arm-pmu",
 	},
 	.probe		= pmu_device_probe,
 };
 
+static struct platform_driver l2_pmu_driver = {
+	.driver		= {
+		.name	= "l2-arm-pmu",
+	},
+	.probe		= pmu_device_probe,
+};
+
+static struct platform_driver *pmu_drivers[] __initdata = {
+	&cpu_pmu_driver,
+	&l2_pmu_driver,
+};
+
 static int __init register_pmu_driver(void)
 {
-	return platform_driver_register(&pmu_driver);
+	int i;
+	int err;
+
+	for (i = 0; i < ARM_NUM_PMU_DEVICES; i++) {
+		err = platform_driver_register(pmu_drivers[i]);
+		if (err) {
+			pr_err("%s: failed to register id:%d\n", __func__, i);
+			while (--i >= 0)
+				platform_driver_unregister(pmu_drivers[i]);
+			break;
+		}
+	}
+
+	return err;
 }
 device_initcall(register_pmu_driver);
 
@@ -97,28 +122,34 @@ set_irq_affinity(int irq,
 			   irq, cpu);
 	return err;
 #else
-	return 0;
+	return -EINVAL;
 #endif
 }
 
 static int
 init_cpu_pmu(void)
 {
-	int i, err = 0;
+	int i, irqs, err = 0;
 	struct platform_device *pdev = pmu_devices[ARM_PMU_DEVICE_CPU];
 
-	if (!pdev) {
-		err = -ENODEV;
-		goto out;
-	}
+	if (!pdev)
+		return -ENODEV;
 
-	for (i = 0; i < pdev->num_resources; ++i) {
+	irqs = pdev->num_resources;
+
+	/*
+	 * If we have a single PMU interrupt that we can't shift, assume that
+	 * we're running on a uniprocessor machine and continue.
+	 */
+	if (irqs == 1 && !irq_can_set_affinity(platform_get_irq(pdev, 0)))
+		return 0;
+
+	for (i = 0; i < irqs; ++i) {
 		err = set_irq_affinity(platform_get_irq(pdev, i), i);
 		if (err)
 			break;
 	}
 
-out:
 	return err;
 }
 

@@ -8,11 +8,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
- * 02110-1301, USA.
  */
 
 #include <linux/kernel.h>
@@ -77,29 +72,6 @@ static const struct adc_map_pt adcmap_sec_settherm[] = {
 	{180,	-150},
 	{165,	-200}
 };
-
-#if defined(CONFIG_JPN_MODEL_SC_03D)
-static const struct adc_map_pt adcmap_sec_settherm_jpn[] = {
-	{328,	 650},
-	{317,	 600},
-	{300,	 550},
-	{281,	 500},
-	{260,	 450},
-	{235,	 400},
-	{208,	 350},
-	{179,	 300},
-	{149,	 250},
-	{118,	 200},
-	{86,	 	150},
-	{59,	 	100},
-	{30,	  	50},
-	{7,	   	0},
-	{-14,	 -50},
-	{-32,	-100},
-	{-46,	-150},
-	{-59,	-200}
-};
-#endif
 
 static const struct adc_map_pt adcmap_ntcg104ef104fb[] = {
 	{696483,	-40960},
@@ -523,6 +495,7 @@ int32_t scale_sec_settherm(int32_t adc_code,
 		struct adc_chan_result *adc_chan_result)
 {
 	adc_chan_result->adc_code = adc_code;
+	//printk("%s: adc_value: %d\n", __func__, adc_chan_result->adc_code);
 	adc_chan_result->measurement = (11768-adc_chan_result->adc_code)/30;
 	adc_chan_result->physical = (int32_t) adc_chan_result->measurement;
 
@@ -534,21 +507,3 @@ int32_t scale_sec_settherm(int32_t adc_code,
 			&adc_chan_result->physical);
 }
 
-#if defined (CONFIG_JPN_MODEL_SC_03D)
-int32_t scale_sec_settherm_jpn(int32_t adc_code,
-		const struct adc_properties *adc_properties,
-		const struct chan_properties *chan_properties,
-		struct adc_chan_result *adc_chan_result)
-{
-	adc_chan_result->adc_code = adc_code;
-	adc_chan_result->measurement = (11768-adc_chan_result->adc_code)/30;
-	adc_chan_result->physical = (int32_t) adc_chan_result->measurement;
-
-	/* convert mV ---> degC using the table */
-	return adc_map_linear(
-			adcmap_sec_settherm_jpn,
-			sizeof(adcmap_sec_settherm_jpn)/sizeof(adcmap_sec_settherm_jpn[0]),
-			adc_chan_result->physical,
-			&adc_chan_result->physical);
-}
-#endif

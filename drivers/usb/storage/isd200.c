@@ -61,7 +61,7 @@
 #include "scsiglue.h"
 
 MODULE_DESCRIPTION("Driver for In-System Design, Inc. ISD200 ASIC");
-MODULE_AUTHOR("Bj?n Stenberg <bjorn@haxx.se>");
+MODULE_AUTHOR("Björn Stenberg <bjorn@haxx.se>");
 MODULE_LICENSE("GPL");
 
 static int isd200_Initialization(struct us_data *us);
@@ -499,7 +499,6 @@ static int isd200_action( struct us_data *us, int action,
 	memset(&ata, 0, sizeof(ata));
 	srb->cmnd = info->cmnd;
 	srb->device = &srb_dev;
-	++srb->serial_number;
 
 	ata.generic.SignatureByte0 = info->ConfigData.ATAMajorCommand;
 	ata.generic.SignatureByte1 = info->ConfigData.ATAMinorCommand;
@@ -1456,8 +1455,7 @@ static int isd200_init_info(struct us_data *us)
 	int retStatus = ISD200_GOOD;
 	struct isd200_info *info;
 
-	info = (struct isd200_info *)
-			kzalloc(sizeof(struct isd200_info), GFP_KERNEL);
+	info = kzalloc(sizeof(struct isd200_info), GFP_KERNEL);
 	if (!info)
 		retStatus = ISD200_ERROR;
 	else {
@@ -1511,7 +1509,7 @@ static int isd200_Initialization(struct us_data *us)
  * Protocol and Transport for the ISD200 ASIC
  *
  * This protocol and transport are for ATA devices connected to an ISD200
- * ASIC.  An ATAPI device that is conected as a slave device will be
+ * ASIC.  An ATAPI device that is connected as a slave device will be
  * detected in the driver initialization function and the protocol will
  * be changed to an ATAPI protocol (Transparent SCSI).
  *
@@ -1524,7 +1522,9 @@ static void isd200_ata_command(struct scsi_cmnd *srb, struct us_data *us)
 
 	/* Make sure driver was initialized */
 
-	if (us->extra != NULL) {
+	if (us->extra == NULL)
+		US_DEBUGP("ERROR Driver not initialized\n");
+
 	scsi_set_resid(srb, 0);
 	/* scsi_bufflen might change in protocol translation to ata */
 	orig_bufflen = scsi_bufflen(srb);
@@ -1535,10 +1535,6 @@ static void isd200_ata_command(struct scsi_cmnd *srb, struct us_data *us)
 		isd200_invoke_transport(us, srb, &ataCdb);
 
 	isd200_srb_set_bufflen(srb, orig_bufflen);
-	}else{
-		US_DEBUGP("isd200_ata_command :: ERROR Driver not initialized\n");
-	}
-	
 }
 
 static int isd200_probe(struct usb_interface *intf,

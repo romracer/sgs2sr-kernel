@@ -73,8 +73,13 @@ static int __init mipi_video_s6e8aa0_wxga_q1_pt_init(void)
 	pinfo.wait_cycle = 0; 
 	pinfo.bpp = 24; 
 
+#if defined(S6E8AA0_WXGA_Q1_58HZ_500MBPS)
+	pinfo.lcdc.h_back_porch = 153;		// quincy
+	pinfo.lcdc.h_front_porch = 153;		// quincy 
+#else
 	pinfo.lcdc.h_back_porch = 134;		// quincy
-	pinfo.lcdc.h_front_porch = 134;		// quincy               
+	pinfo.lcdc.h_front_porch = 134;		// quincy 
+#endif
 	pinfo.lcdc.h_pulse_width = 2;	   
 
 	pinfo.lcdc.v_back_porch = 1; 
@@ -87,7 +92,11 @@ static int __init mipi_video_s6e8aa0_wxga_q1_pt_init(void)
 
 	pinfo.bl_max = 255; 
 	pinfo.bl_min = 1; 
+#ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
+	pinfo.fb_num = 3; 
+#else
 	pinfo.fb_num = 2; 
+#endif
 
 //	pinfo.clk_rate = 400000000; 
 
@@ -114,9 +123,21 @@ static int __init mipi_video_s6e8aa0_wxga_q1_pt_init(void)
 	pinfo.mipi.stream = 0; /* dma_p */ 
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_SW; 
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW; 
+#if defined(S6E8AA0_WXGA_Q1_57p2HZ_480MBPS)
+	pinfo.mipi.frame_rate = 58;		// Quincy
+#elif defined(S6E8AA0_WXGA_Q1_58HZ_500MBPS)
+	pinfo.mipi.frame_rate = 58;		// Quincy
+#elif defined(S6E8AA0_WXGA_Q1_60HZ_500MBPS)
 	pinfo.mipi.frame_rate = 60;		// Quincy
+#endif 	
 
 	pinfo.mipi.dsi_phy_db = &dsi_video_mode_phy_db; 
+
+	// add info for CTS
+	pinfo.lcd.refx100 = pinfo.mipi.frame_rate *100;
+	pinfo.lcd.v_back_porch = pinfo.lcdc.v_back_porch;
+	pinfo.lcd.v_front_porch = pinfo.lcdc.v_front_porch;
+	pinfo.lcd.v_pulse_width = pinfo.lcdc.v_pulse_width;
 
 	ret = mipi_s6e8aa0_wxga_q1_device_register(&pinfo, MIPI_DSI_PRIM,
 						MIPI_DSI_PANEL_WVGA_PT);

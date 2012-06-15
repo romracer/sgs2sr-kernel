@@ -1,3 +1,22 @@
+/*
+*
+* drivers/media/tdmb/tdmb_spi.c
+*
+* tdmb driver
+*
+* Copyright (C) (2011, Samsung Electronics)
+*
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation version 2.
+*
+* This program is distributed "as is" WITHOUT ANY WARRANTY of any
+* kind, whether express or implied; without even the implied warranty
+* of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+*/
+
 #include <linux/spi/spi.h>
 #include "tdmb.h"
 
@@ -9,15 +28,15 @@ static int tdmbspi_probe(struct spi_device *spi)
 
 	spi_dmb = spi;
 
-	DPRINTK("tdmbspi_probe() spi_dmb : 0x%x \n", spi_dmb);
+	DPRINTK("tdmbspi_probe() spi_dmb : 0x%x\n", (unsigned int)spi_dmb);
 
 	spi->mode = SPI_MODE_0;
 	spi->bits_per_word = 8;
 	ret = spi_setup(spi);
 	if (ret < 0) {
-		DPRINTK("spi_setup() fail ret : %d \n", ret);
+		DPRINTK("spi_setup() fail ret : %d\n", ret);
 		return ret;
-	}		
+	}
 
 	return 0;
 }
@@ -45,4 +64,9 @@ int tdmb_init_bus(void)
 void tdmb_exit_bus(void)
 {
 	spi_unregister_driver(&tdmbspi_driver);
+}
+
+struct spi_device *tdmb_get_spi_handle(void)
+{
+	return spi_dmb;
 }
